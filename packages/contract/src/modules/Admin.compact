@@ -1,0 +1,99 @@
+// This file is part of REPLACE WITH REPO-NAME.
+// Copyright (C) Midnight Foundation
+// SPDX-License-Identifier: Apache-2.0
+// Licensed under the Apache License, Version 2.0 (the "License");
+// You may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+module Admin {
+    import CompactStandardLibrary;
+    import Utils prefix Utils_;
+    import GlobalLedgerStates prefix LedgerStates_;
+    import CustomStructs prefix CustomStructs_;
+
+    export circuit addIssuer(
+        _protocolName: Opaque<"string">,
+        _contractAddress: ContractAddress,
+        _encAddress: UserAddress
+    ): Bytes<32>{
+        const authSignatureStatus = Utils_assertAuthorization(disclose(_encAddress));
+        assert (authSignatureStatus, "Unauthorized");
+
+        const localSecreteKey = disclose(Utils_getLocalSecreteKey());
+        const newIssuerPk = Utils_generateIssuerPk(localSecreteKey);
+
+        assert (!LedgerStates_issuers.member(newIssuerPk), "Issuer with specified key already exists");
+        const currentTime = Utils_retieveAndVerifyCurrentTime();
+
+        const newIssuer = CustomStructs_Issuer{
+            ...default<CustomStructs_Issuer>,
+            isApproved: true,
+            registeredEpoch: currentTime,
+            contractAddress: disclose(_contractAddress),
+            protocolName: disclose(_protocolName)
+        };
+
+        LedgerStates_issuers.insert(newIssuerPk, newIssuer);
+
+        return newIssuerPk;
+    }
+
+    export circuit removeIssuer(
+        _issuerPk: Bytes<32>,
+        _encAddress: UserAddress
+    ): []{
+        const disclosedIssuerPk = disclose(_issuerPk);
+        assert (LedgerStates_issuers.member(disclosedIssuerPk), "Issuer with specified key does not exist");
+        
+        const authSignatureStatus = Utils_assertAuthorization(disclose(_encAddress));
+        assert (authSignatureStatus, "Unauthorized");
+
+        LedgerStates_issuers.remove(disclosedIssuerPk);
+    }
+
+    export circuit updateTokenUris(
+        _tokenImageUris: CustomStructs_TokenImageUris,
+        _encAddress: UserAddress
+    ): []{
+        const authSignatureStatus = Utils_assertAuthorization(_encAddress);
+        assert (authSignatureStatus, "Unauthorized");
+
+        LedgerStates_tokenImageUris = disclose(_tokenImageUris);
+    }
+
+    export circuit addAdmin(_encAddress: UserAddress): []{
+        const superAdminpk = Utils_generateSuperAdminPk();
+        assert (superAdminpk == LedgerStates_superAdmin, "Unauthorized");
+
+        const newAdminPk = Utils_generateUserPk(disclose(_encAddress).bytes);
+        LedgerStates_admins.insert(newAdminPk);
+    }
+
+    export circuit removeAdmin(
+        _encAddress: UserAddress,
+        _adminPk: Bytes<32>
+    ): []{
+        const authSignatureStatus = Utils_assertAuthorization(disclose(_encAddress));
+        assert (authSignatureStatus, "Unauthorized");
+
+        LedgerStates_admins.remove(disclose(_adminPk));
+    }
+
+    export circuit updatedProtocolConfig(
+        _updatedConfig: CustomStructs_ProtocolConfig,
+        _encAddress: UserAddress
+    ): []{
+        const authSignatureStatus = Utils_assertAuthorization(disclose(_encAddress));
+        assert (authSignatureStatus, "Unauthorized");
+
+        LedgerStates_protocolConfig = disclose(_updatedConfig);
+    }
+}

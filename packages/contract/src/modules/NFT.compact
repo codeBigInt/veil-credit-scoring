@@ -1,0 +1,151 @@
+module NFT {
+    import CompactStandardLibrary;
+    import Utils prefix Utils_;
+    import GlobalLedgerStates;
+    import CustomStructs prefix CustomStructs_;
+
+    export circuit verifyPoTNFT(
+        _encAddress: UserAddress,
+        _issuerPk: Bytes<32>,
+        ): Boolean {
+        
+        assert (issuers.member(disclose(_issuerPk)), "Unauthorized");
+
+        Utils_computeCurrentEpoch();  // Lazy epoch update
+        
+        const userPk = Utils_generateUserPk(disclose(_encAddress).bytes);
+        assert (nftRegistry.member(userPk), "PoTNFT for specified user does not exist");
+
+        const nftMetadata = nftRegistry.lookup(userPk);
+        const creditScoreCommitment = nftMetadata.creditScoreCommitment;
+
+        Utils_assetCreditScoreValidity(creditScoreCommitment);
+
+        assert (blockTimeLte(nftMetadata.expiresAtEpoch), "PoTNFT is expired, reminting required");
+
+        assert (!nftMetadata.isRevoked, "Proof of Trustworthiness has been revoked");
+
+        return true;
+    }
+
+
+    export circuit mintPoTNFT(
+        _encAddress: UserAddress
+    ): []{
+        const userPk = Utils_generateUserPk(disclose(_encAddress).bytes);
+
+        const userCreditScore = disclose(Utils_getCreditScoreByPk(userPk));
+        assert (userCreditScore.is_some, "You are not eligible to mint PoT NFT");
+
+        const creditScoreCommitment = persistentCommit<CustomStructs_CreditScore>(
+            userCreditScore.value,
+            userPk
+        );
+
+        Utils_computeCurrentEpoch();  // Lazy epoch update
+
+
+        Utils_assetCreditScoreValidity(creditScoreCommitment);
+
+
+        const currentTime = Utils_retieveAndVerifyCurrentTime();
+
+        const [uri, tier] = disclose(Utils_determineNftRating(userPk));
+
+        const nftMetadata = CustomStructs_PoTNFTMetadata {
+            uri: uri, // image uri for NFT
+            tokenId: tokenIssueCounter.read(),    // unique NFT identifier
+            nonce: nonce,      // replay protection for score submissions
+            tier: tier,        // tier at time of minting (snapshot)
+            mintedAt: currentTime,       // when it was minted
+            trustDuration: elapsedEpoch.read(),       // weeks of behavior proven at mint time
+            isRevoked: false,      // if user defaulted post-mint
+            expiresAtEpoch: (epochLastUpdateTimeStamp + EPOCH_DURATION) as Uint<64>,       // NFTs expire — trust is time-bounded
+            creditScoreCommitment: creditScoreCommitment,
+        };
+
+        Utils_mintNewToken();
+
+
+        nftRegistry.insert(userPk, nftMetadata);
+    }
+
+     export circuit mintUnrankedPoTNFT(
+        _encAddress: UserAddress
+    ): []{
+        const userPk = Utils_generateUserPk(disclose(_encAddress).bytes);
+
+        const firstFreeAccumulatorIndex = Utils_getFirstFreeAccumulatorIndex();
+        const firstFreeCreditScoreIndex = Utils_getFirstFreeCreditScoreIndex();
+        
+        Utils_computeCurrentEpoch();  // Lazy epoch update
+
+        const nftMetadata = CustomStructs_PoTNFTMetadata {
+            uri: LedgerStates_tokenImageUris.unranked, // image uri for NFT
+            tokenId: tokenIssueCounter.read(),    // unique NFT identifier
+            nonce: nonce,      // replay protection for score submissions
+            tier: tier,        // tier at time of minting (snapshot)
+            mintedAt: currentTime,       // when it was minted
+            trustDuration: elapsedEpoch.read(),       // weeks of behavior proven at mint time
+            isRevoked: false,      // if user defaulted post-mint
+            expiresAtEpoch: (epochLastUpdateTimeStamp + EPOCH_DURATION) as Uint<64>,       // NFTs expire — trust is time-bounded
+            creditScoreCommitment: creditScoreCommitment,
+        };
+
+        Utils_mintNewToken();
+
+        nftRegistry.insert(userPk, nftMetadata);
+
+        const newCreditScore = CustomStructs_CreditScore {
+            ...default<CustomStructs_ScoreAccumulators>,
+            mtIndex: firstFreeCreditScoreIndex
+        }
+
+        const newScoreAccumulator = CustomStructs_ScoreAccumulators {
+            ...default<<CustomStructs_CreditScore>,
+            mtIndex: firstFreeAccumulatorIndex
+        }
+
+        Utils_updatedAccumulatedScore(userPk, newScoreAccumulator);
+        Utils_updatedCreditScore(userPk,newCreditScore);
+    }
+
+
+    export circuit remintPoTNFT(
+        _token: ShieldedCoinInfo,
+        _encAddress: UserAddress
+    ): []{
+        const token = disclose(_token);
+        const color = token.color;
+
+        Utils_computeCurrentEpoch();  // Lazy epoch update
+
+        const mintTokenColor = tokenType(domainSeperator, kernel.self());
+
+        assert (color == mintTokenColor, "Invalid NFT provided for reminting");
+
+        const burnAddress = shieldedBurnAddress();
+
+        sendImmediateShielded( token, burnAddress, token.value);
+
+        mintPoTNFT(_encAddress);
+    }
+
+
+    export circuit revokePoTNFT(
+        _userPk: Bytes<32>,
+    ): []{
+        const userPk = disclose(_userPk);
+        assert (nftRegistry.member(userPk), "PoTNFT for specified user does not exist");
+
+        const nftMetadata = nftRegistry.lookup(userPk);
+
+        const updatedNftMetadata = CustomStructs_PoTNFTMetadata {
+            ...nftMetadata,
+            isRevoked: true
+        };
+
+        nftRegistry.insert(userPk, updatedNftMetadata);
+    }
+
+}

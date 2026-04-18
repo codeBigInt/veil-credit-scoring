@@ -1,0 +1,103 @@
+// This file is part of REPLACE WITH REPO-NAME.
+// Copyright (C) Midnight Foundation
+// SPDX-License-Identifier: Apache-2.0
+// Licensed under the Apache License, Version 2.0 (the "License");
+// You may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+module GlobalLedgerStates {
+    import CompactStandardLibrary;
+    import CustomStructs prefix CustomStructs_;
+    /**
+       @desccription The creditScoresCommitments provides a way of verifying credit score stored offchain in private state
+       @descriptions {creditScoresCommitments} Merkle tree that stores onchain commitment of user behavior to ensure privacy
+    */
+    export ledger creditScoreCommitments: HistoricMerkleTree<32, Bytes<32>>;
+   
+    /* per-user aggregate state */
+    export ledger scoreAccumulatorCommitments: HistoricMerkleTree<32, Bytes<32>>;
+
+
+    /**
+       @desccription {Uint<128>} nft tokenId used to track nft metadatan commitment for each user
+       @description {Bytes<32>} hashed commitment of the nft metadata stored in private state
+       @description {nftRegistry} Mapping between tokenIds and nft metadata hashed commitments
+    */
+    export ledger nftRegistry: Map<Bytes<32>, CustomStructs_PoTNFTMetadata>;
+
+    /**
+       @desccription {Bytes<32>} dynamic unique id used to identify credit scores issuer
+       @description {CustomStructs_Issuer} data computed by actions of issuers providing the user behavioural data
+       @description {issuer} Mapping between issuerIds and issuer data publicly available onchain
+    */
+    export ledger issuers: Map<Bytes<32>, CustomStructs_Issuer>; 
+    /**
+       @description {CustomStructs_ProtocolConfig} defines the structure for protocol configurations
+    */   
+    export ledger protocolConfig: CustomStructs_ProtocolConfig;
+    /**
+       @desccription {Bytes<32>} dynamic unique id generated from admin seceret key to identify each admin user
+       @description {admins} set of adminIds publicly stored onchain
+    */
+    export ledger admins: Set<Bytes<32>>;
+     /**
+       @description {superAdmin} defines an admin wallet with super priviledges to add and remove other admins
+    */
+    export ledger superAdmin: Bytes<32>;
+    /**
+       @description {tokenUri} ipfs string url for token image uri
+    */
+    export ledger tokenImageUris: CustomStructs_TokenImageUris;
+    /**
+       @description {tokenName} string definition for the veil token name
+    */
+    export ledger tokenName: Opaque<"string">;
+    /**
+       @description {tokenMarker} string definition for the veil token symbol
+    */
+    export ledger tokenMarkers: CustomStructs_TokenMarkers;
+    /**
+       @description {Counter} tokenId counter incremented on each mint 
+       @description {tokenIssueCounter} counter to serve as token id on each new mint 
+    */
+    export ledger tokenIssueCounter: Counter;
+    /**
+       @description {Bytes<32>} serves as starter nonce which can be evolved on each mint
+       @description {nonce} ledgeer state storing a byte that serves as starter nonce which can be evolved on each mint
+    */
+    export ledger nonce: Bytes<32>;
+    /**
+       @description {domainSeperator} serves as identification for the nft token minted, critical for minting tokens.
+    */
+    export sealed ledger domainSeperator: Bytes<32>;
+    /**
+       @description {scaleFactor} aid representation of floating point with precision
+    */
+    export sealed ledger scaleFactor: Uint<64>;
+    /**
+       @description {scaleFactor} aid representation of floating point with precision
+    */
+    export sealed ledger EPOCH_DURATION: Uint<64>;
+    /**
+       @description {completedEpoch} tracks the total epoch that elapse from time of deployment
+    */
+    export ledger elapsedEpoch: Counter;
+
+    export ledger epochLastUpdateTimeStamp: Uint<64>;
+
+   /*replay protection for all scoring events */
+   export ledger processedScoreEvents: Set<Bytes<32>>;
+
+   /* issuer impact tuning */
+   export ledger issuerTrustWeights: Map<Bytes<32>, Uint<16>>;
+
+   export ledger scoreConfig: CustomStructs_ScoreConfig;
+}

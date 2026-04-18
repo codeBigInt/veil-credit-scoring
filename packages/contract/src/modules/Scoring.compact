@@ -1,0 +1,344 @@
+module Scoring {
+    import CompactStandardLibrary;
+    import CustomStructs prefix CustomStructs_;
+    import GlobalLedgerStates prefix LedgerStates_;
+    import Utils prefix Utils_;
+
+    export circuit submitRepaymentEvent(
+        _userPk: Bytes<32>,
+        _issuerPk: Bytes<32>,
+        _paidOnTimeFlag: Uint<8>,   // must be 0/1
+        _amountWeight: Uint<32>,
+        _eventEpoch: Uint<64>,
+        _eventId: Bytes<32>
+    ): [] {
+        assert (LedgerStates_issuers.member(disclose(_issuerPk)), "Unauthorized issuer");
+        assert (disclose(_paidOnTimeFlag) <= 1, "paidOnTimeFlag must be 0 or 1");
+
+        const dedupeKey = persistentHash<Vector<5, Bytes<32>>>([
+            pad(32, "veil:score:repay"),
+            disclose(_eventId),
+            disclose(_userPk),
+            disclose(_issuerPk),
+            kernel.self().bytes
+        ]);
+
+        assert (!LedgerStates_processedScoreEvents.member(dedupeKey), "Duplicate score event");
+        LedgerStates_processedScoreEvents.insert(dedupeKey);
+
+        const userPk = disclose(_userPk);
+
+        const firstFreeIndex = disclose(Utils_getFirstFreeAccumulatorIndex());
+
+        const maybeAcc = Utils_getAccumulatedScoreByPk(userPk);
+
+        const acc = maybeAcc.is_some ? maybeAcc.value : default<CustomStructs_ScoreAccumulators>;
+
+        const commitment = persistentCommit<CustomStructs_ScoreAccumulators>(acc, userPk); 
+        
+        Utils_assertAccumulationCommitment(commitment, maybeAcc.is_some);
+
+        assert (disclose(_eventEpoch) >= acc.lastEventEpoch, "Non-monotonic event epoch");
+
+        const paid = disclose(_paidOnTimeFlag);
+        const late = 1 - paid;
+
+        const updatedAccumulation = CustomStructs_ScoreAccumulators {
+            ...acc,
+            firstSeenEpoch: acc.firstSeenEpoch == 0 ? disclose(_eventEpoch) : acc.firstSeenEpoch,
+            lastEventEpoch: disclose(_eventEpoch),
+            onTimeCount: (acc.onTimeCount + paid) as Uint<32>,
+            lateCount: (acc.lateCount + late) as Uint<32>,
+            weightedRepaymentVolume: (acc.weightedRepaymentVolume + disclose(_amountWeight)) as Uint<64>,
+            mtIndex: firstFreeIndex
+        };
+
+        const newCommitment = persistentCommit<CustomStructs_ScoreAccumulators>(updatedAccumulation, userPk);
+        
+        LedgerStates_scoreAccumulatorCommitments.insert(newCommitment);
+        
+        Utils_updatedAccumulatedScore(userPk, updatedAccumulation);
+        
+        Utils_deleteAccumulationCommitment(acc);
+    }
+
+    export circuit submitLiquidationEvent(
+        _userPk: Bytes<32>,
+        _issuerPk: Bytes<32>,
+        _severity: Uint<8>, // 1..3
+        _eventEpoch: Uint<64>,
+        _eventId: Bytes<32>
+    ): [] {
+        assert (LedgerStates_issuers.member(disclose(_issuerPk)), "Unauthorized issuer");
+        assert (disclose(_severity) >= 1 && disclose(_severity) <= 3, "Invalid severity");
+
+        const dedupeKey = persistentHash<Vector<5, Bytes<32>>>([
+            pad(32, "veil:score:liq"),
+            disclose(_eventId),
+            disclose(_userPk),
+            disclose(_issuerPk),
+            kernel.self().bytes
+        ]);
+
+        assert (!LedgerStates_processedScoreEvents.member(dedupeKey), "Duplicate score event");
+        LedgerStates_processedScoreEvents.insert(dedupeKey);
+
+        const userPk = disclose(_userPk);
+        const firstFreeIndex = disclose(Utils_getFirstFreeAccumulatorIndex());
+
+
+        const maybeAcc = Utils_getAccumulatedScoreByPk(userPk);
+        const acc = maybeAcc.is_some ? maybeAcc.value : default<CustomStructs_ScoreAccumulators>;
+
+        const commitment = persistentCommit<CustomStructs_ScoreAccumulators>(acc, userPk); 
+        
+        Utils_assertAccumulationCommitment(commitment, maybeAcc.is_some);
+
+        assert (disclose(_eventEpoch) >= acc.lastEventEpoch, "Non-monotonic event epoch");
+
+        const issuerWeight = LedgerStates_issuerTrustWeights.member(disclose(_issuerPk))
+            ? LedgerStates_issuerTrustWeights.lookup(disclose(_issuerPk))
+            : 1;
+
+        const penaltyPoints = disclose(_severity) * issuerWeight;
+
+        const updatedAccumulation = CustomStructs_ScoreAccumulators {
+            ...acc,
+            firstSeenEpoch: acc.firstSeenEpoch == 0 ? disclose(_eventEpoch) : acc.firstSeenEpoch,
+            lastEventEpoch: disclose(_eventEpoch),
+            liquidationCount: (acc.liquidationCount + 1) as Uint<32>,
+            liquidationPenaltyPoints: (acc.liquidationPenaltyPoints + penaltyPoints) as Uint<64>,
+            mtIndex: firstFreeIndex
+        };
+        
+        const newCommitment = persistentCommit<CustomStructs_ScoreAccumulators>(updatedAccumulation, userPk);
+
+        LedgerStates_scoreAccumulatorCommitments.insert(newCommitment);
+
+        Utils_updatedAccumulatedScore(userPk, updatedAccumulation);
+
+        Utils_deleteAccumulationCommitment(acc);
+    }
+
+    export circuit submitProtocolUsageEvent(
+        _userPk: Bytes<32>,
+        _issuerPk: Bytes<32>,
+        _protocolId: Bytes<32>,
+        _eventEpoch: Uint<64>
+    ): [] {
+        assert (LedgerStates_issuers.member(disclose(_issuerPk)), "Unauthorized issuer");
+
+        // One increment per unique (user, protocol)
+        const protocolKey = persistentHash<Vector<4, Bytes<32>>>([
+            pad(32, "veil:score:proto"),
+            disclose(_userPk),
+            disclose(_protocolId),
+            kernel.self().bytes
+        ]);
+
+        assert (!LedgerStates_processedScoreEvents.member(protocolKey), "Protocol already counted");
+        LedgerStates_processedScoreEvents.insert(protocolKey);
+
+        const userPk = disclose(_userPk);
+        const firstFreeIndex = disclose(Utils_getFirstFreeAccumulatorIndex());
+
+
+        const maybeAcc = Utils_getAccumulatedScoreByPk(userPk);
+        const acc = maybeAcc.is_some ? maybeAcc.value : default<CustomStructs_ScoreAccumulators>;
+        
+        const commitment = persistentCommit<CustomStructs_ScoreAccumulators>(acc, userPk); 
+        
+        Utils_assertAccumulationCommitment(commitment, maybeAcc.is_some);
+
+        assert (disclose(_eventEpoch) >= acc.lastEventEpoch, "Non-monotonic event epoch");
+
+        const updatedAccumulation = CustomStructs_ScoreAccumulators {
+            ...acc,
+            firstSeenEpoch: acc.firstSeenEpoch == 0 ? disclose(_eventEpoch) : acc.firstSeenEpoch,
+            lastEventEpoch: disclose(_eventEpoch),
+            distinctProtocols: (acc.distinctProtocols + 1) as Uint<32>,
+            mtIndex: firstFreeIndex
+        };
+        
+        const newCommitment = persistentCommit<CustomStructs_ScoreAccumulators>(updatedAccumulation, userPk);
+       
+        LedgerStates_scoreAccumulatorCommitments.insert(newCommitment);
+       
+        Utils_updatedAccumulatedScore(userPk, updatedAccumulation);
+       
+        Utils_deleteAccumulationCommitment(acc);
+    }
+
+    export circuit submitDebtStateEvent(
+        _userPk: Bytes<32>,
+        _issuerPk: Bytes<32>,
+        _activeDebtFlag: Uint<8>,   // 0/1
+        _riskBand: Uint<8>,         // 0..3
+        _eventEpoch: Uint<64>,
+        _eventId: Bytes<32>
+    ): [] {
+        assert (LedgerStates_issuers.member(disclose(_issuerPk)), "Unauthorized issuer");
+        assert (disclose(_activeDebtFlag) <= 1, "activeDebtFlag must be 0 or 1");
+        assert (disclose(_riskBand) <= 3, "riskBand must be 0..3");
+
+        const dedupeKey = persistentHash<Vector<5, Bytes<32>>>([
+            pad(32, "veil:score:debt"),
+            disclose(_eventId),
+            disclose(_userPk),
+            disclose(_issuerPk),
+            kernel.self().bytes
+        ]);
+
+        assert (!LedgerStates_processedScoreEvents.member(dedupeKey), "Duplicate score event");
+        LedgerStates_processedScoreEvents.insert(dedupeKey);
+
+        const userPk = disclose(_userPk);
+        const firstFreeIndex = disclose(Utils_getFirstFreeAccumulatorIndex());
+
+        
+        const maybeAcc = Utils_getAccumulatedScoreByPk(userPk);
+        const acc = maybeAcc.is_some ? maybeAcc.value : default<CustomStructs_ScoreAccumulators>;
+        
+        const commitment = persistentCommit<CustomStructs_ScoreAccumulators>(acc, userPk); 
+        
+        Utils_assertAccumulationCommitment(commitment, maybeAcc.is_some);
+
+        assert (disclose(_eventEpoch) >= acc.lastEventEpoch, "Non-monotonic event epoch");
+
+        const updatedAccumulation = CustomStructs_ScoreAccumulators {
+            ...acc,
+            firstSeenEpoch: acc.firstSeenEpoch == 0 ? disclose(_eventEpoch) : acc.firstSeenEpoch,
+            lastEventEpoch: disclose(_eventEpoch),
+            activeDebtFlag: disclose(_activeDebtFlag),
+            riskBand: disclose(_riskBand),
+            mtIndex: firstFreeIndex
+        };
+
+        const newCommitment = persistentCommit<CustomStructs_ScoreAccumulators>(updatedAccumulation, userPk);
+       
+        LedgerStates_scoreAccumulatorCommitments.insert(newCommitment);
+       
+        Utils_updatedAccumulatedScore(userPk, updatedAccumulation);
+       
+        Utils_deleteAccumulationCommitment(acc);
+    }
+
+    export circuit recomputeScore(
+        _userPk: Bytes<32>,
+        _issuerPk: Bytes<32>
+    ): CustomStructs_CreditScore {
+        assert (LedgerStates_issuers.member(disclose(_issuerPk)), "Unauthorized issuer");
+
+        const userPk = disclose(_userPk);
+        const firstFreeIndex = disclose(Utils_getFirstFreeCreditScoreIndex());
+        const maybeAcc = Utils_getAccumulatedScoreByPk(userPk);
+        const acc = maybeAcc.is_some ? maybeAcc.value : default<CustomStructs_ScoreAccumulators>;
+        const oldAccCommitment = persistentCommit<CustomStructs_ScoreAccumulators>(acc, userPk);
+        Utils_assertAccumulationCommitment(oldAccCommitment, maybeAcc.is_some);
+
+        const cfg = LedgerStates_scoreConfig;
+
+        const totalRepay = acc.onTimeCount + acc.lateCount;
+        const [repaymentRatioScaled, repaymentRemainder] = disclose(
+            Utils_computeRepaymentRatio(acc.onTimeCount, totalRepay as Uint<32>, cfg.scale)
+        );
+
+        if (totalRepay > 0) {
+            assert (repaymentRemainder < totalRepay, "Invalid ratio remainder");
+            assert (
+                (acc.onTimeCount * cfg.scale) == ((repaymentRatioScaled * totalRepay) + repaymentRemainder),
+                "Invalid repayment ratio proof"
+            );
+        } else {
+            // Unranked/thin-file users: no repayment history yet.
+            assert (
+                repaymentRatioScaled == 0 && repaymentRemainder == 0,
+                "Invalid zero-history ratio witness"
+            );
+        }
+
+        const protocolScore = acc.distinctProtocols * cfg.protocolWeight;
+
+        const currentEpoch = LedgerStates_elapsedEpoch.read();
+        assert (currentEpoch >= acc.firstSeenEpoch, "Epoch error");
+        const tenure = currentEpoch - acc.firstSeenEpoch;
+        const tenureScore = tenure * cfg.tenureWeight;
+
+        const behavior = (repaymentRatioScaled * cfg.repaymentWeight) + protocolScore + tenureScore;
+        const penalties =
+            (acc.liquidationPenaltyPoints * cfg.liquidationWeight) +
+            (acc.activeDebtFlag * cfg.activeDebtPenalty) +
+            (acc.riskBand * cfg.riskBandWeight);
+
+        assert (cfg.baseScore + behavior >= penalties, "Penalty underflow");
+        const rawScore = (cfg.baseScore + behavior - penalties) as Uint<32>;
+        assert (rawScore <= cfg.maxScore, "Score overflow");
+
+        const creditScore = CustomStructs_CreditScore {
+            ...default<CustomStructs_CreditScore>,
+            score: rawScore,
+            durationWeeks: tenure as Uint<32>,
+            lastComputedEpoch: currentEpoch,
+            repaymentRatio: repaymentRatioScaled,
+            liquidationCount: acc.liquidationCount,
+            protocolsUsed: acc.distinctProtocols,
+            activeDebt: acc.activeDebtFlag == 1,
+            mtIndex: firstFreeIndex
+        };
+
+        const existingCreditScore = Utils_getCreditScoreByPk(userPk);
+        if (existingCreditScore.is_some) {
+            const oldCreditScoreCommitment = persistentCommit<CustomStructs_CreditScore>(
+                existingCreditScore.value,
+                userPk
+            );
+            Utils_assetCreditScoreValidity(oldCreditScoreCommitment);
+        }
+
+        const newCreditScoreCommitment = persistentCommit<CustomStructs_CreditScore>(creditScore, userPk);
+        LedgerStates_creditScoreCommitments.insert(newCreditScoreCommitment);
+        Utils_updatedCreditScore(userPk, creditScore);
+
+        if (existingCreditScore.is_some && existingCreditScore.value.mtIndex > 0) {
+            LedgerStates_creditScoreCommitments.insertIndexDefault(existingCreditScore.value.mtIndex);
+        }
+
+        const updatedAcc = CustomStructs_ScoreAccumulators {
+            ...acc,
+            lastComputedEpoch: currentEpoch
+        };
+
+        const newAccCommitment = persistentCommit<CustomStructs_ScoreAccumulators>(updatedAcc, userPk);
+        LedgerStates_scoreAccumulatorCommitments.insert(newAccCommitment);
+        Utils_updatedAccumulatedScore(userPk, updatedAcc);
+        Utils_deleteAccumulationCommitment(acc);
+
+        return creditScore;
+    }
+
+    export circuit getCreditScore(
+        _encAddress: UserAddress,
+        _issuerPk: Bytes<32>
+        ): CustomStructs_CreditScore {
+        assert (LedgerStates_issuers.member(disclose(_issuerPk)), "Unauthorized");
+
+        Utils_computeCurrentEpoch();  // Lazy epoch update
+
+        const userPk = Utils_generateUserPk(disclose(_encAddress.bytes));
+
+        recomputeScore(userPk, disclose(_issuerPk));
+
+        const userCreditScore = disclose(Utils_getCreditScoreByPk(userPk));
+
+        assert (userCreditScore.is_some, "No Credit score for the specified user");
+
+        const creditScoreCommitment = persistentCommit<CustomStructs_CreditScore>(
+            userCreditScore.value,
+            userPk
+        );
+
+        Utils_assetCreditScoreValidity(creditScoreCommitment);
+
+        return userCreditScore.value;
+    }
+}

@@ -1,0 +1,124 @@
+// This file is part of REPLACE WITH REPO-NAME.
+// Copyright (C) Midnight Foundation
+// SPDX-License-Identifier: Apache-2.0
+// Licensed under the Apache License, Version 2.0 (the "License");
+// You may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+module CustomStructs {
+    import CompactStandardLibrary;
+
+    export enum Tier {
+        unranked,
+        bronze,
+        silver,
+        gold,
+        platinum
+    }
+
+    export struct UserMetadata {
+        firstSeenEpoch: Uint<64>;       // when they joined the protocol
+        lastUpdatedEpoch: Uint<64>;       // last time score was recalculated
+        isBlacklisted: Boolean;      // liquidation/default flag
+    };
+    
+    export struct CreditScore {
+        score: Uint<32>; // credit score 
+        durationWeeks: Uint<32>;     // weeks of continuous tracked behavior
+        lastComputedEpoch: Uint<64>;    // for staleness checks
+        repaymentRatio: Uint<32>;     // 0–100, % of loans repaid on time
+        liquidationCount: Uint<32>;      // number of liquidation events (capped at 255)
+        protocolsUsed: Uint<32>;      // diversity score: # unique DeFi protocols
+        activeDebt: Boolean;    // whether user has open undercollateralized position
+        mtIndex: Uint<64>;
+    };
+
+    export struct Issuer {
+        issuerId: Bytes<32>;    // commitment to issuer identity
+        protocolName: Opaque<"string">;    // e.g. "Aave", "Compound" — hashed
+        isApproved: Boolean;      // only approved issuers can submit behavior data
+        dataSubmissions: Uint<32>;       // how many times this issuer has submitted
+        registeredEpoch: Uint<64>;       // when they were approved
+        contractAddress: ContractAddress; // Issuer contract address
+    };
+
+    export struct PoTNFTMetadata {
+        uri: Opaque<"string">; // image uri for NFT
+        tokenId: Uint<64>;    // unique NFT identifier
+        nonce: Bytes<32>;       // replay protection for score submissions
+        tier: Tier;        // tier at time of minting (snapshot)
+        mintedAt: Uint<64>;       // when it was minted
+        trustDuration: Uint<64>;       // weeks of behavior proven at mint time
+        isRevoked: Boolean;      // if user defaulted post-mint
+        expiresAtEpoch: Uint<64>;       // NFTs expire — trust is time-bounded
+        creditScoreCommitment: Bytes<32>;
+    };
+
+    export struct ProtocolConfig {
+        unranked: Uint<8>;
+        bronzeThreshold: Uint<8>;    // min repaymentRatio for Bronze
+        silverThreshold: Uint<8>;
+        goldThreshold: Uint<8>;
+        platinumThreshold: Uint<8>;
+        maxLiquidationsAllowed: Uint<8>;    // above this → blacklisted
+        nftEpochValidity: Uint<32>;   // how long an NFT is valid
+    };
+
+    export struct TokenImageUris {
+        unranked: Opaque<"string">;
+        bronze: Opaque<"string">; // e.g ipfs://Qm.../bronze.svg
+        silver: Opaque<"string">;
+        gold: Opaque<"string">;
+        platinum: Opaque<"string">;
+    };
+
+    export struct TokenMarkers {
+        unranked: Opaque<"string">;
+        bronze: Bytes<32>;
+        silver: Bytes<32>;
+        gold: Bytes<32>;
+        platinum: Bytes<32>;
+    };
+
+    export struct ScoreAccumulators {
+        firstSeenEpoch: Uint<64>;
+        lastEventEpoch: Uint<64>;
+        lastComputedEpoch: Uint<64>;
+
+        onTimeCount: Uint<32>;
+        lateCount: Uint<32>;
+        weightedRepaymentVolume: Uint<64>;
+
+        liquidationCount: Uint<32>;
+        liquidationPenaltyPoints: Uint<64>;
+
+        distinctProtocols: Uint<32>;
+        activeDebtFlag: Uint<8>;   // 0 or 1
+        riskBand: Uint<8>;         // 0..3
+        mtIndex: Uint<64>;
+    };
+
+    export struct ScoreConfig {
+        baseScore: Uint<32>;
+        maxScore: Uint<32>;
+        scale: Uint<32>;
+
+        repaymentWeight: Uint<32>;
+        protocolWeight: Uint<32>;
+        tenureWeight: Uint<32>;
+
+        liquidationWeight: Uint<32>;
+        activeDebtPenalty: Uint<32>;
+        riskBandWeight: Uint<32>;
+
+        maxScoreDeltaPerEpoch: Uint<32>;
+    };
+}

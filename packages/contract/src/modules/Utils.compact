@@ -1,0 +1,108 @@
+module Utils {
+    import CompactStandardLibrary;
+    import CustomStructs prefix CustomStructs_;
+    import GlobalLedgerStates prefix LedgerStates_;
+
+    export witness getLocalSecreteKey(): Bytes<32>;
+    export witness getCurrentTime(): Uint<64>;
+    export witness getCreditScoreByPk(_userPk: Bytes<32>): Maybe<CustomStructs_CreditScore>;
+    export witness getAccumulatedScoreByPk(_userPk: Bytes<32>): Maybe<CustomStructs_ScoreAccumulators>;
+    export witness updatedCreditScore(_userPk: Bytes<32>, creditScore: CustomStructs_CreditScore): [];
+    export witness updatedAccumulatedScore(_userPk: Bytes<32>, accumulatedScore: CustomStructs_ScoreAccumulators): [];
+    export witness verifyScoreCommitment(commitmentHash: Bytes<32>): Maybe<MerkleTreePath<32, Bytes<32>>>;
+    export witness verifyAggregatCommitment(commitmentHash: Bytes<32>): Maybe<MerkleTreePath<32, Bytes<32>>>;
+    export witness determineNftRating(userPk: Bytes<32>): [Opaque<"string">, CustomStructs_Tier];
+    export witness calculatedExpiredEpoch(elapsedTime: Uint<64>): Uint<64>;
+    export witness getFirstFreeCreditScoreIndex(): Uint<64>;
+    export witness getFirstFreeAccumulatorIndex(): Uint<64>;
+
+
+    export witness computeRepaymentRatio(
+        onTimeCount: Uint<32>,
+        totalRepay: Uint<32>,
+        scale: Uint<32>
+    ): [Uint<32>, Uint<32>];
+
+    export circuit assertAuthorization(_encAddress: UserAddress): Boolean{
+        const superAdminpk = generateSuperAdminPk();
+        const pk = generateUserPk(disclose(_encAddress.bytes));
+
+        const authSignatureStatus = (superAdminpk == LedgerStates_superAdmin) || LedgerStates_admins.member(pk);
+        return authSignatureStatus;
+    }
+
+    export circuit retieveAndVerifyCurrentTime(): Uint<64>{
+        const currentTime = disclose(getCurrentTime());
+
+        assert (blockTimeGte(currentTime), "Invalid time provided");
+
+        return currentTime;
+    }
+
+    export circuit generateUserPk(sk: Bytes<32>): Bytes<32>{
+        return persistentHash<Vector<3, Bytes<32>>>([
+            pad(32, "veil:user"),
+            sk,
+            kernel.self().bytes
+        ]);
+    }
+
+    export circuit generateIssuerPk(sk: Bytes<32>): Bytes<32> {
+        return persistentHash<Vector<3, Bytes<32>>>([
+            pad(32, "veil:issuer"),
+            sk,
+            kernel.self().bytes
+        ]);
+    }
+
+    export circuit generateSuperAdminPk(): Bytes<32> {
+        return persistentHash<Vector<2, Bytes<32>>>([
+            pad(32, "veil:superadmin"),
+            ownPublicKey().bytes
+        ]);
+    }
+
+    export circuit assetCreditScoreValidity(commitment: Bytes<32>): []{
+        const path = disclose(verifyScoreCommitment(commitment));
+
+        assert (path.is_some && LedgerStates_creditScoreCommitments.checkRoot(merkleTreePathRoot<32, Bytes<32>>(path.value)), "Credit score commitment failed verification");
+    }
+
+    export circuit mintNewToken(): []{
+        mintShieldedToken(
+            LedgerStates_domainSeperator,
+            1,
+            LedgerStates_nonce,
+            left<ZswapCoinPublicKey, ContractAddress>(ownPublicKey())
+        );
+
+        LedgerStates_nonce = evolveNonce(LedgerStates_tokenIssueCounter.read(), LedgerStates_nonce);
+        LedgerStates_tokenIssueCounter.increment(1);
+    }
+
+    export circuit computeCurrentEpoch(): []{
+        const currentTime = retieveAndVerifyCurrentTime();
+        const elapsedTime = currentTime - LedgerStates_epochLastUpdateTimeStamp;
+        const numberOfEpochElapsed = disclose(calculatedExpiredEpoch(elapsedTime));
+        
+        LedgerStates_elapsedEpoch.increment(numberOfEpochElapsed > 0 ? numberOfEpochElapsed as Uint<16> : 0);
+    }
+
+    export circuit assertAccumulationCommitment(commitment: Bytes<32>, accumulationStatus: Boolean): [] {
+        if(disclose(accumulationStatus)){
+            const path = disclose(verifyAggregatCommitment(commitment));
+            assert (path.is_some && LedgerStates_scoreAccumulatorCommitments.checkRoot(merkleTreePathRoot<32, Bytes<32>>(path.value)), "Score accumulation commitment failed verification");
+        }else{
+            return;
+        }
+    }
+
+    export circuit deleteAccumulationCommitment(_scoreAccumulation: CustomStructs_ScoreAccumulators): []{
+        const scoreAccumulation = disclose(_scoreAccumulation);
+        if(scoreAccumulation.mtIndex == 0){
+            return;
+        }else{
+            LedgerStates_scoreAccumulatorCommitments.insertIndexDefault(scoreAccumulation.mtIndex);
+        }
+    }
+}
