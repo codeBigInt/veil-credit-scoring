@@ -4,6 +4,7 @@
 node_modules
 dist
 midnight-level-db
+managed
 .cache
 .pnp
 .pnp.js
