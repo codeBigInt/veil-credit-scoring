@@ -15,19 +15,16 @@ module Utils {
     export witness calculatedExpiredEpoch(elapsedTime: Uint<64>): Uint<64>;
     export witness getFirstFreeCreditScoreIndex(): Uint<64>;
     export witness getFirstFreeAccumulatorIndex(): Uint<64>;
-
-
     export witness computeRepaymentRatio(
         onTimeCount: Uint<32>,
         totalRepay: Uint<32>,
         scale: Uint<32>
     ): [Uint<32>, Uint<32>];
 
-    export circuit assertAuthorization(_encAddress: UserAddress): Boolean{
-        const superAdminpk = generateSuperAdminPk();
-        const pk = generateUserPk(disclose(_encAddress.bytes));
+    export circuit assertAuthorization(sk: Bytes<32>): Boolean{
+        const pk = disclose(generateAdminPk(sk));
 
-        const authSignatureStatus = (superAdminpk == LedgerStates_superAdmin) || LedgerStates_admins.member(pk);
+        const authSignatureStatus = (pk == LedgerStates_superAdmin) || LedgerStates_admins.member(pk);
         return authSignatureStatus;
     }
 
@@ -55,10 +52,10 @@ module Utils {
         ]);
     }
 
-    export circuit generateSuperAdminPk(): Bytes<32> {
+    export circuit generateAdminPk(sk: Bytes<32>): Bytes<32> {
         return persistentHash<Vector<2, Bytes<32>>>([
             pad(32, "veil:superadmin"),
-            ownPublicKey().bytes
+            sk
         ]);
     }
 
@@ -86,6 +83,7 @@ module Utils {
         const numberOfEpochElapsed = disclose(calculatedExpiredEpoch(elapsedTime));
         
         LedgerStates_elapsedEpoch.increment(numberOfEpochElapsed > 0 ? numberOfEpochElapsed as Uint<16> : 0);
+        LedgerStates_epochLastUpdateTimeStamp = currentTime;
     }
 
     export circuit assertAccumulationCommitment(commitment: Bytes<32>, accumulationStatus: Boolean): [] {
@@ -97,12 +95,27 @@ module Utils {
         }
     }
 
-    export circuit deleteAccumulationCommitment(_scoreAccumulation: CustomStructs_ScoreAccumulators): []{
-        const scoreAccumulation = disclose(_scoreAccumulation);
-        if(scoreAccumulation.mtIndex == 0){
+    export circuit deleteAccumulationCommitmentByUser(_userPk: Bytes<32>): []{
+        const userPk = disclose(_userPk);
+
+        if (!LedgerStates_userAccumulatorIndex.member(userPk)) {
             return;
-        }else{
-            LedgerStates_scoreAccumulatorCommitments.insertIndexDefault(scoreAccumulation.mtIndex);
         }
+
+        const previousIndex = LedgerStates_userAccumulatorIndex.lookup(userPk);
+        LedgerStates_scoreAccumulatorCommitments.insertIndexDefault(previousIndex);
+        LedgerStates_userAccumulatorIndex.remove(userPk);
+    }
+
+    export circuit deleteCreditScoreCommitmentByUser(_userPk: Bytes<32>): []{
+        const userPk = disclose(_userPk);
+
+        if (!LedgerStates_userCreditScoreIndex.member(userPk)) {
+            return;
+        }
+
+        const previousIndex = LedgerStates_userCreditScoreIndex.lookup(userPk);
+        LedgerStates_creditScoreCommitments.insertIndexDefault(previousIndex);
+        LedgerStates_userCreditScoreIndex.remove(userPk);
     }
 }

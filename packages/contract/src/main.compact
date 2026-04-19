@@ -18,7 +18,7 @@ import CompactStandardLibrary;
 import "./modules/Utils" prefix Utils_;
 import "./modules/GlobalLedgerStates" prefix LedgerStates_;
 import "./modules/CustomStructs" prefix CustomStructs_;
-import "./modules/NFT" prefix NFT_;
+import "./modules/PoTNFT" prefix NFT_;
 import "./modules/Scoring" prefix Scoring_;
 import "./modules/Admin" prefix Admin_;
 
@@ -27,18 +27,20 @@ export {
     /** NFT entrypoints */
     NFT_revokePoTNFT, NFT_mintPoTNFT, NFT_verifyPoTNFT, NFT_remintPoTNFT,
     /** Score entrypoints */
-    Scoring_submitDebtStateEvent, Scoring_submitLiquidationEvent, Scoring_submitProtocolUsageEvent, Scoring_submitRepaymentEvent, Scoring_getCreditScore,
+    Scoring_submitDebtStateEvent, Scoring_submitLiquidationEvent, Scoring_submitProtocolUsageEvent, Scoring_submitRepaymentEvent, 
+    Scoring_recomputeAndReturnScore, Scoring_createScoreEntry,
     /** Custom struct definitions */
     CustomStructs_CreditScore, CustomStructs_Issuer, CustomStructs_PoTNFTMetadata, CustomStructs_ProtocolConfig, CustomStructs_ScoreAccumulators,
-    CustomStructs_TokenImageUris, CustomStructs_TokenMarkers, CustomStructs_UserMetadata,
+    CustomStructs_ScoreConfig, CustomStructs_TokenImageUris, CustomStructs_TokenMarkers, CustomStructs_UserMetadata, CustomStructs_Tier,
 
     /** Admin entrypoints */
-    Admin_updatedProtocolConfig, Admin_removeAdmin, Admin_addAdmin, Admin_updateTokenUris, Admin_removeIssuer, Admin_addIssuer,
+    Admin_updatedProtocolConfig, Admin_updatedScoreConfig, Admin_removeAdmin, Admin_addAdmin, Admin_updateTokenUris, Admin_removeIssuer, Admin_addIssuer,
 
     /** Ledger states */
     LedgerStates_issuerTrustWeights, LedgerStates_processedScoreEvents, LedgerStates_epochLastUpdateTimeStamp, LedgerStates_elapsedEpoch, LedgerStates_EPOCH_DURATION, LedgerStates_scaleFactor,
     LedgerStates_tokenMarkers, LedgerStates_tokenIssueCounter, LedgerStates_tokenName, LedgerStates_tokenImageUris, LedgerStates_superAdmin, LedgerStates_admins, LedgerStates_protocolConfig, 
-    LedgerStates_issuers, LedgerStates_nftRegistry, LedgerStates_creditScoreCommitments, LedgerStates_scoreAccumulatorCommitments
+    LedgerStates_issuers, LedgerStates_nftRegistry, LedgerStates_creditScoreCommitments, LedgerStates_scoreAccumulatorCommitments, LedgerStates_scoreConfig,
+    LedgerStates_userCreditScoreIndex, LedgerStates_userAccumulatorIndex
 };
 
 constructor(
@@ -46,9 +48,10 @@ constructor(
     _tokenImageUris: CustomStructs_TokenImageUris,
     _protocolConfig: CustomStructs_ProtocolConfig,
     _tokenMarkers: CustomStructs_TokenMarkers,
-    _nonce: Bytes<32>
+    _nonce: Bytes<32>,
+    _scoreConfig: CustomStructs_ScoreConfig
 ) {
-    LedgerStates_superAdmin = Utils_generateSuperAdminPk();
+    LedgerStates_superAdmin = Utils_generateAdminPk(disclose(Utils_getLocalSecreteKey()));
     LedgerStates_tokenName = disclose(_tokenName);
     LedgerStates_tokenImageUris = disclose(_tokenImageUris);
     LedgerStates_protocolConfig = disclose(_protocolConfig);
@@ -58,6 +61,5 @@ constructor(
     LedgerStates_domainSeperator = pad(32, "veil:protocol:nft");
     LedgerStates_EPOCH_DURATION = 432000; //5 days cycle just like on cardano
     LedgerStates_epochLastUpdateTimeStamp = Utils_retieveAndVerifyCurrentTime();
+    LedgerStates_scoreConfig = disclose(_scoreConfig);
 }
-
-

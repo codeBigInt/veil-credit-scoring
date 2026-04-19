@@ -22,9 +22,8 @@ module Admin {
     export circuit addIssuer(
         _protocolName: Opaque<"string">,
         _contractAddress: ContractAddress,
-        _encAddress: UserAddress
     ): Bytes<32>{
-        const authSignatureStatus = Utils_assertAuthorization(disclose(_encAddress));
+        const authSignatureStatus = Utils_assertAuthorization(disclose(Utils_getLocalSecreteKey()));
         assert (authSignatureStatus, "Unauthorized");
 
         const localSecreteKey = disclose(Utils_getLocalSecreteKey());
@@ -47,53 +46,60 @@ module Admin {
     }
 
     export circuit removeIssuer(
-        _issuerPk: Bytes<32>,
-        _encAddress: UserAddress
+        _issuerPk: Bytes<32>
     ): []{
         const disclosedIssuerPk = disclose(_issuerPk);
         assert (LedgerStates_issuers.member(disclosedIssuerPk), "Issuer with specified key does not exist");
         
-        const authSignatureStatus = Utils_assertAuthorization(disclose(_encAddress));
+        const authSignatureStatus = Utils_assertAuthorization(disclose(Utils_getLocalSecreteKey()));
         assert (authSignatureStatus, "Unauthorized");
 
         LedgerStates_issuers.remove(disclosedIssuerPk);
     }
 
     export circuit updateTokenUris(
-        _tokenImageUris: CustomStructs_TokenImageUris,
-        _encAddress: UserAddress
+        _tokenImageUris: CustomStructs_TokenImageUris
     ): []{
-        const authSignatureStatus = Utils_assertAuthorization(_encAddress);
+        const authSignatureStatus = Utils_assertAuthorization(disclose(Utils_getLocalSecreteKey()));
         assert (authSignatureStatus, "Unauthorized");
 
         LedgerStates_tokenImageUris = disclose(_tokenImageUris);
     }
 
-    export circuit addAdmin(_encAddress: UserAddress): []{
-        const superAdminpk = Utils_generateSuperAdminPk();
+    export circuit addAdmin(
+        _adminPk: Bytes<32>
+    ): []{
+        const superAdminpk = Utils_generateAdminPk(Utils_getLocalSecreteKey());
         assert (superAdminpk == LedgerStates_superAdmin, "Unauthorized");
 
-        const newAdminPk = Utils_generateUserPk(disclose(_encAddress).bytes);
+        const newAdminPk = Utils_generateUserPk(disclose(Utils_getLocalSecreteKey()));
         LedgerStates_admins.insert(newAdminPk);
     }
 
     export circuit removeAdmin(
-        _encAddress: UserAddress,
         _adminPk: Bytes<32>
     ): []{
-        const authSignatureStatus = Utils_assertAuthorization(disclose(_encAddress));
+        const authSignatureStatus = Utils_assertAuthorization(disclose(Utils_getLocalSecreteKey()));
         assert (authSignatureStatus, "Unauthorized");
 
         LedgerStates_admins.remove(disclose(_adminPk));
     }
 
     export circuit updatedProtocolConfig(
-        _updatedConfig: CustomStructs_ProtocolConfig,
-        _encAddress: UserAddress
+        _updatedConfig: CustomStructs_ProtocolConfig
     ): []{
-        const authSignatureStatus = Utils_assertAuthorization(disclose(_encAddress));
+        const authSignatureStatus = Utils_assertAuthorization(disclose(Utils_getLocalSecreteKey()));
         assert (authSignatureStatus, "Unauthorized");
 
         LedgerStates_protocolConfig = disclose(_updatedConfig);
+    }
+
+    export circuit updatedScoreConfig(
+        _updatedScoreConfig: CustomStructs_ScoreConfig
+    ): []{
+        const authSignatureStatus = Utils_assertAuthorization(disclose(Utils_getLocalSecreteKey()));
+        assert (authSignatureStatus, "Unauthorized");
+
+        LedgerStates_scoreConfig = disclose(_updatedScoreConfig);
     }
 }

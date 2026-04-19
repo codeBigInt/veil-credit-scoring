@@ -1,19 +1,17 @@
-module NFT {
+module PoTNFT {
     import CompactStandardLibrary;
     import Utils prefix Utils_;
     import GlobalLedgerStates;
     import CustomStructs prefix CustomStructs_;
 
-    export circuit verifyPoTNFT(
-        _encAddress: UserAddress,
-        _issuerPk: Bytes<32>,
-        ): Boolean {
+    export circuit verifyPoTNFT( _issuerPk: Bytes<32> ): Boolean {
         
         assert (issuers.member(disclose(_issuerPk)), "Unauthorized");
 
         Utils_computeCurrentEpoch();  // Lazy epoch update
         
-        const userPk = Utils_generateUserPk(disclose(_encAddress).bytes);
+        const userPk = Utils_generateUserPk(disclose(Utils_getLocalSecreteKey()));
+
         assert (nftRegistry.member(userPk), "PoTNFT for specified user does not exist");
 
         const nftMetadata = nftRegistry.lookup(userPk);
@@ -29,12 +27,11 @@ module NFT {
     }
 
 
-    export circuit mintPoTNFT(
-        _encAddress: UserAddress
-    ): []{
-        const userPk = Utils_generateUserPk(disclose(_encAddress).bytes);
-
+    export circuit mintPoTNFT(): []{
+        const userPk = Utils_generateUserPk(disclose(Utils_getLocalSecreteKey()));
+        
         const userCreditScore = disclose(Utils_getCreditScoreByPk(userPk));
+        
         assert (userCreditScore.is_some, "You are not eligible to mint PoT NFT");
 
         const creditScoreCommitment = persistentCommit<CustomStructs_CreditScore>(
@@ -69,19 +66,41 @@ module NFT {
 
         nftRegistry.insert(userPk, nftMetadata);
     }
+    
+    export circuit remintPoTNFT( _token: ShieldedCoinInfo ): []{
+        const userPk = Utils_generateUserPk(disclose(Utils_getLocalSecreteKey()));
+        assert (nftRegistry.member(userPk), "You have not minted a POT NFT previously");
+        const token = disclose(_token);
+        const color = token.color;
 
-     export circuit mintUnrankedPoTNFT(
-        _encAddress: UserAddress
-    ): []{
-        const userPk = Utils_generateUserPk(disclose(_encAddress).bytes);
-
-        const firstFreeAccumulatorIndex = Utils_getFirstFreeAccumulatorIndex();
-        const firstFreeCreditScoreIndex = Utils_getFirstFreeCreditScoreIndex();
-        
         Utils_computeCurrentEpoch();  // Lazy epoch update
 
+        const mintTokenColor = tokenType(domainSeperator, kernel.self());
+
+        assert (color == mintTokenColor, "Invalid NFT provided for reminting");
+
+
+        const userCreditScore = disclose(Utils_getCreditScoreByPk(userPk));
+        
+        assert (userCreditScore.is_some, "You are not eligible to mint PoT NFT");
+
+        const creditScoreCommitment = persistentCommit<CustomStructs_CreditScore>(
+            userCreditScore.value,
+            userPk
+        );
+
+        Utils_computeCurrentEpoch();  // Lazy epoch update
+
+
+        Utils_assetCreditScoreValidity(creditScoreCommitment);
+
+
+        const currentTime = Utils_retieveAndVerifyCurrentTime();
+
+        const [uri, tier] = disclose(Utils_determineNftRating(userPk));
+
         const nftMetadata = CustomStructs_PoTNFTMetadata {
-            uri: LedgerStates_tokenImageUris.unranked, // image uri for NFT
+            uri: uri, // image uri for NFT
             tokenId: tokenIssueCounter.read(),    // unique NFT identifier
             nonce: nonce,      // replay protection for score submissions
             tier: tier,        // tier at time of minting (snapshot)
@@ -94,47 +113,22 @@ module NFT {
 
         Utils_mintNewToken();
 
+
         nftRegistry.insert(userPk, nftMetadata);
-
-        const newCreditScore = CustomStructs_CreditScore {
-            ...default<CustomStructs_ScoreAccumulators>,
-            mtIndex: firstFreeCreditScoreIndex
-        }
-
-        const newScoreAccumulator = CustomStructs_ScoreAccumulators {
-            ...default<<CustomStructs_CreditScore>,
-            mtIndex: firstFreeAccumulatorIndex
-        }
-
-        Utils_updatedAccumulatedScore(userPk, newScoreAccumulator);
-        Utils_updatedCreditScore(userPk,newCreditScore);
-    }
-
-
-    export circuit remintPoTNFT(
-        _token: ShieldedCoinInfo,
-        _encAddress: UserAddress
-    ): []{
-        const token = disclose(_token);
-        const color = token.color;
-
-        Utils_computeCurrentEpoch();  // Lazy epoch update
-
-        const mintTokenColor = tokenType(domainSeperator, kernel.self());
-
-        assert (color == mintTokenColor, "Invalid NFT provided for reminting");
-
+        
         const burnAddress = shieldedBurnAddress();
 
         sendImmediateShielded( token, burnAddress, token.value);
-
-        mintPoTNFT(_encAddress);
     }
 
 
     export circuit revokePoTNFT(
         _userPk: Bytes<32>,
+        _adminPk: Bytes<32>
     ): []{
+        const authSignatureStatus = Utils_assertAuthorization(disclose(_adminPk));
+        assert (authSignatureStatus, "Unauthorized");
+
         const userPk = disclose(_userPk);
         assert (nftRegistry.member(userPk), "PoTNFT for specified user does not exist");
 
@@ -147,5 +141,4 @@ module NFT {
 
         nftRegistry.insert(userPk, updatedNftMetadata);
     }
-
 }

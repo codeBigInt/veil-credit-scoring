@@ -1,5 +1,6 @@
 import type { CustomStructs_CreditScore, CustomStructs_ScoreAccumulators, Ledger } from "./managed/veil-protocol/contract";
 import { MerkleTreePath, toHex, WitnessContext } from "@midnight-ntwrk/compact-runtime";
+import { CustomStructs_Tier } from "./managed/veil-protocol/contract";
 
 export interface VeilPrivateState {
     creditScores: Record<string, CustomStructs_CreditScore>,
@@ -16,21 +17,21 @@ export function createVeilPrivateState(secreteKey: Uint8Array): VeilPrivateState
 }
 
 export const defaultCreditScore = {
-  score: 0n,                  // Uint<32> → bigint, default 0
-  durationWeeks: 0n,          // Uint<32> → bigint, default 0
-  lastComputedEpoch: 0n,      // Uint<64> → bigint, default 0
-  repaymentRatio: 0n,         // Uint<32> → bigint, default 0
-  liquidationCount: 0n,       // Uint<32> → bigint, default 0
-  protocolsUsed: 0n,          // Uint<32> → bigint, default 0
-  activeDebt: false,          // Boolean → boolean, default false
-  mtIndex: 0n,                // Uint<64> → bigint, default 0
+  score: 0n,                  
+  durationWeeks: 0n,          
+  lastComputedEpoch: 0n,      
+  repaymentRatio: 0n,         
+  liquidationCount: 0n,       
+  protocolsUsed: 0n,          
+  activeDebt: false,          
+  mtIndex: 0n,                
 };
 
 export const defaultMerkleTreePath = {
-  leaf: new Uint8Array(32),        // Bytes<32>
+  leaf: new Uint8Array(32),        
   path: Array.from({ length: 32 }, () => ({
-    sibling: { field: 0n },        // MerkleTreeDigest wraps a Field → bigint
-    goes_left: false,              // Boolean → boolean, default false
+    sibling: { field: 0n },        
+    goes_left: false,              
   })),
 };
 
@@ -184,5 +185,57 @@ export const witness = {
 
     getFirstFreeAccumulatorIndex: ({ privateState, ledger}: WitnessContext<Ledger, VeilPrivateState>): [VeilPrivateState, bigint] => {
         return [privateState, ledger.LedgerStates_scoreAccumulatorCommitments.firstFree()]
+    },
+
+    determineNftRating: (
+        { privateState, ledger }: WitnessContext<Ledger, VeilPrivateState>,
+        userPk: Uint8Array
+    ): [VeilPrivateState, [string, number]] => {
+        const strUserPk = toHex(userPk);
+        const score = privateState.creditScores[strUserPk] ?? defaultCreditScore;
+        const ratio = score.repaymentRatio;
+
+        const config = ledger.LedgerStates_protocolConfig;
+        const uris = ledger.LedgerStates_tokenImageUris;
+
+        const returnValue: [string, number] = ratio >= config.platinumThreshold
+            ? [uris.platinum, CustomStructs_Tier.platinum]
+            : ratio >= config.goldThreshold
+            ? [uris.gold, CustomStructs_Tier.gold]
+            : ratio >= config.silverThreshold
+            ? [uris.silver, CustomStructs_Tier.silver]
+            : ratio >= config.bronzeThreshold
+            ? [uris.bronze, CustomStructs_Tier.bronze]
+            : [uris.unranked, CustomStructs_Tier.unranked];
+
+        return [privateState, returnValue];
+    },
+
+    calculatedExpiredEpoch: (
+        { privateState, ledger }: WitnessContext<Ledger, VeilPrivateState>,
+        elapsedTime: bigint
+    ): [VeilPrivateState, bigint] => {
+        const epochDurationSeconds = ledger.LedgerStates_EPOCH_DURATION;
+        if (epochDurationSeconds <= 0n) {
+            return [privateState, 0n];
+        }
+
+        return [privateState, elapsedTime / epochDurationSeconds];
+    },
+
+    computeRepaymentRatio: (
+        { privateState }: WitnessContext<Ledger, VeilPrivateState>,
+        onTimeCount: bigint,
+        totalRepay: bigint,
+        scale: bigint
+    ): [VeilPrivateState, [bigint, bigint]] => {
+        if (totalRepay === 0n) {
+            return [privateState, [0n, 0n]];
+        }
+
+        const numerator = onTimeCount * scale;
+        const quotient = numerator / totalRepay;
+        const remainder = numerator % totalRepay;
+        return [privateState, [quotient, remainder]];
     },
 };  

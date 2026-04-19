@@ -24,6 +24,8 @@ module GlobalLedgerStates {
    
     /* per-user aggregate state */
     export ledger scoreAccumulatorCommitments: HistoricMerkleTree<32, Bytes<32>>;
+    export ledger userCreditScoreIndex: Map<Bytes<32>, Uint<64>>;
+    export ledger userAccumulatorIndex: Map<Bytes<32>, Uint<64>>;
 
 
     /**
