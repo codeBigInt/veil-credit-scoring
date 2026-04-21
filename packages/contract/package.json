@@ -1,16 +1,27 @@
 {
-  "name": "contract",
-  "module": "index.ts",
+  "name": "@veil/veil-contract",
   "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "private": true,
+  "exports": {
+    "*": {
+      "default": "./dist/index.js",
+      "import": "./dist/index.js",
+      "require": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
   "scripts": {
     "test:compile": "compact compile --skip-zk src/main.compact ./src/managed/veil-protocol",
     "test": "vitest",
     "test:run": "vitest run",
     "compile": "compact compile src/main.compact ./src/managed/veil-protocol",
-    "build": "rm -rf dist && tsc --project tsconfig.build.json && cp -Rf ./src/managed ./dist && cp ./src/main.compact ./dist && cp -Rf ./src/modules ./dist"
+    "build": "rm -rf dist && tsc --project tsconfig.build.json && mkdir -p dist && cp -Rf ./src/managed ./dist/managed && cp ./src/main.compact ./dist && cp -Rf ./src/modules ./dist"
   },
   "devDependencies": {
+    "@types/node": "^24.8.1",
     "@types/bun": "latest",
     "vitest": "^4.0.2"
   },

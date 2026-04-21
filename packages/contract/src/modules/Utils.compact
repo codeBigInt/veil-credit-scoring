@@ -15,23 +15,26 @@ module Utils {
     export witness calculatedExpiredEpoch(elapsedTime: Uint<64>): Uint<64>;
     export witness getFirstFreeCreditScoreIndex(): Uint<64>;
     export witness getFirstFreeAccumulatorIndex(): Uint<64>;
+    export witness consoleLog(value: Boolean): [];
+
     export witness computeRepaymentRatio(
         onTimeCount: Uint<32>,
         totalRepay: Uint<32>,
         scale: Uint<32>
     ): [Uint<32>, Uint<32>];
 
-    export circuit assertAuthorization(sk: Bytes<32>): Boolean{
+    export circuit assertAuthorization(sk: Bytes<32>): []{
         const pk = disclose(generateAdminPk(sk));
 
-        const authSignatureStatus = (pk == LedgerStates_superAdmin) || LedgerStates_admins.member(pk);
-        return authSignatureStatus;
+        const authSignatureStatus = (pk == LedgerStates_superAdmin);
+        assert (authSignatureStatus, "Unauthorized");
     }
 
     export circuit retieveAndVerifyCurrentTime(): Uint<64>{
         const currentTime = disclose(getCurrentTime());
-
-        assert (blockTimeGte(currentTime), "Invalid time provided");
+        const isValid = blockTimeGte(currentTime);
+        consoleLog(isValid);
+        assert (isValid, "Invalid time provided");
 
         return currentTime;
     }
@@ -117,5 +120,113 @@ module Utils {
         const previousIndex = LedgerStates_userCreditScoreIndex.lookup(userPk);
         LedgerStates_creditScoreCommitments.insertIndexDefault(previousIndex);
         LedgerStates_userCreditScoreIndex.remove(userPk);
+    }
+
+    export circuit recomputeAndPersistScore(_userPk: Bytes<32>): CustomStructs_CreditScore {
+        const userPk = disclose(_userPk);
+        const firstFreeCreditScoreIndex = disclose(getFirstFreeCreditScoreIndex());
+        const firstFreeAccumulatorIndex = disclose(getFirstFreeAccumulatorIndex());
+        const maybeAcc = disclose(getAccumulatedScoreByPk(userPk));
+
+        assert (maybeAcc.is_some, "No credit score for the specified user");
+
+        const acc = maybeAcc.value;
+        const oldAccCommitment = persistentCommit<CustomStructs_ScoreAccumulators>(acc, userPk);
+        assertAccumulationCommitment(oldAccCommitment, maybeAcc.is_some);
+
+        const cfg = LedgerStates_scoreConfig;
+
+        const totalRepay = acc.onTimeCount + acc.lateCount;
+        const [repaymentRatioScaled, repaymentRemainder] = disclose(
+            computeRepaymentRatio(acc.onTimeCount, totalRepay as Uint<32>, cfg.scale)
+        );
+
+        if (totalRepay > 0) {
+            assert (repaymentRemainder < totalRepay, "Invalid ratio remainder");
+            assert (
+                (acc.onTimeCount * cfg.scale) == ((repaymentRatioScaled * totalRepay) + repaymentRemainder),
+                "Invalid repayment ratio proof"
+            );
+        } else {
+            assert (
+                repaymentRatioScaled == 0 && repaymentRemainder == 0,
+                "Invalid zero-history ratio witness"
+            );
+        }
+
+        const protocolScore = acc.distinctProtocols * cfg.protocolWeight;
+
+        const currentEpoch = LedgerStates_elapsedEpoch.read();
+        assert (currentEpoch >= acc.firstSeenEpoch, "Epoch error");
+        const tenure = currentEpoch - acc.firstSeenEpoch;
+        const tenureScore = tenure * cfg.tenureWeight;
+
+        const behavior = (repaymentRatioScaled * cfg.repaymentWeight) + protocolScore + tenureScore;
+        const penalties =
+            (acc.liquidationPenaltyPoints * cfg.liquidationWeight) +
+            (acc.activeDebtFlag * cfg.activeDebtPenalty) +
+            (acc.riskBand * cfg.riskBandWeight);
+
+        assert (cfg.baseScore + behavior >= penalties, "Penalty underflow");
+        const rawScore = (cfg.baseScore + behavior - penalties) as Uint<32>;
+        assert (rawScore <= cfg.maxScore, "Score overflow");
+
+        const creditScore = CustomStructs_CreditScore {
+            score: rawScore,
+            durationWeeks: tenure as Uint<32>,
+            lastComputedEpoch: currentEpoch,
+            repaymentRatio: repaymentRatioScaled,
+            liquidationCount: acc.liquidationCount,
+            protocolsUsed: acc.distinctProtocols,
+            activeDebt: acc.activeDebtFlag == 1,
+            mtIndex: firstFreeCreditScoreIndex
+        };
+
+        const existingCreditScore = disclose(getCreditScoreByPk(userPk));
+        if (existingCreditScore.is_some) {
+            const oldCreditScoreCommitment = persistentCommit<CustomStructs_CreditScore>(
+                existingCreditScore.value,
+                userPk
+            );
+
+            assetCreditScoreValidity(oldCreditScoreCommitment);
+        }
+
+        const newCreditScoreCommitment = persistentCommit<CustomStructs_CreditScore>(creditScore, userPk);
+        LedgerStates_creditScoreCommitments.insert(newCreditScoreCommitment);
+        deleteCreditScoreCommitmentByUser(userPk);
+        LedgerStates_userCreditScoreIndex.insert(userPk, firstFreeCreditScoreIndex);
+        updatedCreditScore(userPk, creditScore);
+
+        const updatedAcc = CustomStructs_ScoreAccumulators {
+            ...acc,
+            lastComputedEpoch: currentEpoch,
+            mtIndex: firstFreeAccumulatorIndex
+        };
+
+        const newAccCommitment = persistentCommit<CustomStructs_ScoreAccumulators>(updatedAcc, userPk);
+        LedgerStates_scoreAccumulatorCommitments.insert(newAccCommitment);
+        deleteAccumulationCommitmentByUser(userPk);
+        LedgerStates_userAccumulatorIndex.insert(userPk, firstFreeAccumulatorIndex);
+        updatedAccumulatedScore(userPk, updatedAcc);
+
+        return creditScore;
+    }
+
+    
+    export circuit initializeContractConfigurations(
+        _tokenImageUris: CustomStructs_TokenImageUris,
+        _tokenName: Opaque<"string">,
+        _protocolConfig: CustomStructs_ProtocolConfig,
+        _scoreConfig: CustomStructs_ScoreConfig,
+        _tokenMarkers: CustomStructs_TokenMarkers,
+    ): []{
+        LedgerStates_tokenName = disclose(_tokenName);
+        LedgerStates_protocolConfig = disclose(_protocolConfig);
+        LedgerStates_tokenImageUris = disclose(_tokenImageUris);
+        LedgerStates_scoreConfig = disclose(_scoreConfig);
+        LedgerStates_tokenMarkers = disclose(_tokenMarkers);
+        LedgerStates_tokenIssueCounter.increment(1);
+        LedgerStates_superAdmin = generateAdminPk(disclose(getLocalSecreteKey()));
     }
 }

@@ -49,7 +49,7 @@ module GlobalLedgerStates {
        @desccription {Bytes<32>} dynamic unique id generated from admin seceret key to identify each admin user
        @description {admins} set of adminIds publicly stored onchain
     */
-    export ledger admins: Set<Bytes<32>>;
+   //  export ledger admins: Set<Bytes<32>>;
      /**
        @description {superAdmin} defines an admin wallet with super priviledges to add and remove other admins
     */

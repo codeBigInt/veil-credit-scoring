@@ -81,12 +81,8 @@ export class VeilScoreSimulator {
     const { currentContractState, currentPrivateState, currentZswapLocalState } =
       this.contract.initialState(
         createConstructorContext(privateState, { bytes: randomBytes(32) }),
-        "Veil",
-        defaultTokenImageUris,
-        defaultProtocolConfig,
-        defaultTokenMarkers,
         randomBytes(32),
-        defaultScoreConfig
+        BigInt(Date.now())
       );
 
     this.circuitContext = {
@@ -153,56 +149,56 @@ export class VeilScoreSimulator {
     return this.updateStateAndGetResult(result);
   }
 
-  removeIssuer(issuerPk: Uint8Array): void {
-    const result = this.contract.impureCircuits.Admin_removeIssuer(
-      this.circuitContext,
-      issuerPk
-    );
-    this.updateStateAndGetResult(result);
-  }
+  // removeIssuer(issuerPk: Uint8Array): void {
+  //   const result = this.contract.impureCircuits.Admin_removeIssuer(
+  //     this.circuitContext,
+  //     issuerPk
+  //   );
+  //   this.updateStateAndGetResult(result);
+  // }
 
-  updateTokenUris(tokenImageUris: CustomStructs_TokenImageUris): void {
-    const result = this.contract.impureCircuits.Admin_updateTokenUris(
-      this.circuitContext,
-      tokenImageUris
-    );
-    this.updateStateAndGetResult(result);
-  }
+  // updateTokenUris(tokenImageUris: CustomStructs_TokenImageUris): void {
+  //   const result = this.contract.impureCircuits.Admin_updateTokenUris(
+  //     this.circuitContext,
+  //     tokenImageUris
+  //   );
+  //   this.updateStateAndGetResult(result);
+  // }
 
-  addAdmin(adminPk: Uint8Array): void {
-    const result = this.contract.impureCircuits.Admin_addAdmin(
-      this.circuitContext,
-      adminPk
-    );
-    this.updateStateAndGetResult(result);
-  }
+  // addAdmin(adminPk: Uint8Array): void {
+  //   const result = this.contract.impureCircuits.Admin_addAdmin(
+  //     this.circuitContext,
+  //     adminPk
+  //   );
+  //   this.updateStateAndGetResult(result);
+  // }
 
-  removeAdmin(adminPk: Uint8Array): void {
-    const result = this.contract.impureCircuits.Admin_removeAdmin(
-      this.circuitContext,
-      adminPk
-    );
-    this.updateStateAndGetResult(result);
-  }
+  // removeAdmin(adminPk: Uint8Array): void {
+  //   const result = this.contract.impureCircuits.Admin_removeAdmin(
+  //     this.circuitContext,
+  //     adminPk
+  //   );
+  //   this.updateStateAndGetResult(result);
+  // }
 
-  updateProtocolConfig(updatedConfig: CustomStructs_ProtocolConfig): void {
-    const result = this.contract.impureCircuits.Admin_updatedProtocolConfig(
-      this.circuitContext,
-      updatedConfig
-    );
-    this.updateStateAndGetResult(result);
-  }
+  // updateProtocolConfig(updatedConfig: CustomStructs_ProtocolConfig): void {
+  //   const result = this.contract.impureCircuits.Admin_updatedProtocolConfig(
+  //     this.circuitContext,
+  //     updatedConfig
+  //   );
+  //   this.updateStateAndGetResult(result);
+  // }
 
-  updateScoreConfig(updatedScoreConfig: CustomStructs_ScoreConfig): void {
-    const result = this.contract.impureCircuits.Admin_updatedScoreConfig(
-      this.circuitContext,
-      updatedScoreConfig
-    );
-    this.updateStateAndGetResult(result);
-  }
+  // updateScoreConfig(updatedScoreConfig: CustomStructs_ScoreConfig): void {
+  //   const result = this.contract.impureCircuits.Admin_updatedScoreConfig(
+  //     this.circuitContext,
+  //     updatedScoreConfig
+  //   );
+  //   this.updateStateAndGetResult(result);
+  // }
 
   createScoreEntry(): void {
-    const result = this.contract.impureCircuits.Scoring_createScoreEntry(
+    const result = this.contract.impureCircuits.createScoreEntry(
       this.circuitContext
     );
     this.updateStateAndGetResult(result);
@@ -216,7 +212,7 @@ export class VeilScoreSimulator {
     eventEpoch: bigint,
     eventId: Uint8Array
   ): void {
-    const result = this.contract.impureCircuits.Scoring_submitRepaymentEvent(
+    const result = this.contract.impureCircuits.submitRepaymentEvent(
       this.circuitContext,
       userPk,
       issuerPk,
@@ -235,7 +231,7 @@ export class VeilScoreSimulator {
     eventEpoch: bigint,
     eventId: Uint8Array
   ): void {
-    const result = this.contract.impureCircuits.Scoring_submitLiquidationEvent(
+    const result = this.contract.impureCircuits.submitLiquidationEvent(
       this.circuitContext,
       userPk,
       issuerPk,
@@ -252,7 +248,7 @@ export class VeilScoreSimulator {
     protocolId: Uint8Array,
     eventEpoch: bigint
   ): void {
-    const result = this.contract.impureCircuits.Scoring_submitProtocolUsageEvent(
+    const result = this.contract.impureCircuits.submitProtocolUsageEvent(
       this.circuitContext,
       userPk,
       issuerPk,
@@ -262,31 +258,31 @@ export class VeilScoreSimulator {
     this.updateStateAndGetResult(result);
   }
 
-  submitDebtStateEvent(
-    userPk: Uint8Array,
-    issuerPk: Uint8Array,
-    activeDebtFlag: bigint,
-    riskBand: bigint,
-    eventEpoch: bigint,
-    eventId: Uint8Array
-  ): void {
-    const result = this.contract.impureCircuits.Scoring_submitDebtStateEvent(
-      this.circuitContext,
-      userPk,
-      issuerPk,
-      activeDebtFlag,
-      riskBand,
-      eventEpoch,
-      eventId
-    );
-    this.updateStateAndGetResult(result);
-  }
+  // submitDebtStateEvent(
+  //   userPk: Uint8Array,
+  //   issuerPk: Uint8Array,
+  //   activeDebtFlag: bigint,
+  //   riskBand: bigint,
+  //   eventEpoch: bigint,
+  //   eventId: Uint8Array
+  // ): void {
+  //   const result = this.contract.impureCircuits.Scoring_submitDebtStateEvent(
+  //     this.circuitContext,
+  //     userPk,
+  //     issuerPk,
+  //     activeDebtFlag,
+  //     riskBand,
+  //     eventEpoch,
+  //     eventId
+  //   );
+  //   this.updateStateAndGetResult(result);
+  // }
 
   recomputeAndReturnScore(
     userPk: Uint8Array,
     issuerPk: Uint8Array
   ): CustomStructs_CreditScore {
-    const result = this.contract.impureCircuits.Scoring_recomputeAndReturnScore(
+    const result = this.contract.impureCircuits.recomputeAndReturnScore(
       this.circuitContext,
       userPk,
       issuerPk
@@ -299,6 +295,14 @@ export class VeilScoreSimulator {
     this.updateStateAndGetResult(result);
   }
 
+  renewPoTNFT(token: ShieldedCoinInfo): void {
+    const result = this.contract.impureCircuits.NFT_renewPoTNFT(
+      this.circuitContext,
+      token
+    );
+    this.updateStateAndGetResult(result);
+  }
+
   verifyPoTNFT(issuerPk: Uint8Array): boolean {
     const result = this.contract.impureCircuits.NFT_verifyPoTNFT(
       this.circuitContext,
@@ -307,22 +311,14 @@ export class VeilScoreSimulator {
     return this.updateStateAndGetResult(result);
   }
 
-  remintPoTNFT(token: ShieldedCoinInfo): void {
-    const result = this.contract.impureCircuits.NFT_remintPoTNFT(
-      this.circuitContext,
-      token
-    );
-    this.updateStateAndGetResult(result);
-  }
-
-  revokePoTNFT(userPk: Uint8Array, adminPk: Uint8Array): void {
-    const result = this.contract.impureCircuits.NFT_revokePoTNFT(
-      this.circuitContext,
-      userPk,
-      adminPk
-    );
-    this.updateStateAndGetResult(result);
-  }
+  // revokePoTNFT(userPk: Uint8Array, adminPk: Uint8Array): void {
+  //   const result = this.contract.impureCircuits.NFT_revokePoTNFT(
+  //     this.circuitContext,
+  //     userPk,
+  //     adminPk
+  //   );
+  //   this.updateStateAndGetResult(result);
+  // }
 
   getUserAccumulator(userPk: Uint8Array): CustomStructs_ScoreAccumulators {
     const key = toHex(userPk);

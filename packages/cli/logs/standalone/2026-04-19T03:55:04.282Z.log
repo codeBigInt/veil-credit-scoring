@@ -1,0 +1,10 @@
+{"level":30,"time":1776570904287,"pid":336278,"hostname":"codeBigInt","msg":"Starting test environment... path=/home/codebigint/Midnight-workspace/veil-credit-scoring-protocol/packages/cli, file=compose.yml, uid=5273020421459542"}
+{"level":30,"time":1776570927612,"pid":336278,"hostname":"codeBigInt","msg":"Test environment configuration: {\"walletNetworkId\":\"undeployed\",\"networkId\":\"undeployed\",\"indexer\":\"http://127.0.0.1:32811/api/v4/graphql\",\"indexerWS\":\"ws://127.0.0.1:32811/api/v4/graphql/ws\",\"node\":\"http://127.0.0.1:32809\",\"nodeWS\":\"ws://127.0.0.1:32809\",\"proofServer\":\"http://127.0.0.1:32810\"}"}
+{"level":30,"time":1776570927613,"pid":336278,"hostname":"codeBigInt","msg":"Environment started: {\"walletNetworkId\":\"undeployed\",\"networkId\":\"undeployed\",\"indexer\":\"http://127.0.0.1:32811/api/v4/graphql\",\"indexerWS\":\"ws://127.0.0.1:32811/api/v4/graphql/ws\",\"node\":\"http://127.0.0.1:32809\",\"nodeWS\":\"ws://127.0.0.1:32809\",\"proofServer\":\"http://127.0.0.1:32810\"}"}
+{"level":30,"time":1776570927711,"pid":336278,"hostname":"codeBigInt","msg":"Getting initial state of wallet..."}
+{"level":30,"time":1776570927722,"pid":336278,"hostname":"codeBigInt","msg":"Wallet seed: 0000000000000000000000000000000000000000000000000000000000000001 | address: 1bd4f827be97ff013c4a702e4b08f30ec378728a54670cf7cc92cb9b1a14eff6"}
+{"level":30,"time":1776570927725,"pid":336278,"hostname":"codeBigInt","msg":"Starting wallet..."}
+{"level":30,"time":1776570927750,"pid":336278,"hostname":"codeBigInt","msg":"Getting initial state of wallet..."}
+{"level":30,"time":1776570927757,"pid":336278,"hostname":"codeBigInt","msg":"Using unshielded address: mn_addr_undeployed1h3ssm5ru2t6eqy4g3she78zlxn96e36ms6pq996aduvmateh9p9sk96u7s waiting for funds..."}
+{"level":30,"time":1776570927757,"pid":336278,"hostname":"codeBigInt","msg":"Waiting to receive tokens..."}
+{"level":30,"time":1776570959371,"pid":336278,"hostname":"codeBigInt","msg":"NIGHT balance: 250000000000000"}

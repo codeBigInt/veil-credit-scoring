@@ -59,8 +59,15 @@ export const witness = {
         return [privateState, privateState.secreteKey]
     },
 
+    consoleLog: ({ privateState }: WitnessContext<Ledger, VeilPrivateState>, value: boolean): [VeilPrivateState, []] => {
+        console.log(`Current time validity: `, value)
+        return [privateState, []]
+    },
+
+
     getCurrentTime: ({ privateState }: WitnessContext<Ledger, VeilPrivateState>): [VeilPrivateState, bigint] => {
-        return [privateState, BigInt(Date.now())]
+        const currentTime = BigInt(Date.now() / 1000);
+        return [privateState, currentTime]
     },
 
     getCreditScoreByPk: (
