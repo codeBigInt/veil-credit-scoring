@@ -31,7 +31,7 @@ At a high level:
 
 The result is a composable trust layer that protocols can consume while preserving user confidentiality.
 
-Visit our website to learn more: (https://veil-credit-scoring-protocol.vercel.app/)[https://veil-credit-scoring-protocol.vercel.app/]
+Learn more: [Visit our website](https://veil-credit-scoring-protocol.vercel.app/)
 
 ## Why Veil in Midnight DeFi
 
