@@ -31,6 +31,8 @@ At a high level:
 
 The result is a composable trust layer that protocols can consume while preserving user confidentiality.
 
+Visit our website to learn more: (https://veil-credit-scoring-protocol.vercel.app/)[https://veil-credit-scoring-protocol.vercel.app/]
+
 ## Why Veil in Midnight DeFi
 
 Midnight applications need user risk signals but should not require identity leakage or full transaction history disclosure.
