@@ -1,0 +1,11 @@
+{"level":30,"time":1776884355289,"pid":434498,"hostname":"codeBigInt","msg":"Starting test environment... "}
+{"level":30,"time":1776884355293,"pid":434498,"hostname":"codeBigInt","msg":"Starting proof server: path='/home/codebigint/Midnight-workspace/veil-credit-scoring-protocol/packages/cli', file=proof-server.yml, networkId=undefined, uid=1700831844328318"}
+{"level":50,"time":1776884538645,"pid":434498,"hostname":"codeBigInt","msg":"Failed to start environment (attempt 1/3): Port 6300/tcp not bound after 180000ms"}
+{"level":40,"time":1776884538647,"pid":434498,"hostname":"codeBigInt","msg":"Retrying environment startup in 5s..."}
+{"level":30,"time":1776884543648,"pid":434498,"hostname":"codeBigInt","msg":"Starting test environment... "}
+{"level":30,"time":1776884543650,"pid":434498,"hostname":"codeBigInt","msg":"Starting proof server: path='/home/codebigint/Midnight-workspace/veil-credit-scoring-protocol/packages/cli', file=proof-server.yml, networkId=undefined, uid=1700831844328318"}
+{"level":50,"time":1776884726451,"pid":434498,"hostname":"codeBigInt","msg":"Failed to start environment (attempt 2/3): Port 6300/tcp not bound after 180000ms"}
+{"level":40,"time":1776884726453,"pid":434498,"hostname":"codeBigInt","msg":"Retrying environment startup in 5s..."}
+{"level":30,"time":1776884731454,"pid":434498,"hostname":"codeBigInt","msg":"Starting test environment... "}
+{"level":30,"time":1776884731455,"pid":434498,"hostname":"codeBigInt","msg":"Starting proof server: path='/home/codebigint/Midnight-workspace/veil-credit-scoring-protocol/packages/cli', file=proof-server.yml, networkId=undefined, uid=1700831844328318"}
+{"level":50,"time":1776884914085,"pid":434498,"hostname":"codeBigInt","msg":"Failed to start environment (attempt 3/3): Port 6300/tcp not bound after 180000ms"}

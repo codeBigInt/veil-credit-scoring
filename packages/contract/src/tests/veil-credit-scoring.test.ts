@@ -211,7 +211,7 @@ describe("Test scoring and PoTNFT functionality", () => {
 
     simulator.as("bob");
     expect(() => simulator.mintPoTNFT()).toThrowError(
-      /You are not eligible to mint PoT NFT/
+      /No credit score for the specified user/
     );
 
     expect(() => simulator.verifyPoTNFT(issuerPk)).toThrowError(

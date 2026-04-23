@@ -2,14 +2,17 @@ import path from 'node:path';
 import axios from 'axios';
 import {
   EnvironmentConfiguration,
+  getContainersConfiguration,
   getTestEnvironment,
   RemoteTestEnvironment,
+  setContainersConfiguration,
   TestEnvironment,
 } from '@midnight-ntwrk/testkit-js';
 import { setNetworkId } from '@midnight-ntwrk/midnight-js-network-id';
 import { Logger } from 'pino';
 
 const HEALTH_CHECK_TIMEOUT_MS = 15_000;
+const PROOF_SERVER_STARTUP_TIMEOUT_MS = 10 * 60_000;
 
 const checkUrl = async (url: string, logger: { warn: (msg: string) => void }): Promise<void> => {
   try {
@@ -40,6 +43,23 @@ export class StandaloneConfig implements Config {
   generateDust = false;
 
   getEnvironment(logger: Logger): TestEnvironment {
+    const containers = getContainersConfiguration();
+    setContainersConfiguration({
+      ...containers,
+      standalone: {
+        ...containers.standalone,
+        container: {
+          ...containers.standalone.container,
+          proofServer: {
+            ...containers.standalone.container.proofServer,
+            waitStrategy: containers.standalone.container.proofServer.waitStrategy.withStartupTimeout(
+              PROOF_SERVER_STARTUP_TIMEOUT_MS,
+            ),
+          },
+        },
+      },
+    });
+
     return getTestEnvironment(logger) as TestEnvironment;
   }
 }

@@ -297,7 +297,7 @@ const menuLoop = async (api: VeilAPI, rli: Interface, logger: Logger): Promise<v
       }
 
       if (choice === '3') {
-        await api.callTx("createScoreEntry");
+        await api.callTx("Scoring_createScoreEntry");
         const userPk = await resolveUserPkFromPrivateState(api);
         logger.info(`Score entry created. userPk=${userPk ? toHex(userPk) : 'unknown'}`);
         continue;
@@ -310,7 +310,7 @@ const menuLoop = async (api: VeilAPI, rli: Interface, logger: Logger): Promise<v
         const amountWeight = await askBigInt(rli, 'amountWeight', 100n);
         const epoch = await askBigInt(rli, 'eventEpoch', 0n);
         await api.callTx(
-          "submitRepaymentEvent",
+          "Scoring_submitRepaymentEvent",
           userPk,
           issuerPk,
           paidOnTime,
@@ -328,7 +328,7 @@ const menuLoop = async (api: VeilAPI, rli: Interface, logger: Logger): Promise<v
         const severity = await askBigInt(rli, 'severity (1..3)', 2n);
         const epoch = await askBigInt(rli, 'eventEpoch', 0n);
         await api.callTx(
-          "submitLiquidationEvent",
+          "Scoring_submitLiquidationEvent",
           userPk,
           issuerPk,
           severity,
@@ -343,7 +343,7 @@ const menuLoop = async (api: VeilAPI, rli: Interface, logger: Logger): Promise<v
         const userPk = await askHexBytes(rli, 'userPk (hex)', (await resolveUserPkFromPrivateState(api)) ?? undefined);
         const issuerPk = await askHexBytes(rli, 'issuerPk (hex)', cachedIssuerPk ?? undefined);
         const epoch = await askBigInt(rli, 'eventEpoch', 0n);
-        await api.callTx("submitProtocolUsageEvent", userPk, issuerPk, randomBytes(32), epoch);
+        await api.callTx("Scoring_submitProtocolUsageEvent", userPk, issuerPk, randomBytes(32), epoch);
         logger.info('Protocol usage event submitted');
         continue;
       }
@@ -370,7 +370,7 @@ const menuLoop = async (api: VeilAPI, rli: Interface, logger: Logger): Promise<v
       if (choice === '7') {
         const userPk = await askHexBytes(rli, 'userPk (hex)', (await resolveUserPkFromPrivateState(api)) ?? undefined);
         const issuerPk = await askHexBytes(rli, 'issuerPk (hex)', cachedIssuerPk ?? undefined);
-        await api.callTx("recomputeAndReturnScore", userPk, issuerPk);
+        await api.callTx("Scoring_recomputeAndReturnScore", userPk, issuerPk);
         logger.info('Recompute score transaction submitted. Check private/ledger state for updates.');
         continue;
       }

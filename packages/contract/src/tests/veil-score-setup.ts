@@ -51,7 +51,7 @@ const defaultTokenMarkers: CustomStructs_TokenMarkers = {
 };
 
 const defaultScoreConfig: CustomStructs_ScoreConfig = {
-  baseScore: 300n,
+  baseScore: 350n,
   maxScore: 900n,
   scale: 100n,
   repaymentWeight: 2n,
@@ -71,9 +71,13 @@ export class VeilScoreSimulator {
   updateUserPrivateState: (newPrivateState: VeilPrivateState) => void;
 
   constructor(privateState: VeilPrivateState) {
+    const initialTime = BigInt(Date.now());
     const testWitnesses: Witnesses<VeilPrivateState> = {
       ...witness,
-      getCurrentTime: ({ privateState: ps }) => [ps, 0n],
+      getCurrentTime: ({ privateState: ps }) => [
+        ps,
+        [initialTime, initialTime / 1000n],
+      ],
     };
     this.contract = new Contract<VeilPrivateState>(testWitnesses);
     this.contractAddress = sampleContractAddress();
@@ -82,7 +86,7 @@ export class VeilScoreSimulator {
       this.contract.initialState(
         createConstructorContext(privateState, { bytes: randomBytes(32) }),
         randomBytes(32),
-        BigInt(Date.now())
+        initialTime
       );
 
     this.circuitContext = {
@@ -94,6 +98,17 @@ export class VeilScoreSimulator {
       ),
       costModel: CostModel.initialCostModel(),
     };
+
+    const initResult =
+      this.contract.impureCircuits.Utils_initializeContractConfigurations(
+        this.circuitContext,
+        defaultTokenImageUris,
+        "Veil PoT",
+        defaultProtocolConfig,
+        defaultScoreConfig,
+        defaultTokenMarkers
+      );
+    this.circuitContext = initResult.context;
 
     this.userPrivateStates = {
       admin: this.circuitContext.currentPrivateState,
@@ -198,7 +213,7 @@ export class VeilScoreSimulator {
   // }
 
   createScoreEntry(): void {
-    const result = this.contract.impureCircuits.createScoreEntry(
+    const result = this.contract.impureCircuits.Scoring_createScoreEntry(
       this.circuitContext
     );
     this.updateStateAndGetResult(result);
@@ -212,7 +227,7 @@ export class VeilScoreSimulator {
     eventEpoch: bigint,
     eventId: Uint8Array
   ): void {
-    const result = this.contract.impureCircuits.submitRepaymentEvent(
+    const result = this.contract.impureCircuits.Scoring_submitRepaymentEvent(
       this.circuitContext,
       userPk,
       issuerPk,
@@ -231,7 +246,7 @@ export class VeilScoreSimulator {
     eventEpoch: bigint,
     eventId: Uint8Array
   ): void {
-    const result = this.contract.impureCircuits.submitLiquidationEvent(
+    const result = this.contract.impureCircuits.Scoring_submitLiquidationEvent(
       this.circuitContext,
       userPk,
       issuerPk,
@@ -248,7 +263,7 @@ export class VeilScoreSimulator {
     protocolId: Uint8Array,
     eventEpoch: bigint
   ): void {
-    const result = this.contract.impureCircuits.submitProtocolUsageEvent(
+    const result = this.contract.impureCircuits.Scoring_submitProtocolUsageEvent(
       this.circuitContext,
       userPk,
       issuerPk,
@@ -282,7 +297,7 @@ export class VeilScoreSimulator {
     userPk: Uint8Array,
     issuerPk: Uint8Array
   ): CustomStructs_CreditScore {
-    const result = this.contract.impureCircuits.recomputeAndReturnScore(
+    const result = this.contract.impureCircuits.Scoring_recomputeAndReturnScore(
       this.circuitContext,
       userPk,
       issuerPk

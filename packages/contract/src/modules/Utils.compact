@@ -4,7 +4,7 @@ module Utils {
     import GlobalLedgerStates prefix LedgerStates_;
 
     export witness getLocalSecreteKey(): Bytes<32>;
-    export witness getCurrentTime(): Uint<64>;
+    export witness getCurrentTime(): [Uint<64>, Uint<64>];
     export witness getCreditScoreByPk(_userPk: Bytes<32>): Maybe<CustomStructs_CreditScore>;
     export witness getAccumulatedScoreByPk(_userPk: Bytes<32>): Maybe<CustomStructs_ScoreAccumulators>;
     export witness updatedCreditScore(_userPk: Bytes<32>, creditScore: CustomStructs_CreditScore): [];
@@ -31,12 +31,12 @@ module Utils {
     }
 
     export circuit retieveAndVerifyCurrentTime(): Uint<64>{
-        const currentTime = disclose(getCurrentTime());
-        const isValid = blockTimeGte(currentTime);
+        const [currentTimeInMs, currentTimeInSeconds] = disclose(getCurrentTime());
+        const isValid = blockTimeLte(currentTimeInSeconds);
         consoleLog(isValid);
         assert (isValid, "Invalid time provided");
 
-        return currentTime;
+        return currentTimeInMs;
     }
 
     export circuit generateUserPk(sk: Bytes<32>): Bytes<32>{

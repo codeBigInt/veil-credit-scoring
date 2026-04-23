@@ -44,6 +44,8 @@ module Admin {
         return newIssuerPk;
     }
 
+    /** FEATURES PENDING NODE TX LIMIT FIX **/
+    
     // export circuit removeIssuer(
     //     _issuerPk: Bytes<32>
     // ): []{
