@@ -4,6 +4,8 @@ import {
   type EncPublicKey,
   type FinalizedTransaction,
   LedgerParameters,
+  nativeToken,
+  unshieldedToken,
   ZswapSecretKeys,
 } from '@midnight-ntwrk/ledger-v8';
 import { type MidnightProvider, type UnboundTransaction, type WalletProvider } from '@midnight-ntwrk/midnight-js-types';
@@ -19,6 +21,9 @@ type UnshieldedKeystore = {
   signData(payload: Uint8Array): string;
 };
 
+type TokenKind = 'shielded' | 'unshielded' | 'dust';
+type TokenKindsToBalance = 'all' | TokenKind[];
+
 export class MidnightWalletProvider implements MidnightProvider, WalletProvider {
   readonly logger: Logger;
   readonly env: EnvironmentConfiguration;
@@ -26,6 +31,7 @@ export class MidnightWalletProvider implements MidnightProvider, WalletProvider 
   readonly unshieldedKeystore: UnshieldedKeystore;
   readonly zswapSecretKeys: ZswapSecretKeys;
   readonly dustSecretKey: DustSecretKey;
+  private tokenKindsToBalanceOverride?: TokenKindsToBalance;
 
   private constructor(
     logger: Logger,
@@ -51,15 +57,49 @@ export class MidnightWalletProvider implements MidnightProvider, WalletProvider 
     return this.zswapSecretKeys.encryptionPublicKey;
   }
 
-  async balanceTx(tx: UnboundTransaction, ttl: Date = ttlOneHour()): Promise<FinalizedTransaction> {
-    const recipe = await this.wallet.balanceUnboundTransaction(
-      tx,
-      { shieldedSecretKeys: this.zswapSecretKeys, dustSecretKey: this.dustSecretKey },
-      { ttl },
-    );
+  private async logFeeLiquidity(context: string): Promise<void> {
+    const state = await this.wallet.waitForSyncedState();
+    const dustBalance = state.dust.balance(new Date());
+    const shieldedNight = state.shielded.balances[nativeToken().raw] ?? 0n;
+    const unshieldedNight = state.unshielded.balances[unshieldedToken().raw] ?? 0n;
 
-    const signedRecipe = await this.wallet.signRecipe(recipe, (payload: Uint8Array) => this.unshieldedKeystore.signData(payload));
-    return this.wallet.finalizeRecipe(signedRecipe);
+    this.logger.info(
+      `${context} fee liquidity | dust=${dustBalance.toString()} | shieldedNight=${shieldedNight.toString()} | unshieldedNight=${unshieldedNight.toString()}`,
+    );
+  }
+
+  withTokenKindsToBalance<T>(
+    tokenKindsToBalance: TokenKindsToBalance,
+    fn: () => Promise<T>,
+  ): Promise<T> {
+    const previous = this.tokenKindsToBalanceOverride;
+    this.tokenKindsToBalanceOverride = tokenKindsToBalance;
+    return fn().finally(() => {
+      this.tokenKindsToBalanceOverride = previous;
+    });
+  }
+
+  async balanceTx(tx: UnboundTransaction, ttl: Date = ttlOneHour()): Promise<FinalizedTransaction> {
+    const secretKeys = { shieldedSecretKeys: this.zswapSecretKeys, dustSecretKey: this.dustSecretKey };
+    await this.logFeeLiquidity('Before balanceTx');
+    const tokenKindsToBalance = this.tokenKindsToBalanceOverride ?? 'all';
+    try {
+      const recipe = await this.wallet.balanceUnboundTransaction(tx, secretKeys, { ttl, tokenKindsToBalance });
+      const signedRecipe = await this.wallet.signRecipe(recipe, (payload: Uint8Array) => this.unshieldedKeystore.signData(payload));
+      return this.wallet.finalizeRecipe(signedRecipe);
+    } catch (error) {
+      const maybeError = error as { tokenType?: unknown; amount?: unknown; message?: unknown };
+      this.logger.error(
+        {
+          tokenKindsToBalance,
+          tokenType: maybeError?.tokenType,
+          amount: maybeError?.amount,
+          message: maybeError?.message,
+        },
+        'balanceTx failed',
+      );
+      throw error;
+    }
   }
 
   submitTx(tx: FinalizedTransaction): Promise<string> {

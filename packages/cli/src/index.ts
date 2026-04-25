@@ -5,8 +5,9 @@ import { randomBytes as nodeRandomBytes } from 'node:crypto';
 import { WebSocket } from 'ws';
 import { Logger } from 'pino';
 import { Contract as CompactContract, CompiledContract } from '@midnight-ntwrk/compact-js';
-import { fromHex, toHex, type ContractState } from '@midnight-ntwrk/compact-runtime';
+import { encodeContractAddress, fromHex, toHex, type ContractState } from '@midnight-ntwrk/compact-runtime';
 import { nativeToken, unshieldedToken } from '@midnight-ntwrk/ledger-v8';
+import { createCircuitMaintenanceTxInterface } from '@midnight-ntwrk/midnight-js-contracts';
 import { levelPrivateStateProvider } from '@midnight-ntwrk/midnight-js-level-private-state-provider';
 import { indexerPublicDataProvider } from '@midnight-ntwrk/midnight-js-indexer-public-data-provider';
 import { NodeZkConfigProvider } from '@midnight-ntwrk/midnight-js-node-zk-config-provider';
@@ -34,6 +35,10 @@ import {
   type CustomStructs_TokenMarkers,
   pureCircuits,
 } from '../../contract/src/managed/veil-protocol/contract/index.js';
+import {
+  Contract as VeilBootstrapContractClass,
+  type Witnesses as VeilBootstrapWitnesses,
+} from '../../contract/src/managed/veil-protocol-bootstrap/contract/index.js';
 
 (globalThis as unknown as { WebSocket: unknown }).WebSocket = WebSocket;
 
@@ -44,6 +49,7 @@ const PRIVATE_STATE_ID = 'veil_ps';
 
 type VeilContract = VeilContractClass<VeilPrivateState, VeilWitnesses<VeilPrivateState>>;
 type VeilAPI = DynamicContractAPI<VeilContract, typeof PRIVATE_STATE_ID>;
+type VeilBootstrapContract = VeilBootstrapContractClass<VeilPrivateState, VeilBootstrapWitnesses<VeilPrivateState>>;
 
 const randomBytes = (length: number): Uint8Array => new Uint8Array(nodeRandomBytes(length));
 
@@ -113,6 +119,14 @@ const formatContractState = (value: unknown): unknown => {
 const compiledVeilContract = (zkConfigPath: string): CompiledContract.CompiledContract<any, any> =>
   utils.createCompiledContract<VeilContract>('veil-protocol', VeilContractClass as any, witness as any, zkConfigPath) as any;
 
+const compiledVeilBootstrapContract = (zkConfigPath: string): CompiledContract.CompiledContract<any, any> =>
+  utils.createCompiledContract<VeilBootstrapContract>(
+    'veil-protocol-bootstrap',
+    VeilBootstrapContractClass as any,
+    witness as any,
+    zkConfigPath,
+  ) as any;
+
 const configureProviders = async (
   config: Config,
   walletProvider: MidnightWalletProvider,
@@ -137,18 +151,102 @@ const configureProviders = async (
   };
 };
 
+const withZkConfigPath = (
+  providers: DynamicProviders<VeilContract, typeof PRIVATE_STATE_ID>,
+  env: EnvironmentConfiguration,
+  zkConfigPath: string,
+): DynamicProviders<VeilContract, typeof PRIVATE_STATE_ID> => {
+  const zkConfigProvider = new NodeZkConfigProvider<CompactContract.ProvableCircuitId<VeilContract>>(zkConfigPath);
+  return {
+    ...providers,
+    zkConfigProvider,
+    proofProvider: httpClientProofProvider(env.proofServer, zkConfigProvider),
+  };
+};
+
 const prompt = async (rli: Interface, question: string): Promise<string> => (await rli.question(question)).trim();
+
+const FULL_CONTRACT_CIRCUITS = [
+  'Utils_generateUserPk',
+  'Utils_initializeContractConfigurations',
+  'NFT_verifyPoTNFT',
+  'NFT_mintPoTNFT',
+  'NFT_renewPoTNFT',
+  'Scoring_submitRepaymentEvent',
+  'Scoring_submitLiquidationEvent',
+  'Scoring_submitProtocolUsageEvent',
+  'Scoring_submitDebtStateEvent',
+  'Scoring_createScoreEntry',
+  'Admin_addIssuer',
+  'Admin_removeIssuer',
+  'Admin_updateTokenUris',
+  'Admin_addAdmin',
+  'Admin_removeAdmin',
+  'Admin_updatedProtocolConfig',
+  'Admin_updatedScoreConfig',
+] as const;
+
+const installFullContractVerifierKeys = async (
+  providers: DynamicProviders<VeilContract, typeof PRIVATE_STATE_ID>,
+  compiledContract: CompiledContract.CompiledContract<any, any>,
+  contractAddress: string,
+  logger: Logger,
+): Promise<void> => {
+  for (const circuitId of FULL_CONTRACT_CIRCUITS) {
+    const [[, verifierKey]] = await providers.zkConfigProvider.getVerifierKeys([circuitId]);
+    logger.info(`Installing verifier key for ${circuitId}`);
+    await createCircuitMaintenanceTxInterface(
+      providers as any,
+      circuitId as any,
+      compiledContract,
+      contractAddress,
+    ).insertVerifierKey(verifierKey);
+  }
+};
+
+const deployStagedContract = async (
+  providers: DynamicProviders<VeilContract, typeof PRIVATE_STATE_ID>,
+  config: Config,
+  env: EnvironmentConfiguration,
+  logger: Logger,
+): Promise<VeilAPI> => {
+  const initialPrivateState = createVeilPrivateState(randomBytes(32));
+  const args = [randomBytes(32), BigInt(Date.now())] as const;
+  const bootstrapProviders = withZkConfigPath(providers, env, config.bootstrapZkConfigPath);
+  const fullCompiledContract = compiledVeilContract(config.zkConfigPath);
+
+  const bootstrapApi = await DynamicContractAPI.deploy<VeilBootstrapContract, typeof PRIVATE_STATE_ID>({
+    providers: bootstrapProviders as any,
+    compiledContract: compiledVeilBootstrapContract(config.bootstrapZkConfigPath),
+    privateStateId: PRIVATE_STATE_ID,
+    initialPrivateState,
+    args: [...args],
+    logger,
+  });
+
+  logger.info(`Bootstrap contract deployed at ${bootstrapApi.deployedContractAddress}`);
+  await installFullContractVerifierKeys(providers, fullCompiledContract, bootstrapApi.deployedContractAddress, logger);
+
+  return DynamicContractAPI.join<VeilContract, typeof PRIVATE_STATE_ID>({
+    providers,
+    compiledContract: fullCompiledContract,
+    contractAddress: bootstrapApi.deployedContractAddress,
+    privateStateId: PRIVATE_STATE_ID,
+    logger,
+  });
+};
 
 const deployOrJoin = async (
   providers: DynamicProviders<VeilContract, typeof PRIVATE_STATE_ID>,
   config: Config,
+  env: EnvironmentConfiguration,
   rli: Interface,
   logger: Logger,
 ): Promise<VeilAPI | null> => {
   while (true) {
     const choice = await prompt(
       rli,
-      '\n1. Deploy new Veil contract\n2. Join deployed Veil contract\n3. Exit\nChoose: ',
+      '\n1. Deploy new Veil contract\n2. Deploy staged Veil contract\n3. Join deployed Veil contract\n4. Exit\nChoose: ',
     );
 
     if (choice === '1') {
@@ -169,6 +267,10 @@ const deployOrJoin = async (
     }
 
     if (choice === '2') {
+      return deployStagedContract(providers, config, env, logger);
+    }
+
+    if (choice === '3') {
       const address = await prompt(rli, 'Enter deployed contract address: ');
       try {
         const api = await DynamicContractAPI.join<VeilContract, typeof PRIVATE_STATE_ID>({
@@ -182,11 +284,11 @@ const deployOrJoin = async (
         logger.info(`Joined contract at ${api.deployedContractAddress}`);
         return api;
       } catch (error) {
-        logger.error(error instanceof Error ? error.message : String(error));
+        logDeepError(logger, 'Failed to join deployed contract', error);
       }
     }
 
-    if (choice === '3') return null;
+    if (choice === '4') return null;
   }
 };
 
@@ -216,6 +318,11 @@ const resolveUserPkFromPrivateState = async (api: VeilAPI): Promise<Uint8Array |
   const keys = Object.keys(ps.creditScores);
   if (keys.length === 0) return null;
   return fromHex(keys[0] as string);
+};
+
+const resolveOwnershipSecretFromPrivateState = async (api: VeilAPI): Promise<Uint8Array | null> => {
+  const ps = await getPrivateState(api);
+  return ps?.ownershipSecret ?? null;
 };
 
 const askHexBytes = async (rli: Interface, label: string, fallback?: Uint8Array): Promise<Uint8Array> => {
@@ -259,7 +366,76 @@ const printPrivateState = async (api: VeilAPI): Promise<void> => {
   console.dir(formatContractState(ps), { depth: null, colors: true });
 };
 
-const menuLoop = async (api: VeilAPI, rli: Interface, logger: Logger): Promise<void> => {
+const serializeError = (error: unknown, depth = 0, maxDepth = 5): unknown => {
+  if (depth > maxDepth) return '[max-depth-reached]';
+
+  if (error instanceof Error) {
+    const base: Record<string, unknown> = {
+      name: error.name,
+      message: error.message,
+      stack: error.stack,
+    };
+
+    const knownFields = ['reason', 'statusCode', 'json', 'details', 'code'];
+    const errorRecord = error as unknown as Record<string, unknown>;
+    for (const field of knownFields) {
+      const value = errorRecord[field];
+      if (value !== undefined) {
+        base[field] = serializeError(value, depth + 1, maxDepth);
+      }
+    }
+
+    const cause = (error as { cause?: unknown }).cause;
+    if (cause !== undefined) {
+      base.cause = serializeError(cause, depth + 1, maxDepth);
+    }
+
+    return base;
+  }
+
+  if (Array.isArray(error)) {
+    return error.map((item) => serializeError(item, depth + 1, maxDepth));
+  }
+
+  if (error && typeof error === 'object') {
+    const entries = Object.entries(error as Record<string, unknown>).map(([key, value]) => [
+      key,
+      serializeError(value, depth + 1, maxDepth),
+    ]);
+    return Object.fromEntries(entries);
+  }
+
+  return error;
+};
+
+const logDeepError = (logger: Logger, context: string, error: unknown): void => {
+  logger.error(
+    {
+      context,
+      error: serializeError(error),
+    },
+    context,
+  );
+};
+
+const isInsufficientFundsError = (error: unknown): boolean => {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.includes('Wallet.InsufficientFunds') || message.includes('Insufficient funds');
+};
+
+const getDustBalance = async (walletFacade: WalletFacade): Promise<bigint> => {
+  const state = await walletFacade.waitForSyncedState();
+  return state.dust.balance(new Date());
+};
+
+const menuLoop = async (
+  api: VeilAPI,
+  rli: Interface,
+  logger: Logger,
+  walletProvider: MidnightWalletProvider,
+  walletFacade: WalletFacade,
+  seed: string,
+): Promise<void> => {
   let cachedIssuerPk: Uint8Array | null = null;
 
   while (true) {
@@ -271,7 +447,7 @@ const menuLoop = async (api: VeilAPI, rli: Interface, logger: Logger): Promise<v
     try {
       if (choice === '1') {
         const protocolName = await prompt(rli, 'Protocol name [default: Aave]: ');
-        await api.callTx("Admin_addIssuer", protocolName || 'Aave', { bytes: randomBytes(32) });
+        await api.callTx("Admin_addIssuer", protocolName || 'Aave', {bytes: encodeContractAddress("331ca6599ac1eb37ae3ad5c3bce4d026dd7a4b849016317f79955adc34e4ad75")});
         const issuerPk = await getAnyIssuerPk(api);
         if (!issuerPk) {
           logger.info('Issuer transaction submitted, but no issuer key could be resolved from ledger yet.');
@@ -297,9 +473,9 @@ const menuLoop = async (api: VeilAPI, rli: Interface, logger: Logger): Promise<v
       }
 
       if (choice === '3') {
-        await api.callTx("Scoring_createScoreEntry");
-        const userPk = await resolveUserPkFromPrivateState(api);
-        logger.info(`Score entry created. userPk=${userPk ? toHex(userPk) : 'unknown'}`);
+        const userPk = await askHexBytes(rli, 'userPk (hex)', (await resolveUserPkFromPrivateState(api)) ?? undefined);
+        await api.callTx("Scoring_createScoreEntry", userPk);
+        logger.info(`Score entry created. userPk=${toHex(userPk)}`);
         continue;
       }
 
@@ -367,17 +543,39 @@ const menuLoop = async (api: VeilAPI, rli: Interface, logger: Logger): Promise<v
       //   continue;
       // }
 
-      if (choice === '7') {
-        const userPk = await askHexBytes(rli, 'userPk (hex)', (await resolveUserPkFromPrivateState(api)) ?? undefined);
-        const issuerPk = await askHexBytes(rli, 'issuerPk (hex)', cachedIssuerPk ?? undefined);
-        await api.callTx("Scoring_recomputeAndReturnScore", userPk, issuerPk);
-        logger.info('Recompute score transaction submitted. Check private/ledger state for updates.');
-        continue;
-      }
+      // if (choice === '7') {
+      //   const userPk = await askHexBytes(rli, 'userPk (hex)', (await resolveUserPkFromPrivateState(api)) ?? undefined);
+      //   const issuerPk = await askHexBytes(rli, 'issuerPk (hex)', cachedIssuerPk ?? undefined);
+      //   await api.callTx("Scoring_recomputeAndReturnScore", userPk, issuerPk);
+      //   logger.info('Recompute score transaction submitted. Check private/ledger state for updates.');
+      //   continue;
+      // }
 
       if (choice === '8') {
-        await api.callTx('NFT_mintPoTNFT');
-        logger.info('PoT NFT minted');
+        try {
+          await walletProvider.withTokenKindsToBalance(['unshielded', 'dust'], () => api.callTx('NFT_mintPoTNFT'));
+          logger.info('PoT NFT minted');
+        } catch (error) {
+          if (!isInsufficientFundsError(error)) throw error;
+
+          logger.warn('Insufficient shielded funds for mint. Generating dust and retrying once...');
+          const tx = await generateDust(logger, seed, walletFacade);
+          if (tx) {
+            logger.info(`Dust tx submitted: ${tx}`);
+          }
+          await syncWallet(logger, walletFacade);
+
+          const dustBalance = await getDustBalance(walletFacade);
+          logger.info(`Dust balance before retry: ${dustBalance.toString()}`);
+          if (dustBalance <= 0n) {
+            throw new Error(
+              'Dust balance is still zero after dust registration sync. Fund the wallet with more NIGHT (new UTXO) and retry mint.',
+            );
+          }
+
+          await walletProvider.withTokenKindsToBalance(['unshielded', 'dust'], () => api.callTx('NFT_mintPoTNFT'));
+          logger.info('PoT NFT minted');
+        }
         continue;
       }
 
@@ -390,7 +588,15 @@ const menuLoop = async (api: VeilAPI, rli: Interface, logger: Logger): Promise<v
 
       if (choice === '10') {
         const issuerPk = await askHexBytes(rli, 'issuerPk (hex)', cachedIssuerPk ?? undefined);
-        await api.callTx('NFT_verifyPoTNFT', issuerPk);
+        const userPk = await askHexBytes(rli, 'userPk (hex)', (await resolveUserPkFromPrivateState(api)) ?? undefined);
+        const challenge = await askHexBytes(rli, 'challenge (hex)', randomBytes(32));
+        const challengeExpiresAt = await askBigInt(rli, 'challengeExpiresAt ms', BigInt(Date.now() + 60_000));
+        const ownershipSecret = await askHexBytes(
+          rli,
+          'ownershipSecret (hex)',
+          (await resolveOwnershipSecretFromPrivateState(api)) ?? undefined,
+        );
+        await api.callTx('NFT_verifyPoTNFT', issuerPk, userPk, challenge, challengeExpiresAt, ownershipSecret);
         logger.info('Verify PoTNFT transaction submitted.');
         continue;
       }
@@ -408,7 +614,7 @@ const menuLoop = async (api: VeilAPI, rli: Interface, logger: Logger): Promise<v
 
       if (choice === '13') return;
     } catch (error) {
-      logger.error(error instanceof Error ? error.message : String(error));
+      logDeepError(logger, 'Menu action failed', error);
     }
   }
 };
@@ -460,18 +666,18 @@ export const run = async (config: Config, testEnv: TestEnvironment, logger: Logg
     logger.info(`NIGHT balance: ${nightBalance ?? 0n}`);
 
     if (config.generateDust) {
-      const tx = await generateDust(logger, seed, unshieldedState, walletFacade);
+      const tx = await generateDust(logger, seed, walletFacade);
       if (tx) {
         logger.info(`Dust tx submitted: ${tx}`);
-        await syncWallet(logger, walletFacade);
       }
+      await syncWallet(logger, walletFacade);
     }
 
     const providers = await configureProviders(config, walletProvider, envConfiguration);
-    const api = await deployOrJoin(providers, config, rli, logger);
+    const api = await deployOrJoin(providers, config, envConfig, rli, logger);
     if (!api) return;
 
-    await menuLoop(api, rli, logger);
+    await menuLoop(api, rli, logger, walletProvider, walletFacade, seed);
   } finally {
     for (const provider of providersToStop) {
       await provider.stop();

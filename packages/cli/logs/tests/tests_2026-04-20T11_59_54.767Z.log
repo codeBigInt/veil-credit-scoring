@@ -1,2 +1,0 @@
-[13:00:46.737] INFO (252063): Initializing wallet builder for undeployed
-[13:00:46.810] INFO (252063): Creating dust wallet with params: {"indexerClientConnection":{"indexerHttpUrl":"http://127.0.0.1:32810/api/v4/graphql","indexerWsUrl":"ws://127.0.0.1:32810/api/v4/graphql/ws"},"provingServerUrl":"http://127.0.0.1:32809/","networkId":"undeployed","relayURL":"ws://127.0.0.1:32808/","txHistoryStorage":{"entries":{}},"costParameters":{"ledgerParams":{"__wbg_ptr":4654560},"additionalFeeOverhead":"500000000000000000","feeBlocksMargin":5}}

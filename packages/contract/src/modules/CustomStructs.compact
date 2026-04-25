@@ -51,7 +51,7 @@ module CustomStructs {
     };
 
     export struct PoTNFTMetadata {
-        uri: Opaque<"string">; // image uri for NFT
+        uri: Bytes<32>; // token marker for offchain URI resolution
         tokenId: Uint<64>;    // unique NFT identifier
         nonce: Bytes<32>;       // replay protection for score submissions
         tier: Tier;        // tier at time of minting (snapshot)
@@ -60,6 +60,7 @@ module CustomStructs {
         isRevoked: Boolean;      // if user defaulted post-mint
         expiresAtEpoch: Uint<64>;       // NFTs expire — trust is time-bounded
         creditScoreCommitment: Bytes<32>;
+        ownershipCommitment: Bytes<32>; // Commitment proving the NFT owner's authorization secret
     };
 
     export struct ProtocolConfig {

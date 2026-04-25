@@ -1,18 +1,24 @@
-import type { CustomStructs_CreditScore, CustomStructs_ScoreAccumulators, Ledger } from "./managed/veil-protocol/contract";
-import { MerkleTreePath, toHex, WitnessContext } from "@midnight-ntwrk/compact-runtime";
+import type {
+  CustomStructs_CreditScore,
+  CustomStructs_ScoreAccumulators,
+  Ledger,
+} from "./managed/veil-protocol/contract";
+import { fromHex, MerkleTreePath, sampleSigningKey, toHex, WitnessContext } from "@midnight-ntwrk/compact-runtime";
 import { CustomStructs_Tier } from "./managed/veil-protocol/contract";
 
 export interface VeilPrivateState {
     creditScores: Record<string, CustomStructs_CreditScore>,
     scoreAmmulations: Record<string, CustomStructs_ScoreAccumulators>,
-    secreteKey: Uint8Array
+    secreteKey: Uint8Array,
+    ownershipSecret: Uint8Array;
 }
 
 export function createVeilPrivateState(secreteKey: Uint8Array): VeilPrivateState {
     return {
         secreteKey,
         scoreAmmulations: {},
-        creditScores: {}
+        creditScores: {},
+        ownershipSecret: fromHex(sampleSigningKey())
     }
 }
 
@@ -53,15 +59,13 @@ export const defaultScoreAccumulators = {
   mtIndex: 0n,                      
 };
 
-
 export const witness = {
     getLocalSecreteKey: ({ privateState }: WitnessContext<Ledger, VeilPrivateState>): [VeilPrivateState, Uint8Array] => {
         return [privateState, privateState.secreteKey]
     },
 
-    consoleLog: ({ privateState }: WitnessContext<Ledger, VeilPrivateState>, value: boolean): [VeilPrivateState, []] => {
-        console.log(`Current time validity: `, value)
-        return [privateState, []]
+    getOwnershipSecret: ({ privateState }: WitnessContext<Ledger, VeilPrivateState>): [VeilPrivateState, Uint8Array] => {
+        return [privateState, privateState.ownershipSecret]
     },
 
 
@@ -187,6 +191,7 @@ export const witness = {
             }]
         }
     },
+
     getFirstFreeCreditScoreIndex: ({ privateState, ledger}: WitnessContext<Ledger, VeilPrivateState>): [VeilPrivateState, bigint] => {
         return [privateState, ledger.LedgerStates_creditScoreCommitments.firstFree()]
     },
@@ -198,23 +203,23 @@ export const witness = {
     determineNftRating: (
         { privateState, ledger }: WitnessContext<Ledger, VeilPrivateState>,
         userPk: Uint8Array
-    ): [VeilPrivateState, [string, number]] => {
+    ): [VeilPrivateState, [Uint8Array, number]] => {
         const strUserPk = toHex(userPk);
         const score = privateState.creditScores[strUserPk] ?? defaultCreditScore;
         const ratio = score.repaymentRatio;
 
         const config = ledger.LedgerStates_protocolConfig;
-        const uris = ledger.LedgerStates_tokenImageUris;
+        const markers = ledger.LedgerStates_tokenMarkers;
 
-        const returnValue: [string, number] = ratio >= config.platinumThreshold
-            ? [uris.platinum, CustomStructs_Tier.platinum]
+        const returnValue: [Uint8Array, number] = ratio >= config.platinumThreshold
+            ? [markers.platinum, CustomStructs_Tier.platinum]
             : ratio >= config.goldThreshold
-            ? [uris.gold, CustomStructs_Tier.gold]
+            ? [markers.gold, CustomStructs_Tier.gold]
             : ratio >= config.silverThreshold
-            ? [uris.silver, CustomStructs_Tier.silver]
+            ? [markers.silver, CustomStructs_Tier.silver]
             : ratio >= config.bronzeThreshold
-            ? [uris.bronze, CustomStructs_Tier.bronze]
-            : [uris.unranked, CustomStructs_Tier.unranked];
+            ? [markers.bronze, CustomStructs_Tier.bronze]
+            : [new Uint8Array(32), CustomStructs_Tier.unranked];
 
         return [privateState, returnValue];
     },

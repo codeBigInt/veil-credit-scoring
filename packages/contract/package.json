@@ -14,11 +14,11 @@
     }
   },
   "scripts": {
-    "test:compile": "compact compile --skip-zk src/main.compact ./src/managed/veil-protocol",
+    "test:compile": "compact compile --skip-zk src/main.compact ./src/managed/veil-protocol && compact compile --skip-zk src/bootstrap.compact ./src/managed/veil-protocol-bootstrap",
     "test": "vitest",
     "test:run": "vitest run",
-    "compile": "compact compile src/main.compact ./src/managed/veil-protocol",
-    "build": "rm -rf dist && tsc --project tsconfig.build.json && mkdir -p dist && cp -Rf ./src/managed ./dist/managed && cp ./src/main.compact ./dist && cp -Rf ./src/modules ./dist"
+    "compile": "compact compile src/main.compact ./src/managed/veil-protocol && compact compile src/bootstrap.compact ./src/managed/veil-protocol-bootstrap",
+    "build": "rm -rf dist && tsc --project tsconfig.build.json && mkdir -p dist && cp -Rf ./src/managed ./dist/managed && cp ./src/main.compact ./dist && cp ./src/bootstrap.compact ./dist && cp -Rf ./src/modules ./dist"
   },
   "devDependencies": {
     "@types/node": "^24.8.1",

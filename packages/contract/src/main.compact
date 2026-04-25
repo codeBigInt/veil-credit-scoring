@@ -30,24 +30,24 @@ export {
 
     /** Score entrypoints */
     Scoring_submitLiquidationEvent, Scoring_submitProtocolUsageEvent, Scoring_submitRepaymentEvent, 
-    Scoring_recomputeAndReturnScore, Scoring_createScoreEntry,
-    // Scoring_submitDebtStateEvent, 
+    Scoring_createScoreEntry, Scoring_submitDebtStateEvent, 
 
     /** Custom struct definitions */
     CustomStructs_CreditScore, CustomStructs_Issuer, CustomStructs_PoTNFTMetadata, CustomStructs_ProtocolConfig, CustomStructs_ScoreAccumulators,
     CustomStructs_ScoreConfig, CustomStructs_TokenImageUris, CustomStructs_TokenMarkers, CustomStructs_UserMetadata, CustomStructs_Tier,
 
     /** Admin entrypoints */
-    Admin_addIssuer,
+    Admin_addIssuer, 
+    Admin_removeIssuer, Admin_addAdmin, Admin_removeAdmin, Admin_updatedProtocolConfig, Admin_updatedScoreConfig, Admin_updateTokenUris,
 
     /** Ledger states */
-    LedgerStates_issuerTrustWeights, LedgerStates_processedScoreEvents, LedgerStates_epochLastUpdateTimeStamp, LedgerStates_elapsedEpoch, LedgerStates_EPOCH_DURATION, LedgerStates_scaleFactor,
+    LedgerStates_issuerTrustWeights, LedgerStates_processedScoreEvents, LedgerStates_usedVerificationChallenges, LedgerStates_epochLastUpdateTimeStamp, LedgerStates_elapsedEpoch, LedgerStates_EPOCH_DURATION, LedgerStates_scaleFactor,
     LedgerStates_tokenMarkers, LedgerStates_tokenIssueCounter, LedgerStates_tokenName, LedgerStates_tokenImageUris, LedgerStates_superAdmin, LedgerStates_protocolConfig, 
     LedgerStates_issuers, LedgerStates_nftRegistry, LedgerStates_creditScoreCommitments, LedgerStates_scoreAccumulatorCommitments, LedgerStates_scoreConfig,
-    LedgerStates_userCreditScoreIndex, LedgerStates_userAccumulatorIndex, 
+    LedgerStates_admins,
     
     /** Utility circuits */
-    Utils_initializeContractConfigurations
+    Utils_initializeContractConfigurations, Utils_generateUserPk
 };
 
 constructor(
@@ -58,7 +58,7 @@ constructor(
     LedgerStates_tokenIssueCounter.increment(1);
     LedgerStates_nonce = disclose(_nonce);
     LedgerStates_domainSeperator = pad(32, "veil:protocol:nft");
-    LedgerStates_EPOCH_DURATION = 432000; //5 days cycle just like on cardano
+    LedgerStates_EPOCH_DURATION = 432000000; // 5 days in milliseconds
     LedgerStates_epochLastUpdateTimeStamp = disclose(_currentTime);
     LedgerStates_scaleFactor = 1000000;
 }

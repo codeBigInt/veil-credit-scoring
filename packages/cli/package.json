@@ -11,6 +11,7 @@
     "preprod-remote": "node --experimental-specifier-resolution=node --loader ts-node/esm src/launcher/preprod.ts"
   },
   "dependencies": {
+    "@midnight-ntwrk/midnight-js-contracts": "^4.0.4",
     "@veil/veil-contract": "workspace:*"
   },
   "devDependencies": {

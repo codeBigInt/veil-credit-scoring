@@ -1,35 +1,69 @@
 module PoTNFT {
     import CompactStandardLibrary;
     import Utils prefix Utils_;
-    import GlobalLedgerStates;
+    import GlobalLedgerStates prefix LedgerStates_;
     import CustomStructs prefix CustomStructs_;
 
-    export circuit verifyPoTNFT( _issuerPk: Bytes<32> ): Boolean {
+    export circuit verifyPoTNFT(
+        _issuerPk: Bytes<32>,
+        _userPk: Bytes<32>,
+        _challenge: Bytes<32>,
+        _challengeExpiresAt: Uint<64>,
+        _ownershipSecret: Bytes<32>
+    ): Boolean {
         
-        assert (issuers.member(disclose(_issuerPk)), "Unauthorized");
+        const issuerPk = disclose(_issuerPk);
+        assert (LedgerStates_issuers.member(issuerPk), "Unauthorized");
+        const issuer = LedgerStates_issuers.lookup(issuerPk);
+        assert (issuer.isApproved, "Unauthorized");
 
-        Utils_computeCurrentEpoch();  // Lazy epoch update
-        
-        const userPk = Utils_generateUserPk(disclose(Utils_getLocalSecreteKey()));
+        const userPk = disclose(_userPk);
+        assert (LedgerStates_nftRegistry.member(userPk), "PoTNFT for specified user does not exist");
 
-        assert (nftRegistry.member(userPk), "PoTNFT for specified user does not exist");
+        const challenge = disclose(_challenge);
+        const challengeExpiresAt = disclose(_challengeExpiresAt);
+        const challengeHash = persistentHash<Vector<6, Bytes<32>>>([
+            pad(32, "veil:verify"),
+            userPk,
+            issuerPk,
+            challenge,
+            (challengeExpiresAt as Field) as Bytes<32>,
+            kernel.self().bytes
+        ]);
+        assert (!LedgerStates_usedVerificationChallenges.member(challengeHash), "Verification challenge already used");
 
-        const nftMetadata = nftRegistry.lookup(userPk);
+        const nftMetadata = LedgerStates_nftRegistry.lookup(userPk);
+
+        const ownershipCommitment = persistentCommit<Bytes<32>>(userPk, _ownershipSecret);
+        assert (ownershipCommitment == nftMetadata.ownershipCommitment, "Unauthorised: Invalid ownership secret provided");
+
         const creditScoreCommitment = nftMetadata.creditScoreCommitment;
-
         Utils_assetCreditScoreValidity(creditScoreCommitment);
 
-        assert (blockTimeLte(nftMetadata.expiresAtEpoch), "PoTNFT is expired, reminting required");
+        const currentTime = Utils_retieveAndVerifyCurrentTime();
+        assert (challengeExpiresAt >= currentTime, "Verification challenge expired");
+
+        LedgerStates_usedVerificationChallenges.insert(challengeHash);
+
+        if(nftMetadata.expiresAtEpoch < currentTime){
+            const revokedMetadata = CustomStructs_PoTNFTMetadata {
+                ...nftMetadata,
+                isRevoked: true
+            };
+            LedgerStates_nftRegistry.insert(userPk, revokedMetadata);
+
+            return false;
+        }
 
         assert (!nftMetadata.isRevoked, "Proof of Trustworthiness has been revoked");
-
+        
         return true;
     }
 
 
     export circuit mintPoTNFT(): []{
         const userPk = Utils_generateUserPk(disclose(Utils_getLocalSecreteKey()));
-        assert (!nftRegistry.member(userPk), "PoTNFT already exists, use renewPoTNFT");
+        assert (!LedgerStates_nftRegistry.member(userPk), "PoTNFT already exists, use renewPoTNFT");
 
         Utils_computeCurrentEpoch();  // Lazy epoch update
         
@@ -47,33 +81,33 @@ module PoTNFT {
 
         const nftMetadata = CustomStructs_PoTNFTMetadata {
             uri: uri, // image uri for NFT
-            tokenId: tokenIssueCounter.read(),    // unique NFT identifier
-            nonce: nonce,      // replay protection for score submissions
+            tokenId: LedgerStates_tokenIssueCounter.read(),    // unique NFT identifier
+            nonce: LedgerStates_nonce,      // replay protection for score submissions
             tier: tier,        // tier at time of minting (snapshot)
             mintedAt: currentTime,       // when it was minted
-            trustDuration: elapsedEpoch.read(),       // weeks of behavior proven at mint time
+            trustDuration: LedgerStates_elapsedEpoch.read(),       // weeks of behavior proven at mint time
             isRevoked: false,      // if user defaulted post-mint
-            expiresAtEpoch: (epochLastUpdateTimeStamp + EPOCH_DURATION) as Uint<64>,       // NFTs expire — trust is time-bounded
+            expiresAtEpoch: (LedgerStates_epochLastUpdateTimeStamp + LedgerStates_EPOCH_DURATION) as Uint<64>,       // NFTs expire — trust is time-bounded
             creditScoreCommitment: creditScoreCommitment,
+            ownershipCommitment: persistentCommit<Bytes<32>>(userPk, disclose(Utils_getOwnershipSecret()))            
         };
 
-        Utils_mintNewToken();
+        LedgerStates_nftRegistry.insert(userPk, nftMetadata);
 
-
-        nftRegistry.insert(userPk, nftMetadata);
+        Utils_mintAndSendToken();
     }
 
     export circuit renewPoTNFT( _token: ShieldedCoinInfo ): []{
         const userPk = Utils_generateUserPk(disclose(Utils_getLocalSecreteKey()));
-        assert (nftRegistry.member(userPk), "You have not minted a PoTNFT previously");
+        assert (LedgerStates_nftRegistry.member(userPk), "You have not minted a PoTNFT previously");
 
         const token = disclose(_token);
-        const mintTokenColor = tokenType(domainSeperator, kernel.self());
+        const mintTokenColor = tokenType(LedgerStates_domainSeperator, kernel.self());
 
         assert (token.color == mintTokenColor, "Invalid PoTNFT provided for renewal");
         assert (token.value == 1, "Invalid PoTNFT value provided for renewal");
 
-        const existingMetadata = nftRegistry.lookup(userPk);
+        const existingMetadata = LedgerStates_nftRegistry.lookup(userPk);
         assert (!existingMetadata.isRevoked, "Proof of Trustworthiness has been revoked");
 
         Utils_computeCurrentEpoch();  // Lazy epoch update
@@ -81,47 +115,43 @@ module PoTNFT {
         const userCreditScore = Utils_recomputeAndPersistScore(userPk);
         const creditScoreCommitment = persistentCommit<CustomStructs_CreditScore>(userCreditScore, userPk);
 
-        Utils_assetCreditScoreValidity(creditScoreCommitment);
-
-        const currentTime = Utils_retieveAndVerifyCurrentTime();
+        const currentTime = LedgerStates_epochLastUpdateTimeStamp;
         const [uri, tier] = disclose(Utils_determineNftRating(userPk));
 
         const nftMetadata = CustomStructs_PoTNFTMetadata {
+            ...existingMetadata,
             uri: uri, // image uri for NFT
-            tokenId: existingMetadata.tokenId,    // stable per-user PoTNFT position id
-            nonce: nonce,      // replay protection for score submissions
+            nonce: LedgerStates_nonce,      // replay protection for score submissions
             tier: tier,        // tier at time of renewal (snapshot)
             mintedAt: currentTime,       // when it was last renewed
-            trustDuration: elapsedEpoch.read(),       // weeks of behavior proven at renewal time
-            isRevoked: false,
-            expiresAtEpoch: (epochLastUpdateTimeStamp + EPOCH_DURATION) as Uint<64>,
+            trustDuration: LedgerStates_elapsedEpoch.read(),       // weeks of behavior proven at renewal time
+            expiresAtEpoch: (LedgerStates_epochLastUpdateTimeStamp + LedgerStates_EPOCH_DURATION) as Uint<64>,
             creditScoreCommitment: creditScoreCommitment,
         };
 
-        Utils_mintNewToken();
-        nftRegistry.insert(userPk, nftMetadata);
+        Utils_mintAndSendToken();
+        LedgerStates_nftRegistry.insert(userPk, nftMetadata);
         
         const burnAddress = shieldedBurnAddress();
         sendImmediateShielded(token, burnAddress, token.value);
     }
 
 
-    // export circuit revokePoTNFT(
-    //     _userPk: Bytes<32>,
-    //     _adminPk: Bytes<32>
-    // ): []{
-    //     Utils_assertAuthorization(disclose(_adminPk));
+    export circuit revokePoTNFT(
+        _userPk: Bytes<32>,
+        _adminPk: Bytes<32>
+    ): []{
+        Utils_assertAuthorization(disclose(_adminPk));
 
-    //     const userPk = disclose(_userPk);
-    //     assert (nftRegistry.member(userPk), "PoTNFT for specified user does not exist");
+        const userPk = disclose(_userPk);
+        assert (LedgerStates_nftRegistry.member(userPk), "PoTNFT for specified user does not exist");
+        const nftMetadata = LedgerStates_nftRegistry.lookup(userPk);
 
-    //     const nftMetadata = nftRegistry.lookup(userPk);
+        const updatedNftMetadata = CustomStructs_PoTNFTMetadata {
+            ...nftMetadata,
+            isRevoked: true
+        };
 
-    //     const updatedNftMetadata = CustomStructs_PoTNFTMetadata {
-    //         ...nftMetadata,
-    //         isRevoked: true
-    //     };
-
-    //     nftRegistry.insert(userPk, updatedNftMetadata);
-    // }
+        LedgerStates_nftRegistry.insert(userPk, updatedNftMetadata);
+    }
 }

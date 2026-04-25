@@ -1,5 +1,5 @@
 import { type WalletFacade } from '@midnight-ntwrk/wallet-sdk-facade';
-import { createKeystore, UnshieldedWalletState } from '@midnight-ntwrk/wallet-sdk-unshielded-wallet';
+import { createKeystore } from '@midnight-ntwrk/wallet-sdk-unshielded-wallet';
 import { Logger } from 'pino';
 import { HDWallet, Roles } from '@midnight-ntwrk/wallet-sdk-hd';
 import { getNetworkId } from '@midnight-ntwrk/midnight-js-network-id';
@@ -19,18 +19,21 @@ const getUnshieldedSeed = (seed: string): Uint8Array<ArrayBufferLike> => {
 export const generateDust = async (
   logger: Logger,
   walletSeed: string,
-  unshieldedState: UnshieldedWalletState,
   walletFacade: WalletFacade,
 ) => {
-  const dustState = await walletFacade.dust.waitForSyncedState();
+  const facadeState = await walletFacade.waitForSyncedState();
+  const dustState = facadeState.dust;
+  const previousDustBalance = dustState.balance(new Date());
   const networkId = getNetworkId();
   const unshieldedKeystore = createKeystore(getUnshieldedSeed(walletSeed), networkId);
-  const utxos = unshieldedState.availableCoins.filter((coin: UnshieldedWalletState['availableCoins'][number]) => {
+  const utxos = facadeState.unshielded.availableCoins.filter((coin) => {
     return !coin.meta.registeredForDustGeneration;
   });
 
   if (utxos.length === 0) {
-    logger.info('No unregistered UTXOs found for dust generation.');
+    logger.info(
+      `No unregistered UTXOs found for dust generation. Current dust balance: ${previousDustBalance.toString()}`,
+    );
     return;
   }
 
@@ -44,12 +47,19 @@ export const generateDust = async (
   const transaction = await walletFacade.finalizeRecipe(recipe);
   const txId = await walletFacade.submitTransaction(transaction);
 
-  const dustBalance = await rx.firstValueFrom(
-    walletFacade.state().pipe(
-      rx.filter((s: any) => s.dust.balance(new Date()) > 0n),
-      rx.map((s: any) => s.dust.balance(new Date())),
-    ),
-  );
+  let dustBalance = previousDustBalance;
+  try {
+    dustBalance = await rx.firstValueFrom(
+      walletFacade.state().pipe(
+        rx.map((s: any) => s.dust.balance(new Date())),
+        rx.filter((balance: bigint) => balance > previousDustBalance),
+        rx.timeout({ first: 120_000 }),
+      ),
+    );
+  } catch {
+    // Dust registration is submitted; balance increase can lag behind chain/indexer sync.
+    dustBalance = (await walletFacade.waitForSyncedState()).dust.balance(new Date());
+  }
 
   logger.info(`Dust generation tx submitted: ${txId}; dust balance: ${dustBalance}`);
   return txId;

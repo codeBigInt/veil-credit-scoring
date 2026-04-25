@@ -29,12 +29,11 @@ module Admin {
         const newIssuerPk = Utils_generateIssuerPk(localSecreteKey);
 
         assert (!LedgerStates_issuers.member(newIssuerPk), "Issuer with specified key already exists");
-        const currentTime = Utils_retieveAndVerifyCurrentTime();
 
         const newIssuer = CustomStructs_Issuer{
             ...default<CustomStructs_Issuer>,
             isApproved: true,
-            registeredEpoch: currentTime,
+            registeredEpoch: LedgerStates_epochLastUpdateTimeStamp,
             contractAddress: disclose(_contractAddress),
             protocolName: disclose(_protocolName)
         };
@@ -46,61 +45,57 @@ module Admin {
 
     /** FEATURES PENDING NODE TX LIMIT FIX **/
     
-    // export circuit removeIssuer(
-    //     _issuerPk: Bytes<32>
-    // ): []{
-    //     const disclosedIssuerPk = disclose(_issuerPk);
-    //     assert (LedgerStates_issuers.member(disclosedIssuerPk), "Issuer with specified key does not exist");
+    export circuit removeIssuer(
+        _issuerPk: Bytes<32>
+    ): []{
+        const disclosedIssuerPk = disclose(_issuerPk);
+        assert (LedgerStates_issuers.member(disclosedIssuerPk), "Issuer with specified key does not exist");
         
-    //     Utils_assertAuthorization(disclose(Utils_getLocalSecreteKey()));
+        Utils_assertAuthorization(disclose(Utils_getLocalSecreteKey()));
 
-    //     LedgerStates_issuers.remove(disclosedIssuerPk);
-    // }
+        LedgerStates_issuers.remove(disclosedIssuerPk);
+    }
 
-    // export circuit updateTokenUris(
-    //     _tokenImageUris: CustomStructs_TokenImageUris,
-    //     _updatedScoreConfig: CustomStructs_ScoreConfig
-    // ): []{
-    //     const authSignatureStatus = Utils_assertAuthorization(disclose(Utils_getLocalSecreteKey()));
-    //     assert (authSignatureStatus, "Unauthorized");
+    export circuit updateTokenUris(
+        _tokenImageUris: CustomStructs_TokenImageUris,
+        _updatedScoreConfig: CustomStructs_ScoreConfig
+    ): []{
+        Utils_assertAuthorization(disclose(Utils_getLocalSecreteKey()));
 
-    //     LedgerStates_tokenImageUris = disclose(_tokenImageUris);
-    // }
+        LedgerStates_tokenImageUris = disclose(_tokenImageUris);
+    }
 
-    // export circuit addAdmin(
-    //     _adminPk: Bytes<32>
-    // ): []{
-    //     const superAdminpk = Utils_generateAdminPk(Utils_getLocalSecreteKey());
-    //     assert (superAdminpk == LedgerStates_superAdmin, "Unauthorized");
+    export circuit addAdmin(
+        _adminPk: Bytes<32>
+    ): []{
+        const superAdminpk = Utils_generateAdminPk(Utils_getLocalSecreteKey());
+        assert (superAdminpk == LedgerStates_superAdmin, "Unauthorized");
 
-    //     const newAdminPk = Utils_generateUserPk(disclose(Utils_getLocalSecreteKey()));
-    //     LedgerStates_admins.insert(newAdminPk);
-    // }
+        const newAdminPk = Utils_generateUserPk(disclose(Utils_getLocalSecreteKey()));
+        LedgerStates_admins.insert(newAdminPk);
+    }
 
-    // export circuit removeAdmin(
-    //     _adminPk: Bytes<32>
-    // ): []{
-    //     const authSignatureStatus = Utils_assertAuthorization(disclose(Utils_getLocalSecreteKey()));
-    //     assert (authSignatureStatus, "Unauthorized");
+    export circuit removeAdmin(
+        _adminPk: Bytes<32>
+    ): []{
+        Utils_assertAuthorization(disclose(Utils_getLocalSecreteKey()));
 
-    //     LedgerStates_admins.remove(disclose(_adminPk));
-    // }
+        LedgerStates_admins.remove(disclose(_adminPk));
+    }
 
-    // export circuit updatedProtocolConfig(
-    //     _updatedConfig: CustomStructs_ProtocolConfig
-    // ): []{
-    //     const authSignatureStatus = Utils_assertAuthorization(disclose(Utils_getLocalSecreteKey()));
-    //     assert (authSignatureStatus, "Unauthorized");
+    export circuit updatedProtocolConfig(
+        _updatedConfig: CustomStructs_ProtocolConfig
+    ): []{
+        Utils_assertAuthorization(disclose(Utils_getLocalSecreteKey()));
 
-    //     LedgerStates_protocolConfig = disclose(_updatedConfig);
-    // }
+        LedgerStates_protocolConfig = disclose(_updatedConfig);
+    }
 
-    // export circuit updatedScoreConfig(
-    //     _updatedScoreConfig: CustomStructs_ScoreConfig
-    // ): []{
-    //     const authSignatureStatus = Utils_assertAuthorization(disclose(Utils_getLocalSecreteKey()));
-    //     assert (authSignatureStatus, "Unauthorized");
+    export circuit updatedScoreConfig(
+        _updatedScoreConfig: CustomStructs_ScoreConfig
+    ): []{
+        Utils_assertAuthorization(disclose(Utils_getLocalSecreteKey()));
 
-    //     LedgerStates_scoreConfig = disclose(_updatedScoreConfig);
-    // }
+        LedgerStates_scoreConfig = disclose(_updatedScoreConfig);
+    }
 }

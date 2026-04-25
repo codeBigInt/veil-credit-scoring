@@ -26,6 +26,7 @@ export interface Config {
   readonly privateStateStoreName: string;
   readonly logDir: string;
   readonly zkConfigPath: string;
+  readonly bootstrapZkConfigPath: string;
   getEnvironment(logger: Logger): TestEnvironment;
   readonly requestFaucetTokens: boolean;
   readonly generateDust: boolean;
@@ -34,11 +35,13 @@ export interface Config {
 export const currentDir = path.resolve(new URL(import.meta.url).pathname, '..');
 
 const contractZkPath = path.resolve(currentDir, '..', '..', 'contract', 'src', 'managed', 'veil-protocol');
+const contractBootstrapZkPath = path.resolve(currentDir, '..', '..', 'contract', 'src', 'managed', 'veil-protocol-bootstrap');
 
 export class StandaloneConfig implements Config {
   privateStateStoreName = 'veil-credit-private-state';
   logDir = path.resolve(currentDir, '..', 'logs', 'standalone', `${new Date().toISOString()}.log`);
   zkConfigPath = contractZkPath;
+  bootstrapZkConfigPath = contractBootstrapZkPath;
   requestFaucetTokens = false;
   generateDust = false;
 
@@ -68,6 +71,7 @@ export class PreviewConfig implements Config {
   privateStateStoreName = 'veil-credit-private-state';
   logDir = path.resolve(currentDir, '..', 'logs', 'preview-remote', `${new Date().toISOString()}.log`);
   zkConfigPath = contractZkPath;
+  bootstrapZkConfigPath = contractBootstrapZkPath;
   requestFaucetTokens = false;
   generateDust = true;
 
@@ -81,6 +85,7 @@ export class PreProdConfig implements Config {
   privateStateStoreName = 'veil-credit-private-state';
   logDir = path.resolve(currentDir, '..', 'logs', 'preprod-remote', `${new Date().toISOString()}.log`);
   zkConfigPath = contractZkPath;
+  bootstrapZkConfigPath = contractBootstrapZkPath;
   requestFaucetTokens = false;
   generateDust = true;
 
@@ -108,8 +113,8 @@ export class PreviewTestEnvironment extends RemoteTestEnvironment {
     return {
       walletNetworkId: 'preview',
       networkId: 'preview',
-      indexer: 'https://indexer.preview.midnight.network/api/v3/graphql',
-      indexerWS: 'wss://indexer.preview.midnight.network/api/v3/graphql/ws',
+      indexer: 'https://indexer.preview.midnight.network/api/v4/graphql',
+      indexerWS: 'wss://indexer.preview.midnight.network/api/v4/graphql/ws',
       node: 'https://rpc.preview.midnight.network',
       nodeWS: 'wss://rpc.preview.midnight.network',
       faucet: 'https://faucet.preview.midnight.network/api/request-tokens',
@@ -136,8 +141,8 @@ export class PreprodTestEnvironment extends RemoteTestEnvironment {
     return {
       walletNetworkId: 'preprod',
       networkId: 'preprod',
-      indexer: 'https://indexer.preprod.midnight.network/api/v3/graphql',
-      indexerWS: 'wss://indexer.preprod.midnight.network/api/v3/graphql/ws',
+      indexer: 'https://indexer.preprod.midnight.network/api/v4/graphql',
+      indexerWS: 'wss://indexer.preprod.midnight.network/api/v4/graphql/ws',
       node: 'https://rpc.preprod.midnight.network',
       nodeWS: 'wss://rpc.preprod.midnight.network',
       faucet: 'https://faucet.preprod.midnight.network/api/request-tokens',

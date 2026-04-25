@@ -1,8 +1,0 @@
-{"level":30,"time":1776884373180,"pid":434659,"hostname":"codeBigInt","msg":"Starting test environment... path=/home/codebigint/Midnight-workspace/veil-credit-scoring-protocol/packages/cli, file=compose.yml, uid=6989792991289810"}
-{"level":50,"time":1776884823034,"pid":434659,"hostname":"codeBigInt","msg":"Failed to start environment (attempt 1/3): (HTTP code 409) container stopped/paused - container 697e8c7ce97f3337630621f1641045875484b7e15a85c4133d5a9c8784b8e4de is not running "}
-{"level":40,"time":1776884823036,"pid":434659,"hostname":"codeBigInt","msg":"Retrying environment startup in 5s..."}
-{"level":30,"time":1776884828039,"pid":434659,"hostname":"codeBigInt","msg":"Starting test environment... path=/home/codebigint/Midnight-workspace/veil-credit-scoring-protocol/packages/cli, file=compose.yml, uid=6989792991289810"}
-{"level":50,"time":1776885165627,"pid":434659,"hostname":"codeBigInt","msg":"Failed to start environment (attempt 2/3): (HTTP code 409) container stopped/paused - container ae875922a73648abb9e2b5b74a5bf367645575cf14327eadb7f17000ea78e820 is not running "}
-{"level":40,"time":1776885165630,"pid":434659,"hostname":"codeBigInt","msg":"Retrying environment startup in 5s..."}
-{"level":30,"time":1776885170632,"pid":434659,"hostname":"codeBigInt","msg":"Starting test environment... path=/home/codebigint/Midnight-workspace/veil-credit-scoring-protocol/packages/cli, file=compose.yml, uid=6989792991289810"}
-{"level":50,"time":1776885519386,"pid":434659,"hostname":"codeBigInt","msg":"Failed to start environment (attempt 3/3): (HTTP code 409) container stopped/paused - container 9bd3cd7fb4352587f7df207c3c8af3dacd5840be89c341748ea01945fdc71741 is not running "}

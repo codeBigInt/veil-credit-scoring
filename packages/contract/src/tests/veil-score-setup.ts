@@ -212,9 +212,18 @@ export class VeilScoreSimulator {
   //   this.updateStateAndGetResult(result);
   // }
 
-  createScoreEntry(): void {
+  generateCurrentUserPk(): Uint8Array {
+    const result = this.contract.impureCircuits.Utils_generateUserPk(
+      this.circuitContext,
+      this.circuitContext.currentPrivateState.secreteKey
+    );
+    return this.updateStateAndGetResult(result);
+  }
+
+  createScoreEntry(userPk = this.generateCurrentUserPk()): void {
     const result = this.contract.impureCircuits.Scoring_createScoreEntry(
-      this.circuitContext
+      this.circuitContext,
+      userPk
     );
     this.updateStateAndGetResult(result);
   }
@@ -273,37 +282,26 @@ export class VeilScoreSimulator {
     this.updateStateAndGetResult(result);
   }
 
-  // submitDebtStateEvent(
-  //   userPk: Uint8Array,
-  //   issuerPk: Uint8Array,
-  //   activeDebtFlag: bigint,
-  //   riskBand: bigint,
-  //   eventEpoch: bigint,
-  //   eventId: Uint8Array
-  // ): void {
-  //   const result = this.contract.impureCircuits.Scoring_submitDebtStateEvent(
-  //     this.circuitContext,
-  //     userPk,
-  //     issuerPk,
-  //     activeDebtFlag,
-  //     riskBand,
-  //     eventEpoch,
-  //     eventId
-  //   );
-  //   this.updateStateAndGetResult(result);
-  // }
-
-  recomputeAndReturnScore(
+  submitDebtStateEvent(
     userPk: Uint8Array,
-    issuerPk: Uint8Array
-  ): CustomStructs_CreditScore {
-    const result = this.contract.impureCircuits.Scoring_recomputeAndReturnScore(
+    issuerPk: Uint8Array,
+    activeDebtFlag: bigint,
+    riskBand: bigint,
+    eventEpoch: bigint,
+    eventId: Uint8Array
+  ): void {
+    const result = this.contract.impureCircuits.Scoring_submitDebtStateEvent(
       this.circuitContext,
       userPk,
-      issuerPk
+      issuerPk,
+      activeDebtFlag,
+      riskBand,
+      eventEpoch,
+      eventId
     );
-    return this.updateStateAndGetResult(result);
+    this.updateStateAndGetResult(result);
   }
+
 
   mintPoTNFT(): void {
     const result = this.contract.impureCircuits.NFT_mintPoTNFT(this.circuitContext);
@@ -318,10 +316,20 @@ export class VeilScoreSimulator {
     this.updateStateAndGetResult(result);
   }
 
-  verifyPoTNFT(issuerPk: Uint8Array): boolean {
+  verifyPoTNFT(
+    issuerPk: Uint8Array,
+    userPk: Uint8Array,
+    challenge = randomBytes(32),
+    challengeExpiresAt = this.getLedgerState().LedgerStates_epochLastUpdateTimeStamp + 1_000n,
+    ownershipSecret = this.circuitContext.currentPrivateState.ownershipSecret
+  ): boolean {
     const result = this.contract.impureCircuits.NFT_verifyPoTNFT(
       this.circuitContext,
-      issuerPk
+      issuerPk,
+      userPk,
+      challenge,
+      challengeExpiresAt,
+      ownershipSecret
     );
     return this.updateStateAndGetResult(result);
   }
@@ -342,6 +350,16 @@ export class VeilScoreSimulator {
       throw new Error("User accumulation does not exist");
     }
     return value;
+  }
+
+  getUserPoTNFTMetadata(userPk: Uint8Array) {
+    const registry = this.circuitContext.currentQueryContext.state
+      ? ledger(this.circuitContext.currentQueryContext.state).LedgerStates_nftRegistry
+      : null;
+    if (!registry || !registry.member(userPk)) {
+      throw new Error("User PoTNFT metadata does not exist");
+    }
+    return registry.lookup(userPk);
   }
 
   getLastOutputCoin(): ShieldedCoinInfo {

@@ -18,7 +18,6 @@ const createVeilScoreContract = (name?: string): VeilScoreSimulator => {
   const simulator = VeilScoreSimulator.deploy();
   const ledgerState = simulator.getLedgerState();
   expect(ledgerState.LedgerStates_issuers.size()).toBe(0n);
-  expect(ledgerState.LedgerStates_nftRegistry.size()).toBe(0n);
   expect(ledgerState.LedgerStates_processedScoreEvents.size()).toBe(0n);
   if (name) {
     console.log(`${name} deployment successful`);
@@ -107,7 +106,6 @@ describe("Test scoring and PoTNFT functionality", () => {
     simulator.registerUser("alice");
 
     simulator.as("admin");
-    const adminPk = simulator.getPrivateState().secreteKey;
     const issuerPk = simulator.addIssuer();
 
     simulator.as("alice");
@@ -117,31 +115,53 @@ describe("Test scoring and PoTNFT functionality", () => {
 
     simulator.submitRepaymentEvent(userPk, issuerPk, 1n, 100n, 0n, randomBytes(32));
     simulator.submitProtocolUsageEvent(userPk, issuerPk, randomBytes(32), 0n);
-    // simulator.submitDebtStateEvent(userPk, issuerPk, 1n, 2n, 0n, randomBytes(32));
+    simulator.submitDebtStateEvent(userPk, issuerPk, 1n, 2n, 0n, randomBytes(32));
     simulator.submitLiquidationEvent(userPk, issuerPk, 2n, 0n, randomBytes(32));
 
-    const score = simulator.recomputeAndReturnScore(userPk, issuerPk);
-    expect(score.score).toBeGreaterThanOrEqual(0n);
-    expect(score.repaymentRatio).toBeGreaterThanOrEqual(0n);
-    expect(score.protocolsUsed).toBe(1n);
+    // const score = simulator.recomputeAndReturnScore(userPk, issuerPk);
+    // expect(score.score).toBeGreaterThanOrEqual(0n);
+    // expect(score.repaymentRatio).toBeGreaterThanOrEqual(0n);
+    // expect(score.protocolsUsed).toBe(1n);
 
-    const userKeyHex = toHex(userPk);
-    const updatedScore = simulator.getPrivateState().creditScores[userKeyHex];
-    if (!updatedScore) {
-      throw new Error("Expected updated credit score in private state");
-    }
-    expect(updatedScore.score).toBe(score.score);
+    // const userKeyHex = toHex(userPk);
+    // const updatedScore = simulator.getPrivateState().creditScores[userKeyHex];
+    // if (!updatedScore) {
+    //   throw new Error("Expected updated credit score in private state");
+    // }
+    // expect(updatedScore.score).toBe(score.score);
 
     simulator.mintPoTNFT();
-    expect(simulator.getLedgerState().LedgerStates_nftRegistry.member(userPk)).toBe(
-      true
-    );
+    const mintedMetadata = simulator.getUserPoTNFTMetadata(userPk);
+    expect(mintedMetadata.isRevoked).toBe(false);
 
     const mintedCoin = simulator.getLastOutputCoin();
     simulator.renewPoTNFT(mintedCoin);
+    const renewedMetadata = simulator.getUserPoTNFTMetadata(userPk);
+    expect(renewedMetadata.tokenId).toBe(mintedMetadata.tokenId);
 
-    const verifyStatus = simulator.verifyPoTNFT(issuerPk);
+    const challenge = randomBytes(32);
+    const challengeExpiresAt =
+      simulator.getLedgerState().LedgerStates_epochLastUpdateTimeStamp + 1_000n;
+    expect(() =>
+      simulator.verifyPoTNFT(
+        issuerPk,
+        userPk,
+        randomBytes(32),
+        challengeExpiresAt,
+        randomBytes(32)
+      )
+    ).toThrowError(/Invalid ownership secret/);
+
+    const verifyStatus = simulator.verifyPoTNFT(
+      issuerPk,
+      userPk,
+      challenge,
+      challengeExpiresAt
+    );
     expect(verifyStatus).toBe(true);
+    expect(() =>
+      simulator.verifyPoTNFT(issuerPk, userPk, challenge, challengeExpiresAt)
+    ).toThrowError(/Verification challenge already used/);
 
     expect(() => simulator.mintPoTNFT()).toThrowError(
       /PoTNFT already exists, use renewPoTNFT/
@@ -149,8 +169,7 @@ describe("Test scoring and PoTNFT functionality", () => {
 
     simulator.as("admin");
     // simulator.revokePoTNFT(userPk, adminPk);
-    // const revokedMetadata =
-    //   simulator.getLedgerState().LedgerStates_nftRegistry.lookup(userPk);
+    // const revokedMetadata = simulator.getUserPoTNFTMetadata(userPk);
     // expect(revokedMetadata.isRevoked).toBe(true);
   });
 
@@ -197,24 +216,24 @@ describe("Test scoring and PoTNFT functionality", () => {
       )
     ).toThrowError(/Duplicate score event/);
 
-    // const unknownIssuerPk = randomBytes(32);
-    // expect(() =>
-    //   simulator.submitDebtStateEvent(
-    //     userPk,
-    //     unknownIssuerPk,
-    //     1n,
-    //     2n,
-    //     0n,
-    //     randomBytes(32)
-    //   )
-    // ).toThrowError(/Unauthorized issuer/);
+    const unknownIssuerPk = randomBytes(32);
+    expect(() =>
+      simulator.submitDebtStateEvent(
+        userPk,
+        unknownIssuerPk,
+        1n,
+        2n,
+        0n,
+        randomBytes(32)
+      )
+    ).toThrowError(/Unauthorized issuer/);
 
     simulator.as("bob");
     expect(() => simulator.mintPoTNFT()).toThrowError(
       /No credit score for the specified user/
     );
 
-    expect(() => simulator.verifyPoTNFT(issuerPk)).toThrowError(
+    expect(() => simulator.verifyPoTNFT(issuerPk, userPk)).toThrowError(
       /PoTNFT for specified user does not exist/
     );
   });

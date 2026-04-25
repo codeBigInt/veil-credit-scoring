@@ -24,15 +24,6 @@ module GlobalLedgerStates {
    
     /* per-user aggregate state */
     export ledger scoreAccumulatorCommitments: HistoricMerkleTree<32, Bytes<32>>;
-    export ledger userCreditScoreIndex: Map<Bytes<32>, Uint<64>>;
-    export ledger userAccumulatorIndex: Map<Bytes<32>, Uint<64>>;
-
-
-    /**
-       @desccription {Uint<128>} nft tokenId used to track nft metadatan commitment for each user
-       @description {Bytes<32>} hashed commitment of the nft metadata stored in private state
-       @description {nftRegistry} Mapping between tokenIds and nft metadata hashed commitments
-    */
     export ledger nftRegistry: Map<Bytes<32>, CustomStructs_PoTNFTMetadata>;
 
     /**
@@ -49,7 +40,7 @@ module GlobalLedgerStates {
        @desccription {Bytes<32>} dynamic unique id generated from admin seceret key to identify each admin user
        @description {admins} set of adminIds publicly stored onchain
     */
-   //  export ledger admins: Set<Bytes<32>>;
+    export ledger admins: Set<Bytes<32>>;
      /**
        @description {superAdmin} defines an admin wallet with super priviledges to add and remove other admins
     */
@@ -97,6 +88,9 @@ module GlobalLedgerStates {
 
    /*replay protection for all scoring events */
    export ledger processedScoreEvents: Set<Bytes<32>>;
+
+   /* replay protection for NFT verification challenges */
+   export ledger usedVerificationChallenges: Set<Bytes<32>>;
 
    /* issuer impact tuning */
    export ledger issuerTrustWeights: Map<Bytes<32>, Uint<16>>;

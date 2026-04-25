@@ -5,6 +5,8 @@ node_modules
 dist
 midnight-level-db
 managed
+logs
+packages/cli/logs/
 .cache
 .pnp
 .pnp.js

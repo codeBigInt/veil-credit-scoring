@@ -1,0 +1,41 @@
+// Bootstrap deployment entrypoint.
+//
+// This contract has the same ledger layout and constructor as main.compact, but
+// exports only the circuits needed immediately after deployment. The remaining
+// circuit verifier keys can be installed later through contract maintenance.
+
+pragma language_version >= 0.22.0;
+import CompactStandardLibrary;
+import "./modules/Utils" prefix Utils_;
+import "./modules/GlobalLedgerStates" prefix LedgerStates_;
+import "./modules/CustomStructs" prefix CustomStructs_;
+import "./modules/Admin" prefix Admin_;
+
+export {
+    /** Bootstrap entrypoints */
+    Utils_generateUserPk, Utils_initializeContractConfigurations,
+    Admin_addIssuer,
+
+    /** Custom struct definitions needed by TypeScript callers */
+    CustomStructs_Issuer, CustomStructs_ProtocolConfig, CustomStructs_ScoreConfig,
+    CustomStructs_TokenImageUris, CustomStructs_TokenMarkers,
+
+    /** Ledger states */
+    LedgerStates_issuerTrustWeights, LedgerStates_processedScoreEvents, LedgerStates_usedVerificationChallenges, LedgerStates_epochLastUpdateTimeStamp, LedgerStates_elapsedEpoch, LedgerStates_EPOCH_DURATION, LedgerStates_scaleFactor,
+    LedgerStates_tokenMarkers, LedgerStates_tokenIssueCounter, LedgerStates_tokenName, LedgerStates_tokenImageUris, LedgerStates_superAdmin, LedgerStates_protocolConfig,
+    LedgerStates_issuers, LedgerStates_nftRegistry, LedgerStates_creditScoreCommitments, LedgerStates_scoreAccumulatorCommitments, LedgerStates_scoreConfig,
+    LedgerStates_admins
+};
+
+constructor(
+    _nonce: Bytes<32>,
+    _currentTime: Uint<64>
+) {
+    LedgerStates_superAdmin = Utils_generateAdminPk(disclose(Utils_getLocalSecreteKey()));
+    LedgerStates_tokenIssueCounter.increment(1);
+    LedgerStates_nonce = disclose(_nonce);
+    LedgerStates_domainSeperator = pad(32, "veil:protocol:nft");
+    LedgerStates_EPOCH_DURATION = 432000000; // 5 days in milliseconds
+    LedgerStates_epochLastUpdateTimeStamp = disclose(_currentTime);
+    LedgerStates_scaleFactor = 1000000;
+}

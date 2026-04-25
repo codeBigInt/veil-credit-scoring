@@ -11,11 +11,11 @@ module Utils {
     export witness updatedAccumulatedScore(_userPk: Bytes<32>, accumulatedScore: CustomStructs_ScoreAccumulators): [];
     export witness verifyScoreCommitment(commitmentHash: Bytes<32>): Maybe<MerkleTreePath<32, Bytes<32>>>;
     export witness verifyAggregatCommitment(commitmentHash: Bytes<32>): Maybe<MerkleTreePath<32, Bytes<32>>>;
-    export witness determineNftRating(userPk: Bytes<32>): [Opaque<"string">, CustomStructs_Tier];
+    export witness determineNftRating(userPk: Bytes<32>): [Bytes<32>, CustomStructs_Tier];
     export witness calculatedExpiredEpoch(elapsedTime: Uint<64>): Uint<64>;
     export witness getFirstFreeCreditScoreIndex(): Uint<64>;
     export witness getFirstFreeAccumulatorIndex(): Uint<64>;
-    export witness consoleLog(value: Boolean): [];
+    export witness getOwnershipSecret(): Bytes<32>;
 
     export witness computeRepaymentRatio(
         onTimeCount: Uint<32>,
@@ -33,7 +33,6 @@ module Utils {
     export circuit retieveAndVerifyCurrentTime(): Uint<64>{
         const [currentTimeInMs, currentTimeInSeconds] = disclose(getCurrentTime());
         const isValid = blockTimeLte(currentTimeInSeconds);
-        consoleLog(isValid);
         assert (isValid, "Invalid time provided");
 
         return currentTimeInMs;
@@ -68,7 +67,7 @@ module Utils {
         assert (path.is_some && LedgerStates_creditScoreCommitments.checkRoot(merkleTreePathRoot<32, Bytes<32>>(path.value)), "Credit score commitment failed verification");
     }
 
-    export circuit mintNewToken(): []{
+    export circuit mintAndSendToken(): []{
         mintShieldedToken(
             LedgerStates_domainSeperator,
             1,
@@ -81,12 +80,12 @@ module Utils {
     }
 
     export circuit computeCurrentEpoch(): []{
-        const currentTime = retieveAndVerifyCurrentTime();
-        const elapsedTime = currentTime - LedgerStates_epochLastUpdateTimeStamp;
+        const currentTimeInMs = retieveAndVerifyCurrentTime();
+        const elapsedTime = currentTimeInMs - LedgerStates_epochLastUpdateTimeStamp;
         const numberOfEpochElapsed = disclose(calculatedExpiredEpoch(elapsedTime));
         
         LedgerStates_elapsedEpoch.increment(numberOfEpochElapsed > 0 ? numberOfEpochElapsed as Uint<16> : 0);
-        LedgerStates_epochLastUpdateTimeStamp = currentTime;
+        LedgerStates_epochLastUpdateTimeStamp = currentTimeInMs;
     }
 
     export circuit assertAccumulationCommitment(commitment: Bytes<32>, accumulationStatus: Boolean): [] {
@@ -98,28 +97,12 @@ module Utils {
         }
     }
 
-    export circuit deleteAccumulationCommitmentByUser(_userPk: Bytes<32>): []{
-        const userPk = disclose(_userPk);
-
-        if (!LedgerStates_userAccumulatorIndex.member(userPk)) {
-            return;
-        }
-
-        const previousIndex = LedgerStates_userAccumulatorIndex.lookup(userPk);
-        LedgerStates_scoreAccumulatorCommitments.insertIndexDefault(previousIndex);
-        LedgerStates_userAccumulatorIndex.remove(userPk);
+    export circuit deleteAccumulationCommitmentByIndex(_index: Uint<64>): []{
+        LedgerStates_scoreAccumulatorCommitments.insertIndexDefault(disclose(_index));
     }
 
-    export circuit deleteCreditScoreCommitmentByUser(_userPk: Bytes<32>): []{
-        const userPk = disclose(_userPk);
-
-        if (!LedgerStates_userCreditScoreIndex.member(userPk)) {
-            return;
-        }
-
-        const previousIndex = LedgerStates_userCreditScoreIndex.lookup(userPk);
-        LedgerStates_creditScoreCommitments.insertIndexDefault(previousIndex);
-        LedgerStates_userCreditScoreIndex.remove(userPk);
+    export circuit deleteCreditScoreCommitmentByIndex(_index: Uint<64>): []{
+        LedgerStates_creditScoreCommitments.insertIndexDefault(disclose(_index));
     }
 
     export circuit recomputeAndPersistScore(_userPk: Bytes<32>): CustomStructs_CreditScore {
@@ -194,8 +177,9 @@ module Utils {
 
         const newCreditScoreCommitment = persistentCommit<CustomStructs_CreditScore>(creditScore, userPk);
         LedgerStates_creditScoreCommitments.insert(newCreditScoreCommitment);
-        deleteCreditScoreCommitmentByUser(userPk);
-        LedgerStates_userCreditScoreIndex.insert(userPk, firstFreeCreditScoreIndex);
+        if (existingCreditScore.is_some) {
+            deleteCreditScoreCommitmentByIndex(existingCreditScore.value.mtIndex);
+        }
         updatedCreditScore(userPk, creditScore);
 
         const updatedAcc = CustomStructs_ScoreAccumulators {
@@ -206,8 +190,7 @@ module Utils {
 
         const newAccCommitment = persistentCommit<CustomStructs_ScoreAccumulators>(updatedAcc, userPk);
         LedgerStates_scoreAccumulatorCommitments.insert(newAccCommitment);
-        deleteAccumulationCommitmentByUser(userPk);
-        LedgerStates_userAccumulatorIndex.insert(userPk, firstFreeAccumulatorIndex);
+        deleteAccumulationCommitmentByIndex(acc.mtIndex);
         updatedAccumulatedScore(userPk, updatedAcc);
 
         return creditScore;
