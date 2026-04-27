@@ -13,6 +13,20 @@ Copy `.env.example` to `.env` and set:
 
 The backend wallet must have enough NIGHT/dust liquidity to pay transaction fees. The MongoDB private-state provider stores both contract private state and contract signing keys scoped to the backend wallet account.
 
+For local development, start MongoDB before running the backend:
+
+```bash
+docker run -d --name veil-mongo -p 27017:27017 -v veil_mongo_data:/data/db mongo:7
+```
+
+If the container already exists, start it again with:
+
+```bash
+docker start veil-mongo
+```
+
+The proof server must also be reachable at `VEIL_PROOF_SERVER_URL`.
+
 ## Run
 
 ```bash
@@ -21,16 +35,8 @@ cd packages/backend
 bun run dev
 ```
 
-## Endpoints
+## API
 
-- `GET /api/health`
-- `POST /api/challenge`
-- `GET /api/jobs/:id`
-- `POST /api/score-entry`
-- `POST /api/verify-pot-nft`
-- `POST /api/events/repayment`
-- `POST /api/events/liquidation`
-- `POST /api/events/protocol-usage`
-- `POST /api/events/debt-state`
+Use the versioned API under `/api/v1`. See [API.md](./API.md) for the full integration guide, request schemas, response examples, and job polling flow.
 
-Transaction endpoints return `202 Accepted` with a queued job id. Poll `GET /api/jobs/:id` for the transaction result.
+Transaction endpoints return `202 Accepted` with a queued job id. Poll `GET /api/v1/jobs/:jobId` for the transaction result.

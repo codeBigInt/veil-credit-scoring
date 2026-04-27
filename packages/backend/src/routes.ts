@@ -1,9 +1,7 @@
-import type { Request, Response, Router } from 'express';
-import { Router as createRouter } from 'express';
+import express, { type Request, type Response, type Router } from 'express';
 import { toHex } from '@midnight-ntwrk/compact-runtime';
 
 import type { ContractService } from './services/contract-service.js';
-import { formatJob, type TxQueue } from './services/tx-queue.js';
 import {
   optionalBigInt,
   optionalBytes,
@@ -13,152 +11,118 @@ import {
   toJsonSafe,
 } from './http-utils.js';
 
-type AsyncHandler = (req: Request, res: Response) => Promise<void>;
+const errorMessage = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
-const asyncHandler =
-  (handler: AsyncHandler) =>
-  (req: Request, res: Response): void => {
-    handler(req, res).catch((error) => {
-      res.status(400).json({ error: error instanceof Error ? error.message : String(error) });
-    });
-  };
-
-const enqueueResponse = async (
-  res: Response,
-  queue: TxQueue,
-  name: string,
-  run: () => Promise<unknown>,
-): Promise<void> => {
-  const job = await queue.enqueue(name, run);
-  res.status(202).json(toJsonSafe(formatJob(job)));
+const sendError = (res: Response, status: number, message: string): void => {
+  res.status(status).json({ success: false, message });
 };
 
-export const buildRouter = (contract: ContractService, queue: TxQueue): Router => {
-  const router = createRouter();
+export const buildRouter = (contract: ContractService): Router => {
+  const router = express.Router();
 
-  router.get('/health', (_req, res) => {
-    res.json({ ok: true });
+  router.get('/health', (_req: Request, res: Response) => {
+    res.status(200).json({ success: true, service: 'veil-backend', version: 'v1' });
   });
 
-  router.get(
-    '/jobs/:id',
-    asyncHandler(async (req, res) => {
-      const id = req.params.id;
-      if (typeof id !== 'string') {
-        res.status(400).json({ error: 'Job id is required' });
-        return;
-      }
-
-      const job = await queue.get(id);
-      if (!job) {
-        res.status(404).json({ error: 'Job not found' });
-        return;
-      }
-      res.json(toJsonSafe(formatJob(job)));
-    }),
-  );
-
-  router.post(
-    '/score-entry',
-    asyncHandler(async (req, res) => {
+  router.post('/score-entries', async (req: Request, res: Response) => {
+    try {
       const body = req.body as Record<string, unknown>;
       const userPk = requiredBytes(body, 'userPk');
-      await enqueueResponse(res, queue, 'Scoring_createScoreEntry', () => contract.createScoreEntry(userPk));
-    }),
-  );
+      const result = await contract.createScoreEntry(userPk);
+      res.status(200).json(toJsonSafe({ success: true, result }));
+    } catch (error) {
+      sendError(res, 500, errorMessage(error));
+    }
+  });
 
-  router.post(
-    '/verify-pot-nft',
-    asyncHandler(async (req, res) => {
+  router.post('/pot-nft/verifications', async (req: Request, res: Response) => {
+    try {
       const body = req.body as Record<string, unknown>;
       const challenge = optionalBytes(body, 'challenge', randomBytes32());
       const challengeExpiresAt = optionalBigInt(body, 'challengeExpiresAt', BigInt(Date.now() + 60_000));
+      const result = await contract.verifyPoTNFT({
+        issuerPk: requiredBytes(body, 'issuerPk'),
+        userPk: requiredBytes(body, 'userPk'),
+        challenge,
+        challengeExpiresAt,
+        ownershipSecret: requiredBytes(body, 'ownershipSecret'),
+      });
+      res.status(200).json(toJsonSafe({ success: true, result }));
+    } catch (error) {
+      sendError(res, 500, errorMessage(error));
+    }
+  });
 
-      await enqueueResponse(res, queue, 'NFT_verifyPoTNFT', () =>
-        contract.verifyPoTNFT({
-          issuerPk: requiredBytes(body, 'issuerPk'),
-          userPk: requiredBytes(body, 'userPk'),
-          challenge,
-          challengeExpiresAt,
-          ownershipSecret: requiredBytes(body, 'ownershipSecret'),
-        }),
-      );
-    }),
-  );
-
-  router.post(
-    '/events/repayment',
-    asyncHandler(async (req, res) => {
+  router.post('/scoring-events/repayments', async (req: Request, res: Response) => {
+    try {
       const body = req.body as Record<string, unknown>;
-      await enqueueResponse(res, queue, 'Scoring_submitRepaymentEvent', () =>
-        contract.submitRepaymentEvent({
-          userPk: requiredBytes(body, 'userPk'),
-          issuerPk: requiredBytes(body, 'issuerPk'),
-          paidOnTimeFlag: requiredBigInt(body, 'paidOnTimeFlag'),
-          amountWeight: requiredBigInt(body, 'amountWeight'),
-          eventEpoch: requiredBigInt(body, 'eventEpoch'),
-          eventId: optionalBytes(body, 'eventId', randomBytes32()),
-        }),
-      );
-    }),
-  );
+      const result = await contract.submitRepaymentEvent({
+        userPk: requiredBytes(body, 'userPk'),
+        issuerPk: requiredBytes(body, 'issuerPk'),
+        paidOnTimeFlag: requiredBigInt(body, 'paidOnTimeFlag'),
+        amountWeight: requiredBigInt(body, 'amountWeight'),
+        eventEpoch: requiredBigInt(body, 'eventEpoch'),
+        eventId: optionalBytes(body, 'eventId', randomBytes32()),
+      });
+      res.status(200).json(toJsonSafe({ success: true, result }));
+    } catch (error) {
+      sendError(res, 500, errorMessage(error));
+    }
+  });
 
-  router.post(
-    '/events/liquidation',
-    asyncHandler(async (req, res) => {
+  router.post('/scoring-events/liquidations', async (req: Request, res: Response) => {
+    try {
       const body = req.body as Record<string, unknown>;
-      await enqueueResponse(res, queue, 'Scoring_submitLiquidationEvent', () =>
-        contract.submitLiquidationEvent({
-          userPk: requiredBytes(body, 'userPk'),
-          issuerPk: requiredBytes(body, 'issuerPk'),
-          severity: requiredBigInt(body, 'severity'),
-          eventEpoch: requiredBigInt(body, 'eventEpoch'),
-          eventId: optionalBytes(body, 'eventId', randomBytes32()),
-        }),
-      );
-    }),
-  );
+      const result = await contract.submitLiquidationEvent({
+        userPk: requiredBytes(body, 'userPk'),
+        issuerPk: requiredBytes(body, 'issuerPk'),
+        severity: requiredBigInt(body, 'severity'),
+        eventEpoch: requiredBigInt(body, 'eventEpoch'),
+        eventId: optionalBytes(body, 'eventId', randomBytes32()),
+      });
+      res.status(200).json(toJsonSafe({ success: true, result }));
+    } catch (error) {
+      sendError(res, 500, errorMessage(error));
+    }
+  });
 
-  router.post(
-    '/events/protocol-usage',
-    asyncHandler(async (req, res) => {
+  router.post('/scoring-events/protocol-usage', async (req: Request, res: Response) => {
+    try {
       const body = req.body as Record<string, unknown>;
-      await enqueueResponse(res, queue, 'Scoring_submitProtocolUsageEvent', () =>
-        contract.submitProtocolUsageEvent({
-          userPk: requiredBytes(body, 'userPk'),
-          issuerPk: requiredBytes(body, 'issuerPk'),
-          protocolId: requiredBytes(body, 'protocolId'),
-          eventEpoch: requiredBigInt(body, 'eventEpoch'),
-        }),
-      );
-    }),
-  );
+      const result = await contract.submitProtocolUsageEvent({
+        userPk: requiredBytes(body, 'userPk'),
+        issuerPk: requiredBytes(body, 'issuerPk'),
+        protocolId: requiredBytes(body, 'protocolId'),
+        eventEpoch: requiredBigInt(body, 'eventEpoch'),
+      });
+      res.status(200).json(toJsonSafe({ success: true, result }));
+    } catch (error) {
+      sendError(res, 500, errorMessage(error));
+    }
+  });
 
-  router.post(
-    '/events/debt-state',
-    asyncHandler(async (req, res) => {
+  router.post('/scoring-events/debt-states', async (req: Request, res: Response) => {
+    try {
       const body = req.body as Record<string, unknown>;
-      await enqueueResponse(res, queue, 'Scoring_submitDebtStateEvent', () =>
-        contract.submitDebtStateEvent({
-          userPk: requiredBytes(body, 'userPk'),
-          issuerPk: requiredBytes(body, 'issuerPk'),
-          activeDebtFlag: requiredBigInt(body, 'activeDebtFlag'),
-          riskBand: requiredBigInt(body, 'riskBand'),
-          eventEpoch: requiredBigInt(body, 'eventEpoch'),
-          eventId: optionalBytes(body, 'eventId', randomBytes32()),
-        }),
-      );
-    }),
-  );
+      const result = await contract.submitDebtStateEvent({
+        userPk: requiredBytes(body, 'userPk'),
+        issuerPk: requiredBytes(body, 'issuerPk'),
+        activeDebtFlag: requiredBigInt(body, 'activeDebtFlag'),
+        riskBand: requiredBigInt(body, 'riskBand'),
+        eventEpoch: requiredBigInt(body, 'eventEpoch'),
+        eventId: optionalBytes(body, 'eventId', randomBytes32()),
+      });
+      res.status(200).json(toJsonSafe({ success: true, result }));
+    } catch (error) {
+      sendError(res, 500, errorMessage(error));
+    }
+  });
 
-  router.post(
-    '/challenge',
-    asyncHandler(async (_req, res) => {
-      const challenge = randomBytes32();
-      const challengeExpiresAt = BigInt(Date.now() + 60_000);
-      res.json(toJsonSafe({ challenge: toHex(challenge), challengeExpiresAt }));
-    }),
-  );
+  router.post('/challenges', (_req: Request, res: Response) => {
+    const challenge = randomBytes32();
+    const challengeExpiresAt = BigInt(Date.now() + 60_000);
+    res.status(201).json(toJsonSafe({ challenge: toHex(challenge), challengeExpiresAt }));
+  });
 
   return router;
 };

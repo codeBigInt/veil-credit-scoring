@@ -48,7 +48,10 @@ export class ContractService {
   ): Promise<ContractService> {
     const walletProvider = await BackendWalletProvider.build(logger, env, config.walletSeed);
     await walletProvider.start();
-    await walletProvider.wallet.waitForSyncedState();
+    walletProvider.wallet
+      .waitForSyncedState()
+      .then(() => logger.info('Backend wallet sync complete'))
+      .catch((err) => logger.error({ err }, 'Backend wallet sync failed'));
 
     const service = new ContractService(config, env, db, logger, walletProvider);
     await service.join();

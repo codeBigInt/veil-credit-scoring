@@ -213,7 +213,7 @@ export class VeilScoreSimulator {
   // }
 
   generateCurrentUserPk(): Uint8Array {
-    const result = this.contract.impureCircuits.Utils_generateUserPk(
+    const result = this.contract.circuits.Utils_generateUserPk(
       this.circuitContext,
       this.circuitContext.currentPrivateState.secreteKey
     );

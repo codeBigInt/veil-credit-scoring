@@ -1,18 +1,30 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import { useWallet } from '@/context/WalletContext';
 import { syncNetworkId } from '@/utils/network-id';
 import { PRIVATE_STATE_ID, makeFullCompiledContract } from '@/contract-api-utils';
-import { fromHex, sampleSigningKey } from '@midnight-ntwrk/compact-runtime';
+import { createCircuitContext, fromHex, sampleSigningKey, toHex } from '@midnight-ntwrk/compact-runtime';
+import { DynamicContractAPI } from 'nite-api';
+import { Contract, ledger, VeilPrivateState, witness, Witnesses } from '@veil/veil-contract';
+import { ProvableCircuitId } from '@midnight-ntwrk/compact-js';
+import { FetchZkConfigProvider } from '@midnight-ntwrk/midnight-js-fetch-zk-config-provider';
+import { httpClientProofProvider } from '@midnight-ntwrk/midnight-js-http-client-proof-provider';
+import { Transaction } from '@midnight-ntwrk/ledger-v8';
+import { indexerPublicDataProvider } from '@midnight-ntwrk/midnight-js-indexer-public-data-provider';
+import { levelPrivateStateProvider } from '@midnight-ntwrk/midnight-js-level-private-state-provider';
+import { filter, firstValueFrom } from 'rxjs';
 
 const NETWORK_ID = 'preprod';
 const PREPROD_ENV = {
   indexer: 'https://indexer.preprod.midnight.network/api/v4/graphql',
   indexerWS: 'wss://indexer.preprod.midnight.network/api/v4/graphql/ws',
 };
-const BACKEND_URL = 'http://localhost:8081';
+const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? 'http://localhost:8081';
+const CONTRACT_ADDRESS = process.env.NEXT_PUBLIC_CONTRACT_ADDRESS ?? '';
 
-type LogEntry = { ts: string; msg: string; kind: 'info' | 'success' | 'error' };
+type VeilContrat = Contract<VeilPrivateState, Witnesses<VeilPrivateState>>;
+type CircuitKeys = ProvableCircuitId<VeilContrat>;
+
 type ScoreStatus = 'idle' | 'submitting' | 'pending' | 'done' | 'error';
 
 function browserRandomBytes(n: number): Uint8Array {
@@ -20,18 +32,15 @@ function browserRandomBytes(n: number): Uint8Array {
   window.crypto.getRandomValues(b);
   return b;
 }
-
 function bytesToHex(bytes: Uint8Array): string {
   return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
 }
-
 function hexToBytes(hex: string): Uint8Array {
   const h = hex.startsWith('0x') ? hex.slice(2) : hex;
   const out = new Uint8Array(h.length / 2);
   for (let i = 0; i < h.length; i += 2) out[i / 2] = parseInt(h.slice(i, i + 2), 16);
   return out;
 }
-
 function serializeError(err: unknown, depth = 0): string {
   if (depth > 4) return '[max depth]';
   if (err == null) return 'Unknown error';
@@ -56,296 +65,400 @@ function serializeError(err: unknown, depth = 0): string {
   }
   return String(err);
 }
-
 function createInitialPrivateState(secreteKey: Uint8Array) {
-  return {
-    secreteKey,
-    scoreAmmulations: {},
-    creditScores: {},
-    ownershipSecret: fromHex(sampleSigningKey()),
-  };
+  return { secreteKey, scoreAmmulations: {}, creditScores: {}, ownershipSecret: fromHex(sampleSigningKey()) };
+}
+function shortAddr(addr: string) {
+  return `${addr.slice(0, 8)}…${addr.slice(-6)}`;
+}
+
+/* ── Skeleton shimmer ── */
+function Shimmer({ className }: { className?: string }) {
+  return (
+    <div
+      className={`animate-pulse rounded-lg bg-[#1a2535]/60 ${className ?? ''}`}
+      style={{ backgroundImage: 'linear-gradient(90deg,#1a2535 25%,#243040 50%,#1a2535 75%)', backgroundSize: '200% 100%', animation: 'shimmer 1.6s infinite' }}
+    />
+  );
+}
+
+/* ── Stat card ── */
+function StatCard({ label, value, sub, shimmer }: { label: string; value?: string; sub?: string; shimmer?: boolean }) {
+  return (
+    <div className="rounded-2xl p-5 flex flex-col gap-2" style={{ background: '#0d141c', border: '1px solid #1a2535' }}>
+      <p className="text-xs uppercase tracking-widest text-[#4a5568]">{label}</p>
+      {shimmer ? (
+        <Shimmer className="h-7 w-3/4" />
+      ) : (
+        <p className="text-lg font-bold text-white font-mono break-all leading-tight">{value ?? '—'}</p>
+      )}
+      {sub && !shimmer && <p className="text-xs text-[#4a5568] mt-0.5">{sub}</p>}
+      {shimmer && <Shimmer className="h-3 w-1/2 mt-1" />}
+    </div>
+  );
+}
+
+/* ── Step row ── */
+function StepRow({ n, label, done, active }: { n: string; label: string; done?: boolean; active?: boolean }) {
+  return (
+    <div className="flex items-center gap-3">
+      <span
+        className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0"
+        style={done ? { background: '#00e5c0', color: '#062019' } : active ? { background: '#1c242f', border: '1px solid #00e5c0', color: '#00e5c0' } : { background: '#1a2535', color: '#4a5568' }}
+      >
+        {done ? '✓' : n}
+      </span>
+      <span className={`text-sm font-medium ${done ? 'text-[#00e5c0]' : active ? 'text-white' : 'text-[#4a5568]'}`}>{label}</span>
+    </div>
+  );
 }
 
 export default function DashboardPage() {
   const { isConnected, isConnecting, walletApi, connect, walletAddress, disconnect } = useWallet();
 
-  const [contractInput, setContractInput] = useState('');
-  const [logs, setLogs] = useState<LogEntry[]>([]);
-
   const [joinedAddress, setJoinedAddress] = useState<string | null>(null);
-  const joinedRef = useRef<{ api: any; providers: any; coinPublicKey: string } | null>(null);
+  const joinedRef = useRef<{ api: any; coinPublicKey: string; providers: any } | null>(null);
   const [isJoining, setIsJoining] = useState(false);
-
   const [userPk, setUserPk] = useState<string | null>(null);
   const [isDeriving, setIsDeriving] = useState(false);
-
   const [hasMinted, setHasMinted] = useState(false);
   const [isMinting, setIsMinting] = useState(false);
   const [isRenewing, setIsRenewing] = useState(false);
-
   const [scoreStatus, setScoreStatus] = useState<ScoreStatus>('idle');
-  const [scoreJobId, setScoreJobId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  const addLog = (msg: string, kind: LogEntry['kind'] = 'info') => {
-    const ts = new Date().toLocaleTimeString();
-    setLogs((prev) => [...prev, { ts, msg, kind }]);
-  };
+  /* Auto-join once wallet connects, if we have a contract address */
+  useEffect(() => {
+    if (isConnected && walletApi && CONTRACT_ADDRESS && !joinedAddress && !isJoining) {
+      void handleJoin();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isConnected, walletApi]);
 
   const buildProviders = async (walletApi: any, zkBasePath: string) => {
-    const [
-      { FetchZkConfigProvider },
-      { httpClientProofProvider },
-      { indexerPublicDataProvider },
-      { levelPrivateStateProvider },
-      { Transaction },
-    ] = await Promise.all([
-      import('@midnight-ntwrk/midnight-js-fetch-zk-config-provider'),
-      import('@midnight-ntwrk/midnight-js-http-client-proof-provider'),
-      import('@midnight-ntwrk/midnight-js-indexer-public-data-provider'),
-      import('@midnight-ntwrk/midnight-js-level-private-state-provider'),
-      import('@midnight-ntwrk/ledger-v8'),
-    ]);
-
-    if (process.env.NEXT_PUBLIC_PROVE_SERVER_URI == undefined) throw new Error('Proving url not found');
-
+     if (!process.env.NEXT_PUBLIC_PROVE_SERVER_URI) throw new Error('NEXT_PUBLIC_PROVE_SERVER_URI not set');
     const shielded = await walletApi.getShieldedAddresses();
     const account = await walletApi.getUnshieldedAddress();
-    const resolvedProofServer = process.env.NEXT_PUBLIC_PROVE_SERVER_URI;
-    const zkConfigProvider = new FetchZkConfigProvider(zkBasePath, fetch.bind(window));
     const accountId: string = account.unshieldedAddress;
-
-    const privateStoragePasswordProvider = () => {
-      const key = `veil-user-state-password:${accountId.toUpperCase()}`;
-      const existing = window.localStorage.getItem(key);
-      if (existing) return existing;
-      const generated = `${bytesToHex(browserRandomBytes(32))}!$&VeIlDash`;
-      window.localStorage.setItem(key, generated);
-      return generated;
+    const zkConfigProvider = new FetchZkConfigProvider<CircuitKeys>(zkBasePath, fetch.bind(window));
+    const passwordProvider = () => {
+      const k = `veil-user-pw:${accountId.toUpperCase()}`;
+      const ex = localStorage.getItem(k);
+      if (ex) return ex;
+      const g = `${bytesToHex(browserRandomBytes(32))}!VeIl`;
+      localStorage.setItem(k, g);
+      return g;
     };
-
-    const providers = {
-      proofProvider: httpClientProofProvider(resolvedProofServer, zkConfigProvider),
-      walletProvider: {
-        getCoinPublicKey: () => shielded.shieldedCoinPublicKey,
-        getEncryptionPublicKey: () => shielded.shieldedEncryptionPublicKey,
-        balanceTx: async (tx: any) => {
-          const received = await walletApi.balanceUnsealedTransaction(bytesToHex(tx.serialize()));
-          return Transaction.deserialize('signature', 'proof', 'binding', hexToBytes(received.tx));
+    return {
+      providers: {
+        proofProvider: httpClientProofProvider(process.env.NEXT_PUBLIC_PROVE_SERVER_URI, zkConfigProvider),
+        walletProvider: {
+          getCoinPublicKey: () => shielded.shieldedCoinPublicKey,
+          getEncryptionPublicKey: () => shielded.shieldedEncryptionPublicKey,
+          balanceTx: async (tx: any) => {
+            const r = await walletApi.balanceUnsealedTransaction(bytesToHex(tx.serialize()));
+            return Transaction.deserialize('signature', 'proof', 'binding', hexToBytes(r.tx));
+          },
         },
-      },
-      midnightProvider: {
-        submitTx: async (tx: any) => {
-          await walletApi.submitTransaction(bytesToHex(tx.serialize()));
-          return tx.identifiers()[0];
+        midnightProvider: {
+          submitTx: async (tx: any) => {
+            await walletApi.submitTransaction(bytesToHex(tx.serialize()));
+            return tx.identifiers()[0];
+          },
         },
+        publicDataProvider: indexerPublicDataProvider(PREPROD_ENV.indexer, PREPROD_ENV.indexerWS),
+        privateStateProvider: levelPrivateStateProvider({ privateStateStoreName: 'veil-user-ps', accountId, privateStoragePasswordProvider: passwordProvider }),
+        zkConfigProvider,
       },
-      publicDataProvider: indexerPublicDataProvider(PREPROD_ENV.indexer, PREPROD_ENV.indexerWS),
-      privateStateProvider: levelPrivateStateProvider({
-        privateStateStoreName: 'veil-user-private-state',
-        accountId,
-        privateStoragePasswordProvider,
-      }),
-      zkConfigProvider,
+      coinPublicKey: shielded.shieldedCoinPublicKey as string,
     };
-
-    return { providers, coinPublicKey: shielded.shieldedCoinPublicKey as string };
   };
 
-  const checkAndDeriveId = async (api: any, coinPublicKey: string, contractAddress: string) => {
+  const deriveAndCheck = async (api: any, coinPublicKey: string, _contractAddress: string) => {
     setIsDeriving(true);
-    addLog('Deriving Veil ID from private state...');
-
+    setError(null);
+    console.log('Deriving Veil ID…');
     try {
-      const { firstValueFrom } = await import('rxjs');
-      const { createCircuitContext, toHex: _toHex } = await import('@midnight-ntwrk/compact-runtime');
-      const { Contract: VeilContractClass, witness: veilWitness, ledger: veilLedger } = await import('@veil/veil-contract');
+      // The contractState observable emits [ContractState, PrivateState | null].
+      // PrivateState from the observable is compact-typed (Bytes<32> with metadata),
+      // unlike privateStateProvider.get() which returns plain Uint8Array and causes
+      // "Trying to deserialize unknown typed array" in persistentHash.
+      // We filter until private state is populated (handles cleared IndexedDB).
+      const [contractState, privateState] = await firstValueFrom(
+        (api.contractState as any).pipe(
+          filter(([, ps]: [any, any]) => ps != null && ps.secreteKey != null)
+        )
+      ) as [any, any];
 
-      const [contractState, privateState] = await firstValueFrom(api.contractState);
-      if (!privateState?.secreteKey) throw new Error('Private state not initialized');
-
-      const ctx = createCircuitContext(
-        contractAddress,
-        coinPublicKey,
-        contractState.data,
-        privateState,
-      );
-
-      const contract = new VeilContractClass(veilWitness as any);
-      const { result: userPkBytes } = contract.impureCircuits.Utils_generateUserPk(ctx, privateState.secreteKey);
-      const pk = _toHex(userPkBytes);
+      const ctx = createCircuitContext(api.deployedContractAddress, coinPublicKey, contractState.data, privateState);
+      const contract = new Contract(witness as any);
+      const { result: pkBytes } = contract.impureCircuits.Utils_generateUserPk(ctx, privateState.secreteKey);
+      const pk = toHex(pkBytes);
       setUserPk(pk);
-      addLog(`Veil ID derived: ${pk.slice(0, 12)}...${pk.slice(-8)}`, 'success');
+      console.log('Veil ID derived:', pk);
 
-      const currentLedger = veilLedger(contractState.data);
-      if (currentLedger.LedgerStates_nftRegistry.member(hexToBytes(pk))) {
+      const ledgerState = ledger(contractState.data);
+      if (ledgerState.LedgerStates_nftRegistry.member(hexToBytes(pk))) {
         setHasMinted(true);
-        addLog('Existing PoT NFT found in registry', 'success');
-      } else {
-        addLog('No PoT NFT found yet — mint one after creating your score');
+        console.log('PoT NFT active in registry');
       }
     } catch (err) {
-      addLog(`Veil ID derivation failed: ${serializeError(err)}`, 'error');
+      console.error('Veil ID derivation error:', err);
+      setError(`Could not derive Veil ID: ${serializeError(err)}`);
     } finally {
       setIsDeriving(false);
     }
   };
 
-  const handleJoinContract = async () => {
+  /* Wipe the IndexedDB store + localStorage password so a fresh join can proceed */
+  const clearPrivateStore = async () => {
+    if (!walletApi) return;
+    try {
+      const account = await walletApi.getUnshieldedAddress();
+      const pwKey = `veil-user-pw:${(account.unshieldedAddress as string).toUpperCase()}`;
+      localStorage.removeItem(pwKey);
+    } catch { /* best-effort */ }
+    await new Promise<void>((resolve) => {
+      const req = indexedDB.deleteDatabase('veil-user-ps');
+      req.onsuccess = () => resolve();
+      req.onerror = () => resolve();
+      req.onblocked = () => resolve();
+    });
+  };
+
+  const doJoin = async (addr: string) => {
+    syncNetworkId(NETWORK_ID);
+    const fullZkPath = new URL('/zk/full', window.location.origin).toString();
+    const { providers, coinPublicKey } = await buildProviders(walletApi!, fullZkPath);
+    console.log('Joining contract…');
+    const api = await DynamicContractAPI.join({
+      providers: providers as any,
+      compiledContract: makeFullCompiledContract(fullZkPath),
+      contractAddress: addr,
+      privateStateId: PRIVATE_STATE_ID,
+      initialPrivateState: createInitialPrivateState(browserRandomBytes(32)),
+    });
+    joinedRef.current = { api, coinPublicKey, providers };
+    setJoinedAddress(api.deployedContractAddress);
+    console.log('Connected to', api.deployedContractAddress);
+  };
+
+  const handleJoin = async () => {
+    const addr = CONTRACT_ADDRESS.trim();
+    if (!addr) { setError('NEXT_PUBLIC_CONTRACT_ADDRESS is not set'); return; }
     if (!walletApi) { await connect(); return; }
-    if (!contractInput.trim()) { addLog('Enter a contract address first', 'error'); return; }
 
     setIsJoining(true);
-    setLogs([]);
+    setError(null);
     setUserPk(null);
     setHasMinted(false);
     setScoreStatus('idle');
-    setScoreJobId(null);
     joinedRef.current = null;
     setJoinedAddress(null);
 
     try {
-      syncNetworkId(NETWORK_ID);
-      const { DynamicContractAPI } = await import('nite-api');
-      const fullZkPath = new URL('/zk/full', window.location.origin).toString();
-      const { providers, coinPublicKey } = await buildProviders(walletApi, fullZkPath);
-      const fullCompiledContract = makeFullCompiledContract(fullZkPath);
-
-      addLog('Joining contract...');
-      const api = await DynamicContractAPI.join({
-        providers: providers as any,
-        compiledContract: fullCompiledContract,
-        contractAddress: contractInput.trim(),
-        privateStateId: PRIVATE_STATE_ID,
-        initialPrivateState: createInitialPrivateState(browserRandomBytes(32)),
-      });
-
-      joinedRef.current = { api, providers, coinPublicKey };
-      setJoinedAddress(api.deployedContractAddress);
-      addLog(`Joined: ${api.deployedContractAddress}`, 'success');
-
-      await checkAndDeriveId(api, coinPublicKey, api.deployedContractAddress);
+      await doJoin(addr);
     } catch (err) {
-      addLog(`Join failed: ${serializeError(err)}`, 'error');
+      const msg = serializeError(err);
+      const isAuthErr = msg.includes('authenticate data') || msg.includes('Unsupported state') || msg.includes('OperationError');
+      if (isAuthErr) {
+        console.log('Encrypted private state is stale — clearing and retrying…');
+        try {
+          await clearPrivateStore();
+          await doJoin(addr);
+        } catch (retryErr) {
+          const retryMsg = serializeError(retryErr);
+          console.error('Join failed after retry:', retryErr);
+          setError(`Join failed: ${retryMsg}`);
+        }
+      } else {
+        console.error('Join failed:', err);
+        setError(`Join failed: ${msg}`);
+      }
     } finally {
       setIsJoining(false);
     }
   };
 
-  const handleCreateScore = async () => {
-    if (!userPk) { addLog('Derive Veil ID first', 'error'); return; }
-
-    setScoreStatus('submitting');
-    addLog('Submitting credit score request to backend...');
-
+  const handleExportPrivateState = async () => {
+    if (!joinedRef.current) return;
     try {
-      const res = await fetch(`${BACKEND_URL}/score-entry`, {
+      const { firstValueFrom } = await import('rxjs');
+      const { toHex: _toHex } = await import('@midnight-ntwrk/compact-runtime');
+      const [, ps] = await firstValueFrom(joinedRef.current.api.contractState as any) as [any, any];
+      if (!ps) { setError('No private state to export'); return; }
+
+      const payload = JSON.stringify({
+        secreteKey: _toHex(ps.secreteKey),
+        ownershipSecret: _toHex(ps.ownershipSecret),
+        creditScores: ps.creditScores,
+        scoreAmmulations: ps.scoreAmmulations,
+        contractAddress: joinedRef.current.api.deployedContractAddress,
+        exportedAt: new Date().toISOString(),
+      }, (_, v) => (typeof v === 'bigint' ? v.toString() : v instanceof Uint8Array ? _toHex(v) : v), 2);
+
+      const blob = new Blob([payload], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `veil-private-state-${Date.now()}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      console.log('Private state exported');
+    } catch (err) {
+      console.error('Export failed:', err);
+      setError(`Export failed: ${serializeError(err)}`);
+    }
+  };
+
+  const handleCreateScore = async () => {
+    if (!userPk) return;
+    setScoreStatus('submitting');
+    setError(null);
+    console.log('Requesting score entry from backend…');
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/v1/score-entries`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userPk }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
-
-      const jobId: string = data.id ?? data.jobId;
-      if (!jobId) throw new Error('No job ID returned from backend');
-      setScoreJobId(jobId);
-      setScoreStatus('pending');
-      addLog(`Job enqueued (id: ${jobId}), waiting for confirmation...`);
-
-      await pollJob(jobId);
+      if (!res.ok) throw new Error(data.message ?? `HTTP ${res.status}`);
+      setScoreStatus('done');
+      console.log('Score entry confirmed on-chain!', data.result);
     } catch (err) {
-      addLog(`Score creation failed: ${serializeError(err)}`, 'error');
+      console.error('Score error:', err);
+      setError(`Score entry: ${serializeError(err)}`);
       setScoreStatus('error');
     }
   };
 
-  const pollJob = async (jobId: string) => {
-    for (let i = 0; i < 60; i++) {
-      await new Promise((r) => setTimeout(r, 3000));
-      try {
-        const res = await fetch(`${BACKEND_URL}/jobs/${jobId}`);
-        const data = await res.json();
-        if (data.status === 'done' || data.result !== undefined) {
-          setScoreStatus('done');
-          addLog('Credit score entry created on-chain!', 'success');
-          return;
-        }
-        if (data.status === 'failed' || data.error) {
-          throw new Error(data.error || 'Job failed');
-        }
-      } catch (e) {
-        if (i > 5) throw e;
-      }
-    }
-    addLog('Job polling timed out', 'error');
-    setScoreStatus('error');
-  };
-
-  const handleMintNFT = async () => {
-    if (!joinedRef.current) { addLog('Join a contract first', 'error'); return; }
-
+  const handleMint = async () => {
+    if (!joinedRef.current) return;
     setIsMinting(true);
-    addLog('Minting PoT NFT — generating ZK proof (this may take a minute)...');
-
+    setError(null);
+    console.log('Minting PoT NFT — generating ZK proof…');
     try {
-      const { api } = joinedRef.current;
-      await api.callTx('NFT_mintPoTNFT');
+      await joinedRef.current.api.callTx('NFT_mintPoTNFT');
       setHasMinted(true);
-      addLog('PoT NFT minted successfully!', 'success');
+      console.log('PoT NFT minted!');
     } catch (err) {
-      addLog(`Mint failed: ${serializeError(err)}`, 'error');
+      console.error('Mint failed:', err);
+      setError(`Mint failed: ${serializeError(err)}`);
     } finally {
       setIsMinting(false);
     }
   };
 
-  const handleRenewNFT = async () => {
-    if (!joinedRef.current || !userPk) { addLog('Join contract and derive Veil ID first', 'error'); return; }
-
+  const handleRenew = async () => {
+    if (!joinedRef.current || !userPk) return;
     setIsRenewing(true);
-    addLog('Reconstructing PoT NFT token for renewal...');
-
+    setError(null);
+    console.log('Reconstructing token for renewal…');
     try {
       const { api } = joinedRef.current;
       const { firstValueFrom } = await import('rxjs');
       const { rawTokenType, encodeRawTokenType } = await import('@midnight-ntwrk/compact-runtime');
-      const { ledger: veilLedger } = await import('@veil/veil-contract');
+      const { ledger: vl } = await import('@veil/veil-contract');
 
-      const [contractState] = await firstValueFrom(api.contractState);
-      const currentLedger = veilLedger(contractState.data);
-      const userPkBytes = hexToBytes(userPk);
+      const [cs] = await firstValueFrom(api.contractState as any) as [any, any];
+      const ledger = vl(cs.data);
+      const pkBytes = hexToBytes(userPk);
+      if (!ledger.LedgerStates_nftRegistry.member(pkBytes)) throw new Error('No PoT NFT found — mint first');
 
-      if (!currentLedger.LedgerStates_nftRegistry.member(userPkBytes)) {
-        throw new Error('No existing PoT NFT found for this Veil ID. Mint one first.');
-      }
-
-      const nftMetadata = currentLedger.LedgerStates_nftRegistry.lookup(userPkBytes);
-
+      const meta = ledger.LedgerStates_nftRegistry.lookup(pkBytes);
       const domainSep = new Uint8Array(32);
-      const domStr = 'veil:protocol:nft';
-      for (let i = 0; i < domStr.length; i++) domainSep[i] = domStr.charCodeAt(i);
+      'veil:protocol:nft'.split('').forEach((c, i) => { domainSep[i] = c.charCodeAt(0); });
 
-      const token = {
-        nonce: nftMetadata.nonce,
+      console.log('Submitting renewal transaction…');
+      await api.callTx('NFT_renewPoTNFT', {
+        nonce: meta.nonce,
         color: encodeRawTokenType(rawTokenType(domainSep, api.deployedContractAddress)),
-        value: 1n,
-      };
-
-      addLog('Submitting NFT renewal transaction...');
-      await api.callTx('NFT_renewPoTNFT', token);
-      addLog('PoT NFT renewed successfully!', 'success');
+        value: BigInt(1),
+      });
+      console.log('PoT NFT renewed!');
     } catch (err) {
-      addLog(`Renewal failed: ${serializeError(err)}`, 'error');
+      console.error('Renewal failed:', err);
+      setError(`Renewal failed: ${serializeError(err)}`);
     } finally {
       setIsRenewing(false);
     }
   };
 
   const isBusy = isJoining || isDeriving || isMinting || isRenewing || scoreStatus === 'submitting' || scoreStatus === 'pending';
+  const isLoading = isJoining;
 
-  const statusDot = (active: boolean, done: boolean) =>
-    done ? '●' : active ? '○' : '·';
+  /* ─────────── NOT CONNECTED WALL ─────────── */
+  if (!isConnected) {
+    return (
+      <div className="min-h-screen bg-[#040c12] text-white flex flex-col">
+        <nav className="border-b border-[#1a2535] px-6 py-4 flex items-center justify-between">
+          <Link href="/" className="text-[#00e5c0] font-semibold tracking-wide hover:opacity-80 transition-opacity">
+            ← Veil Protocol
+          </Link>
+          <span className="text-xs text-[#4a5568] uppercase tracking-widest">Dashboard</span>
+          <div className="w-24" />
+        </nav>
 
+        <div className="flex-1 flex flex-col items-center justify-center px-6 py-20 gap-10">
+          {/* Hero text */}
+          <div className="text-center space-y-3 max-w-md">
+            <div className="w-14 h-14 rounded-2xl bg-linear-to-br from-primary via-primary/80 to-primary/60 flex items-center justify-center shadow-lg shadow-primary/30 mx-auto mb-4">
+              <span className="text-primary-foreground font-bold text-2xl">V</span>
+            </div>
+            <h1 className="text-3xl font-bold text-white">Welcome to Veil</h1>
+            <p className="text-sm text-[#4a5568] leading-relaxed">
+              Connect your Midnight Lace wallet to access your privacy-preserving credit score and Proof of Trustworthiness NFT.
+            </p>
+          </div>
+
+          {/* Skeleton cards — blurred preview */}
+          <div className="w-full max-w-xl space-y-3 opacity-40 pointer-events-none select-none">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="rounded-2xl p-5 space-y-3" style={{ background: '#0d141c', border: '1px solid #1a2535' }}>
+                <Shimmer className="h-3 w-20" />
+                <Shimmer className="h-7 w-3/4" />
+                <Shimmer className="h-3 w-1/2" />
+              </div>
+              <div className="rounded-2xl p-5 space-y-3" style={{ background: '#0d141c', border: '1px solid #1a2535' }}>
+                <Shimmer className="h-3 w-16" />
+                <Shimmer className="h-7 w-2/3" />
+                <Shimmer className="h-3 w-2/5" />
+              </div>
+            </div>
+            <div className="rounded-2xl p-5 space-y-3" style={{ background: '#0d141c', border: '1px solid #1a2535' }}>
+              <Shimmer className="h-3 w-24" />
+              <Shimmer className="h-5 w-full" />
+              <Shimmer className="h-5 w-4/5" />
+            </div>
+            <div className="rounded-2xl p-5 space-y-3" style={{ background: '#0d141c', border: '1px solid #1a2535' }}>
+              <Shimmer className="h-3 w-20" />
+              <div className="flex gap-3 pt-1">
+                <Shimmer className="h-8 flex-1 rounded-xl" />
+                <Shimmer className="h-8 flex-1 rounded-xl" />
+              </div>
+            </div>
+          </div>
+
+          {/* Connect CTA */}
+          <button
+            onClick={() => void connect()}
+            disabled={isConnecting}
+            className="px-8 py-4 rounded-2xl font-semibold text-base disabled:opacity-50 transition-all transform hover:scale-105 shadow-lg shadow-primary/30"
+            style={{ background: '#00e5c0', color: '#062019' }}
+          >
+            {isConnecting ? 'Connecting…' : 'Connect Midnight Wallet'}
+          </button>
+
+          <p className="text-xs text-[#4a5568] text-center max-w-xs">
+            Requires the Midnight Lace browser extension. Your data stays private — ZK proofs never expose your score.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  /* ─────────── CONNECTED DASHBOARD ─────────── */
   return (
     <div className="min-h-screen bg-[#040c12] text-white">
       {/* Nav */}
@@ -353,251 +466,240 @@ export default function DashboardPage() {
         <Link href="/" className="text-[#00e5c0] font-semibold tracking-wide hover:opacity-80 transition-opacity">
           ← Veil Protocol
         </Link>
-        <span className="text-xs text-[#4a5568] uppercase tracking-widest">User Dashboard</span>
-        {isConnected ? (
-          <div className="flex items-center gap-3">
-            <span className="text-xs text-[#4a5568] font-mono truncate max-w-[160px]">
+        <span className="text-xs text-[#4a5568] uppercase tracking-widest">Dashboard · Preprod</span>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-[#00e5c0]" />
+            <span className="text-xs text-[#4a5568] font-mono hidden sm:block truncate max-w-35">
               {walletAddress ?? 'connected'}
             </span>
-            <button
-              onClick={disconnect}
-              className="text-xs px-3 py-1 rounded-lg border border-[#2d3748] text-[#a0aec0] hover:text-white transition-colors"
-            >
-              Disconnect
-            </button>
           </div>
-        ) : (
           <button
-            onClick={() => void connect()}
-            disabled={isConnecting}
-            className="text-xs px-4 py-2 rounded-lg font-semibold disabled:opacity-50 transition-colors"
-            style={{ background: '#00e5c0', color: '#062019' }}
+            onClick={disconnect}
+            className="text-xs px-3 py-1.5 rounded-lg border border-[#2d3748] text-[#a0aec0] hover:text-white hover:border-[#4a5568] transition-colors"
           >
-            {isConnecting ? 'Connecting...' : 'Connect Wallet'}
+            Disconnect
           </button>
-        )}
+        </div>
       </nav>
 
-      <main className="max-w-2xl mx-auto px-6 py-12 space-y-5">
-        <div>
-          <h1 className="text-2xl font-bold text-white mb-1">Veil Protocol Dashboard</h1>
+      <main className="max-w-3xl mx-auto px-4 sm:px-6 py-10 space-y-6">
+
+        {/* Header */}
+        <div className="space-y-1">
+          <h1 className="text-2xl font-bold text-white">Your Veil Dashboard</h1>
           <p className="text-sm text-[#4a5568]">
-            Connect your wallet, join a deployed contract, create your credit score, and manage your PoT NFT.
+            {CONTRACT_ADDRESS
+              ? `Contract: ${shortAddr(CONTRACT_ADDRESS)}`
+              : 'Set NEXT_PUBLIC_CONTRACT_ADDRESS to auto-connect'}
           </p>
         </div>
 
-        {/* Step 1: Join Contract */}
-        <section className="rounded-2xl p-6 space-y-4" style={{ background: '#0d141c', border: '1px solid #1a2535' }}>
-          <div className="flex items-center gap-2">
-            <span className="text-[#00e5c0] text-xs font-mono">01</span>
-            <p className="text-sm font-semibold text-white">Join Contract</p>
-            {joinedAddress && <span className="ml-auto text-xs text-[#00e5c0]">✓ Joined</span>}
+        {/* Inline error banner */}
+        {error && (
+          <div className="rounded-xl px-4 py-3 flex items-start justify-between gap-3" style={{ background: '#1a0808', border: '1px solid #7f1d1d' }}>
+            <span className="text-xs font-mono text-red-400 leading-relaxed">{error}</span>
+            <button onClick={() => setError(null)} className="shrink-0 text-red-700 hover:text-red-400 transition-colors text-sm leading-none">✕</button>
           </div>
+        )}
 
-          <div className="space-y-1">
-            <label className="text-xs uppercase tracking-widest text-[#4a5568]">Contract Address</label>
-            <input
-              type="text"
-              value={contractInput}
-              onChange={(e) => setContractInput(e.target.value)}
-              placeholder="Paste deployed contract address..."
-              disabled={isJoining || !!joinedAddress}
-              className="w-full rounded-xl px-3 py-2 bg-[#040c12] text-white text-sm border border-[#1a2535] focus:outline-none focus:border-[#00e5c0] placeholder-[#2d3748] disabled:opacity-50"
-            />
+        {/* Stat cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <StatCard
+            label="Veil ID"
+            value={userPk ? `${userPk.slice(0, 10)}…${userPk.slice(-6)}` : undefined}
+            sub={userPk ? 'User public key' : joinedAddress ? 'Click Generate below' : 'Join contract first'}
+            shimmer={isDeriving}
+          />
+          <StatCard
+            label="Credit Score"
+            value={scoreStatus === 'done' ? 'Registered' : scoreStatus === 'pending' ? 'Pending…' : '—'}
+            sub={scoreStatus === 'done' ? 'On-chain entry confirmed' : 'Submit to backend'}
+            shimmer={isLoading}
+          />
+          <StatCard
+            label="PoT NFT"
+            value={hasMinted ? 'Active' : joinedAddress ? 'Not minted' : '—'}
+            sub={hasMinted ? 'Proof of Trustworthiness' : 'Mint after score entry'}
+            shimmer={isLoading && !joinedAddress}
+          />
+        </div>
+
+        {/* Progress steps */}
+        <div className="rounded-2xl p-5" style={{ background: '#0d141c', border: '1px solid #1a2535' }}>
+          <p className="text-xs uppercase tracking-widest text-[#4a5568] mb-4">Progress</p>
+          <div className="space-y-3">
+            <StepRow n="1" label="Connect wallet" done={isConnected} active={!isConnected} />
+            <StepRow n="2" label="Join protocol contract" done={!!joinedAddress} active={isConnected && !joinedAddress} />
+            <StepRow n="3" label="Generate Veil ID" done={!!userPk} active={!!joinedAddress && !userPk} />
+            <StepRow n="4" label="Create credit score entry" done={scoreStatus === 'done'} active={!!userPk && scoreStatus === 'idle'} />
+            <StepRow n="5" label="Mint Proof of Trustworthiness NFT" done={hasMinted} active={scoreStatus === 'done' && !hasMinted} />
           </div>
+        </div>
 
-          {joinedAddress ? (
-            <div className="p-3 rounded-xl bg-[#040c12] border border-[#1a2535]">
-              <p className="text-xs uppercase tracking-widest text-[#4a5568] mb-1">Joined Contract</p>
-              <p className="text-xs font-mono text-[#00e5c0] break-all">{joinedAddress}</p>
-            </div>
-          ) : (
-            <button
-              onClick={() => void handleJoinContract()}
-              disabled={isBusy || (!isConnected && isConnecting)}
-              className="w-full py-3 rounded-xl font-semibold text-sm disabled:opacity-50 transition-all"
-              style={{ background: '#00e5c0', color: '#062019' }}
-            >
-              {isJoining
-                ? 'Joining...'
-                : !isConnected
-                ? 'Connect Wallet & Join'
-                : 'Join Contract'}
-            </button>
-          )}
+        {/* Action panel */}
+        <div className="rounded-2xl p-6 space-y-5" style={{ background: '#0d141c', border: '1px solid #1a2535' }}>
 
-          {joinedAddress && (
-            <button
-              onClick={() => {
-                joinedRef.current = null;
-                setJoinedAddress(null);
-                setUserPk(null);
-                setHasMinted(false);
-                setScoreStatus('idle');
-                setScoreJobId(null);
-                setLogs([]);
-              }}
-              className="w-full py-2 rounded-xl text-xs text-[#a0aec0] hover:text-white transition-colors border border-[#2d3748]"
-            >
-              Switch Contract
-            </button>
-          )}
-        </section>
-
-        {/* Step 2: Veil ID */}
-        {joinedAddress && (
-          <section className="rounded-2xl p-6 space-y-4" style={{ background: '#0d141c', border: '1px solid #1a2535' }}>
-            <div className="flex items-center gap-2">
-              <span className="text-[#00e5c0] text-xs font-mono">02</span>
-              <p className="text-sm font-semibold text-white">Your Veil ID</p>
-              {userPk && <span className="ml-auto text-xs text-[#00e5c0]">✓ Derived</span>}
-            </div>
-
-            {isDeriving ? (
-              <p className="text-xs text-[#4a5568] animate-pulse">Deriving Veil ID from private state...</p>
-            ) : userPk ? (
-              <div className="space-y-2">
-                <p className="text-xs uppercase tracking-widest text-[#4a5568]">User Public Key</p>
-                <div className="p-3 rounded-xl bg-[#040c12] border border-[#1a2535]">
-                  <p className="text-xs font-mono text-[#00e5c0] break-all">{userPk}</p>
-                </div>
+          {/* Join / Status */}
+          {!joinedAddress ? (
+            <div className="space-y-3">
+              <div className="space-y-1">
+                <p className="text-sm font-semibold text-white">Join Protocol Contract</p>
                 <p className="text-xs text-[#4a5568]">
-                  This is your on-chain identity. Share with protocol issuers to receive score events.
+                  {CONTRACT_ADDRESS
+                    ? `Auto-connecting to ${shortAddr(CONTRACT_ADDRESS)}`
+                    : 'No NEXT_PUBLIC_CONTRACT_ADDRESS set — enter one below'}
                 </p>
               </div>
-            ) : (
-              <p className="text-xs text-[#4a5568]">Veil ID will be derived automatically after joining.</p>
-            )}
-          </section>
-        )}
-
-        {/* Step 3: Credit Score */}
-        {userPk && (
-          <section className="rounded-2xl p-6 space-y-4" style={{ background: '#0d141c', border: '1px solid #1a2535' }}>
-            <div className="flex items-center gap-2">
-              <span className="text-[#00e5c0] text-xs font-mono">03</span>
-              <p className="text-sm font-semibold text-white">Create Credit Score</p>
-              {scoreStatus === 'done' && <span className="ml-auto text-xs text-[#00e5c0]">✓ Created</span>}
-            </div>
-
-            <p className="text-xs text-[#4a5568]">
-              Request the backend to create an on-chain score entry for your Veil ID. This enables NFT minting.
-            </p>
-
-            {scoreStatus === 'done' ? (
-              <div className="p-3 rounded-xl text-xs font-medium" style={{ background: '#0a1f16', color: '#00e5c0', border: '1px solid #00e5c033' }}>
-                Score entry confirmed on-chain.
-              </div>
-            ) : (
+              {!CONTRACT_ADDRESS && (
+                <input
+                  id="contract-addr-input"
+                  type="text"
+                  placeholder="Paste contract address…"
+                  className="w-full rounded-xl px-3 py-2 bg-[#040c12] text-white text-sm border border-[#1a2535] focus:outline-none focus:border-[#00e5c0] placeholder-[#2d3748]"
+                  onBlur={(e) => {
+                    (window as any).__manualContractAddr = e.target.value;
+                  }}
+                />
+              )}
               <button
-                onClick={() => void handleCreateScore()}
-                disabled={isBusy || scoreStatus === 'done'}
-                className="w-full py-3 rounded-xl font-semibold text-sm disabled:opacity-50 transition-all"
-                style={{ background: '#1c242f', color: '#e2e8f0', border: '1px solid #2d3748' }}
-              >
-                {scoreStatus === 'submitting'
-                  ? 'Submitting...'
-                  : scoreStatus === 'pending'
-                  ? `Waiting for job ${scoreJobId ? `#${scoreJobId.slice(0, 8)}` : ''}...`
-                  : 'Create Score Entry'}
-              </button>
-            )}
-
-            {scoreStatus === 'error' && (
-              <button
-                onClick={() => { setScoreStatus('idle'); setScoreJobId(null); }}
-                className="w-full py-2 rounded-xl text-xs text-[#a0aec0] hover:text-white transition-colors border border-[#2d3748]"
-              >
-                Retry
-              </button>
-            )}
-          </section>
-        )}
-
-        {/* Step 4: Mint PoT NFT */}
-        {userPk && (
-          <section className="rounded-2xl p-6 space-y-4" style={{ background: '#0d141c', border: '1px solid #1a2535' }}>
-            <div className="flex items-center gap-2">
-              <span className="text-[#00e5c0] text-xs font-mono">04</span>
-              <p className="text-sm font-semibold text-white">Mint Proof of Trustworthiness NFT</p>
-              {hasMinted && <span className="ml-auto text-xs text-[#00e5c0]">✓ Minted</span>}
-            </div>
-
-            <p className="text-xs text-[#4a5568]">
-              Mint a shielded PoT NFT that represents your credit score on-chain. Requires a confirmed score entry.
-            </p>
-
-            {!hasMinted ? (
-              <button
-                onClick={() => void handleMintNFT()}
-                disabled={isBusy || scoreStatus !== 'done'}
+                onClick={() => void handleJoin()}
+                disabled={isBusy}
                 className="w-full py-3 rounded-xl font-semibold text-sm disabled:opacity-50 transition-all"
                 style={{ background: '#00e5c0', color: '#062019' }}
               >
-                {isMinting ? 'Minting (generating ZK proof)...' : 'Mint PoT NFT'}
+                {isJoining ? 'Joining contract…' : 'Join Contract'}
               </button>
-            ) : (
-              <div className="p-3 rounded-xl text-xs font-medium" style={{ background: '#0a1f16', color: '#00e5c0', border: '1px solid #00e5c033' }}>
-                PoT NFT exists in your wallet.
+            </div>
+          ) : (
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <p className="text-xs uppercase tracking-widest text-[#4a5568]">Connected Contract</p>
+                <p className="text-xs font-mono text-[#00e5c0]">{joinedAddress}</p>
               </div>
-            )}
-
-            {scoreStatus !== 'done' && !hasMinted && (
-              <p className="text-xs text-[#4a5568]">
-                Complete Step 3 (Create Score Entry) before minting.
-              </p>
-            )}
-          </section>
-        )}
-
-        {/* Step 5: Renew PoT NFT */}
-        {hasMinted && (
-          <section className="rounded-2xl p-6 space-y-4" style={{ background: '#0d141c', border: '1px solid #1a2535' }}>
-            <div className="flex items-center gap-2">
-              <span className="text-[#00e5c0] text-xs font-mono">05</span>
-              <p className="text-sm font-semibold text-white">Renew PoT NFT</p>
+              <button
+                onClick={() => { joinedRef.current = null; setJoinedAddress(null); setUserPk(null); setHasMinted(false); setScoreStatus('idle'); setError(null); }}
+                className="text-xs px-3 py-1.5 rounded-lg border border-[#2d3748] text-[#a0aec0] hover:text-white transition-colors shrink-0 ml-4"
+              >
+                Switch
+              </button>
             </div>
+          )}
 
-            <p className="text-xs text-[#4a5568]">
-              Renew your existing PoT NFT. Burns your current token and mints a fresh one with updated score metadata.
-            </p>
+          {joinedAddress && <div style={{ borderTop: '1px solid #1a2535' }} />}
 
-            <button
-              onClick={() => void handleRenewNFT()}
-              disabled={isBusy}
-              className="w-full py-3 rounded-xl font-semibold text-sm disabled:opacity-50 transition-all"
-              style={{ background: '#1c242f', color: '#e2e8f0', border: '1px solid #2d3748' }}
-            >
-              {isRenewing ? 'Renewing (generating ZK proof)...' : 'Renew PoT NFT'}
-            </button>
-          </section>
-        )}
-
-        {/* Activity Log */}
-        {logs.length > 0 && (
-          <section className="rounded-2xl p-4 space-y-1" style={{ background: '#0d141c', border: '1px solid #1a2535' }}>
-            <p className="text-xs uppercase tracking-widest text-[#4a5568] mb-3">Activity Log</p>
-            <div className="space-y-1 max-h-64 overflow-y-auto">
-              {logs.map((entry, i) => (
-                <div key={i} className="flex gap-2 text-xs font-mono">
-                  <span className="text-[#2d3748] shrink-0">{entry.ts}</span>
-                  <span
-                    className={
-                      entry.kind === 'success'
-                        ? 'text-[#00e5c0]'
-                        : entry.kind === 'error'
-                        ? 'text-red-400'
-                        : 'text-[#a0aec0]'
-                    }
+          {/* Veil ID section */}
+          {joinedAddress && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-semibold text-white">Veil ID</p>
+                {userPk && (
+                  <button
+                    onClick={() => void handleExportPrivateState()}
+                    className="text-xs px-3 py-1.5 rounded-lg border border-[#2d3748] text-[#a0aec0] hover:text-[#00e5c0] hover:border-[#00e5c0]/40 transition-colors flex items-center gap-1.5"
                   >
-                    {entry.msg}
-                  </span>
+                    <svg className="w-3 h-3" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                      <path d="M8 1v9m0 0L5 7m3 3l3-3M2 11v2a1 1 0 001 1h10a1 1 0 001-1v-2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
+                    Export Keys
+                  </button>
+                )}
+              </div>
+              {isDeriving ? (
+                <div className="space-y-2">
+                  <Shimmer className="h-5 w-full" />
+                  <Shimmer className="h-3 w-2/3" />
                 </div>
-              ))}
+              ) : userPk ? (
+                <div className="rounded-xl px-4 py-3 bg-[#040c12] border border-[#1a2535]">
+                  <p className="text-xs text-[#4a5568] mb-1">User Public Key</p>
+                  <p className="text-xs font-mono text-[#00e5c0] break-all">{userPk}</p>
+                </div>
+              ) : (
+                <button
+                  onClick={() => {
+                    const j = joinedRef.current;
+                    if (j) void deriveAndCheck(j.api, j.coinPublicKey, j.api.deployedContractAddress);
+                  }}
+                  disabled={isBusy}
+                  className="w-full py-2.5 rounded-xl font-semibold text-sm disabled:opacity-50 transition-all"
+                  style={{ background: '#1c242f', color: '#e2e8f0', border: '1px solid #2d3748' }}
+                >
+                  Generate Veil ID
+                </button>
+              )}
             </div>
-          </section>
-        )}
+          )}
+
+          {userPk && <div style={{ borderTop: '1px solid #1a2535' }} />}
+
+          {/* Score entry */}
+          {userPk && (
+            <div className="space-y-3">
+              <div className="flex items-start justify-between gap-2">
+                <div className="space-y-0.5">
+                  <p className="text-sm font-semibold text-white">Credit Score Entry</p>
+                  <p className="text-xs text-[#4a5568]">Registers your Veil ID with the backend and creates an on-chain accumulator.</p>
+                </div>
+                {scoreStatus === 'done' && (
+                  <span className="shrink-0 text-xs px-2 py-1 rounded-lg font-medium" style={{ background: '#0a1f16', color: '#00e5c0' }}>Confirmed</span>
+                )}
+              </div>
+
+              {scoreStatus !== 'done' && (
+                <button
+                  onClick={() => void handleCreateScore()}
+                  disabled={isBusy}
+                  className="w-full py-2.5 rounded-xl font-semibold text-sm disabled:opacity-50 transition-all"
+                  style={{ background: '#1c242f', color: '#e2e8f0', border: '1px solid #2d3748' }}
+                >
+                  {scoreStatus === 'submitting' ? 'Submitting to chain…'
+                    : scoreStatus === 'error' ? 'Retry Score Entry'
+                    : 'Create Score Entry'}
+                </button>
+              )}
+            </div>
+          )}
+
+          {userPk && <div style={{ borderTop: '1px solid #1a2535' }} />}
+
+          {/* NFT actions */}
+          {userPk && (
+            <div className="space-y-3">
+              <p className="text-sm font-semibold text-white">Proof of Trustworthiness NFT</p>
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  onClick={() => void handleMint()}
+                  disabled={isBusy || scoreStatus !== 'done' || hasMinted}
+                  className="py-2.5 rounded-xl font-semibold text-sm disabled:opacity-40 transition-all"
+                  style={{ background: hasMinted ? '#0a1f16' : '#00e5c0', color: hasMinted ? '#00e5c0' : '#062019', border: hasMinted ? '1px solid #00e5c033' : 'none' }}
+                >
+                  {isMinting ? 'Minting…' : hasMinted ? 'NFT Active' : 'Mint PoT NFT'}
+                </button>
+                <button
+                  onClick={() => void handleRenew()}
+                  disabled={isBusy || !hasMinted}
+                  className="py-2.5 rounded-xl font-semibold text-sm disabled:opacity-40 transition-all"
+                  style={{ background: '#1c242f', color: '#e2e8f0', border: '1px solid #2d3748' }}
+                >
+                  {isRenewing ? 'Renewing…' : 'Renew NFT'}
+                </button>
+              </div>
+              {scoreStatus !== 'done' && !hasMinted && (
+                <p className="text-xs text-[#4a5568]">Create a score entry before minting.</p>
+              )}
+            </div>
+          )}
+        </div>
+
       </main>
+
+      <style jsx global>{`
+        @keyframes shimmer {
+          0% { background-position: 200% 0; }
+          100% { background-position: -200% 0; }
+        }
+      `}</style>
     </div>
   );
 }

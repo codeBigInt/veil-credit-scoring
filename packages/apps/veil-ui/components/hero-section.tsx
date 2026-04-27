@@ -23,7 +23,7 @@ export default function HeroSection() {
                 Launch Protocol
               </button>
               <button className="w-full sm:w-auto border border-border text-foreground px-8 py-3 rounded-lg font-medium hover:bg-muted/50 transition-colors">
-                Read Docs
+                <a href="https://veil-docs.vercel.app/introduction" className="no-underline hover:no-underline">Read Docs</a>
               </button>
             </div>
           </div>
