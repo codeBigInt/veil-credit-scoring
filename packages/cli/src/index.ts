@@ -1,6 +1,7 @@
 import { createInterface, Interface } from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
 import path from 'node:path';
+import { access } from 'node:fs/promises';
 import { randomBytes as nodeRandomBytes } from 'node:crypto';
 import { WebSocket } from 'ws';
 import { Logger } from 'pino';
@@ -46,6 +47,7 @@ const currentDir = path.resolve(new URL(import.meta.url).pathname, '..');
 dotenv.config({ path: path.resolve(currentDir, '..', '.env') });
 
 const PRIVATE_STATE_ID = 'veil_ps';
+const LEVEL_DB_LOCK_RETRY_DELAYS_MS = [250, 500, 1_000, 2_000, 4_000] as const;
 
 type VeilContract = VeilContractClass<VeilPrivateState, VeilWitnesses<VeilPrivateState>>;
 type VeilAPI = DynamicContractAPI<VeilContract, typeof PRIVATE_STATE_ID>;
@@ -136,12 +138,13 @@ const configureProviders = async (
   const accountId = (await walletProvider.wallet.unshielded.getAddress()).hexString;
   return {
     privateStateProvider: levelPrivateStateProvider<typeof PRIVATE_STATE_ID>({
+      midnightDbName: config.midnightDbName,
       privateStateStoreName: config.privateStateStoreName,
-        signingKeyStoreName: `${config.privateStateStoreName}-signing-keys`,
-        privateStoragePasswordProvider: () => {
-          return 'veil-credit-Test-2026!';
-        },
-        accountId,
+      signingKeyStoreName: `${config.privateStateStoreName}-signing-keys`,
+      privateStoragePasswordProvider: () => {
+        return 'veil-credit-Test-2026!';
+      },
+      accountId,
     }),
     publicDataProvider: indexerPublicDataProvider(env.indexer, env.indexerWS),
     zkConfigProvider,
@@ -162,6 +165,86 @@ const withZkConfigPath = (
     zkConfigProvider,
     proofProvider: httpClientProofProvider(env.proofServer, zkConfigProvider),
   };
+};
+
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+const collectErrorValues = (error: unknown, values: string[] = [], seen = new Set<unknown>()): string[] => {
+  if (error == null || seen.has(error)) return values;
+  seen.add(error);
+
+  if (typeof error === 'string') {
+    values.push(error);
+    return values;
+  }
+
+  if (error instanceof Error) {
+    values.push(error.name, error.message);
+    const errorRecord = error as unknown as Record<string, unknown>;
+    for (const key of ['code', 'cause']) {
+      collectErrorValues(errorRecord[key], values, seen);
+    }
+    return values;
+  }
+
+  if (Array.isArray(error)) {
+    for (const item of error) collectErrorValues(item, values, seen);
+    return values;
+  }
+
+  if (typeof error === 'object') {
+    const errorRecord = error as Record<string, unknown>;
+    for (const key of ['name', 'message', 'code', 'cause']) {
+      collectErrorValues(errorRecord[key], values, seen);
+    }
+  }
+
+  return values;
+};
+
+const isLevelDbLockedError = (error: unknown): boolean => {
+  const text = collectErrorValues(error).join('\n');
+  return (
+    text.includes('LEVEL_LOCKED') ||
+    text.includes('LEVEL_DATABASE_NOT_OPEN') ||
+    text.includes('Database failed to open') ||
+    (text.includes('LOCK') && text.includes('already held by process'))
+  );
+};
+
+const withLevelDbLockRetry = async <T>(
+  operation: string,
+  logger: Logger,
+  thunk: () => Promise<T>,
+): Promise<T> => {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await thunk();
+    } catch (error) {
+      if (!isLevelDbLockedError(error) || attempt >= LEVEL_DB_LOCK_RETRY_DELAYS_MS.length) {
+        throw error;
+      }
+
+      const delayMs = LEVEL_DB_LOCK_RETRY_DELAYS_MS[attempt];
+      logger.warn(`${operation} hit a local LevelDB lock; retrying in ${delayMs}ms`);
+      await sleep(delayMs);
+    }
+  }
+};
+
+const logLevelDbLockRecovery = (logger: Logger, config: Config, error: unknown): void => {
+  logger.error(
+    {
+      error: serializeError(error),
+      midnightDbName: config.midnightDbName,
+    },
+    [
+      `Local Midnight private-state database is locked: ${config.midnightDbName}`,
+      'Close any other running CLI/process using this database and retry.',
+      'To resume a staged deployment, keep the same database because it contains the contract maintenance signing key.',
+      'For a brand-new independent deployment only, you can choose a different database with VEIL_MIDNIGHT_DB_NAME.',
+    ].join(' '),
+  );
 };
 
 const prompt = async (rli: Interface, question: string): Promise<string> => (await rli.question(question)).trim();
@@ -186,6 +269,47 @@ const FULL_CONTRACT_CIRCUITS = [
   'Admin_updatedScoreConfig',
 ] as const;
 
+const BOOTSTRAP_CONTRACT_CIRCUITS = [
+  'Utils_generateUserPk',
+  'Utils_initializeContractConfigurations',
+  'Admin_addIssuer',
+] as const;
+
+const assertZkArtifacts = async (
+  zkConfigPath: string,
+  circuitIds: readonly string[],
+  label: string,
+): Promise<void> => {
+  const missing: string[] = [];
+
+  for (const circuitId of circuitIds) {
+    const expectedFiles = [
+      path.join(zkConfigPath, 'keys', `${circuitId}.prover`),
+      path.join(zkConfigPath, 'keys', `${circuitId}.verifier`),
+      path.join(zkConfigPath, 'zkir', `${circuitId}.bzkir`),
+    ];
+
+    for (const file of expectedFiles) {
+      try {
+        await access(file);
+      } catch {
+        missing.push(path.relative(process.cwd(), file));
+      }
+    }
+  }
+
+  if (missing.length > 0) {
+    throw new Error(
+      [
+        `Missing ${label} ZK artifacts required for deployment.`,
+        'Run `bun --filter @veil/veil-contract compile` before deploying.',
+        'Do not use `test:compile` for deployable artifacts because it uses `--skip-zk`.',
+        `Missing files:\n${missing.map((file) => `- ${file}`).join('\n')}`,
+      ].join('\n'),
+    );
+  }
+};
+
 const installFullContractVerifierKeys = async (
   providers: DynamicProviders<VeilContract, typeof PRIVATE_STATE_ID>,
   compiledContract: CompiledContract.CompiledContract<any, any>,
@@ -194,13 +318,25 @@ const installFullContractVerifierKeys = async (
 ): Promise<void> => {
   for (const circuitId of FULL_CONTRACT_CIRCUITS) {
     const [[, verifierKey]] = await providers.zkConfigProvider.getVerifierKeys([circuitId]);
-    logger.info(`Installing verifier key for ${circuitId}`);
-    await createCircuitMaintenanceTxInterface(
+    const contractState = await providers.publicDataProvider.queryContractState(contractAddress);
+    const maintenanceTx = createCircuitMaintenanceTxInterface(
       providers as any,
       circuitId as any,
       compiledContract,
       contractAddress,
-    ).insertVerifierKey(verifierKey);
+    );
+
+    if (contractState?.operation(circuitId) != null) {
+      logger.info(`Replacing verifier key for ${circuitId}`);
+      await withLevelDbLockRetry(`Removing verifier key for ${circuitId}`, logger, () =>
+        maintenanceTx.removeVerifierKey(),
+      );
+    }
+
+    logger.info(`Installing verifier key for ${circuitId}`);
+    await withLevelDbLockRetry(`Installing verifier key for ${circuitId}`, logger, () =>
+      maintenanceTx.insertVerifierKey(verifierKey),
+    );
   }
 };
 
@@ -236,6 +372,25 @@ const deployStagedContract = async (
   });
 };
 
+const resumeStagedContract = async (
+  providers: DynamicProviders<VeilContract, typeof PRIVATE_STATE_ID>,
+  config: Config,
+  contractAddress: string,
+  logger: Logger,
+): Promise<VeilAPI> => {
+  const fullCompiledContract = compiledVeilContract(config.zkConfigPath);
+
+  await installFullContractVerifierKeys(providers, fullCompiledContract, contractAddress, logger);
+
+  return DynamicContractAPI.join<VeilContract, typeof PRIVATE_STATE_ID>({
+    providers,
+    compiledContract: fullCompiledContract,
+    contractAddress,
+    privateStateId: PRIVATE_STATE_ID,
+    logger,
+  });
+};
+
 const deployOrJoin = async (
   providers: DynamicProviders<VeilContract, typeof PRIVATE_STATE_ID>,
   config: Config,
@@ -246,10 +401,11 @@ const deployOrJoin = async (
   while (true) {
     const choice = await prompt(
       rli,
-      '\n1. Deploy new Veil contract\n2. Deploy staged Veil contract\n3. Join deployed Veil contract\n4. Exit\nChoose: ',
+      '\n1. Deploy new Veil contract\n2. Deploy staged Veil contract\n3. Resume staged deployment\n4. Join deployed Veil contract\n5. Exit\nChoose: ',
     );
 
     if (choice === '1') {
+      await assertZkArtifacts(config.zkConfigPath, FULL_CONTRACT_CIRCUITS, 'full contract');
       const api = await DynamicContractAPI.deploy<VeilContract, typeof PRIVATE_STATE_ID>({
         providers,
         compiledContract: compiledVeilContract(config.zkConfigPath),
@@ -267,10 +423,18 @@ const deployOrJoin = async (
     }
 
     if (choice === '2') {
+      await assertZkArtifacts(config.bootstrapZkConfigPath, BOOTSTRAP_CONTRACT_CIRCUITS, 'bootstrap contract');
+      await assertZkArtifacts(config.zkConfigPath, FULL_CONTRACT_CIRCUITS, 'full contract');
       return deployStagedContract(providers, config, env, logger);
     }
 
     if (choice === '3') {
+      await assertZkArtifacts(config.zkConfigPath, FULL_CONTRACT_CIRCUITS, 'full contract');
+      const address = await prompt(rli, 'Enter bootstrap contract address: ');
+      return resumeStagedContract(providers, config, address, logger);
+    }
+
+    if (choice === '4') {
       const address = await prompt(rli, 'Enter deployed contract address: ');
       try {
         const api = await DynamicContractAPI.join<VeilContract, typeof PRIVATE_STATE_ID>({
@@ -288,7 +452,7 @@ const deployOrJoin = async (
       }
     }
 
-    if (choice === '4') return null;
+    if (choice === '5') return null;
   }
 };
 
@@ -674,10 +838,17 @@ export const run = async (config: Config, testEnv: TestEnvironment, logger: Logg
     }
 
     const providers = await configureProviders(config, walletProvider, envConfiguration);
-    const api = await deployOrJoin(providers, config, envConfig, rli, logger);
+    const api = await deployOrJoin(providers, config, envConfiguration, rli, logger);
     if (!api) return;
 
     await menuLoop(api, rli, logger, walletProvider, walletFacade, seed);
+  } catch (error) {
+    if (isLevelDbLockedError(error)) {
+      logLevelDbLockRecovery(logger, config, error);
+      return;
+    }
+
+    throw error;
   } finally {
     for (const provider of providersToStop) {
       await provider.stop();

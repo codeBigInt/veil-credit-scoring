@@ -23,6 +23,7 @@ const checkUrl = async (url: string, logger: { warn: (msg: string) => void }): P
 };
 
 export interface Config {
+  readonly midnightDbName: string;
   readonly privateStateStoreName: string;
   readonly logDir: string;
   readonly zkConfigPath: string;
@@ -38,6 +39,7 @@ const contractZkPath = path.resolve(currentDir, '..', '..', 'contract', 'src', '
 const contractBootstrapZkPath = path.resolve(currentDir, '..', '..', 'contract', 'src', 'managed', 'veil-protocol-bootstrap');
 
 export class StandaloneConfig implements Config {
+  midnightDbName = process.env.VEIL_MIDNIGHT_DB_NAME ?? 'midnight-level-db';
   privateStateStoreName = 'veil-credit-private-state';
   logDir = path.resolve(currentDir, '..', 'logs', 'standalone', `${new Date().toISOString()}.log`);
   zkConfigPath = contractZkPath;
@@ -68,6 +70,7 @@ export class StandaloneConfig implements Config {
 }
 
 export class PreviewConfig implements Config {
+  midnightDbName = process.env.VEIL_MIDNIGHT_DB_NAME ?? 'midnight-level-db';
   privateStateStoreName = 'veil-credit-private-state';
   logDir = path.resolve(currentDir, '..', 'logs', 'preview-remote', `${new Date().toISOString()}.log`);
   zkConfigPath = contractZkPath;
@@ -82,6 +85,7 @@ export class PreviewConfig implements Config {
 }
 
 export class PreProdConfig implements Config {
+  midnightDbName = process.env.VEIL_MIDNIGHT_DB_NAME ?? 'midnight-level-db';
   privateStateStoreName = 'veil-credit-private-state';
   logDir = path.resolve(currentDir, '..', 'logs', 'preprod-remote', `${new Date().toISOString()}.log`);
   zkConfigPath = contractZkPath;

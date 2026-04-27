@@ -1,15 +1,42 @@
+/*
+ * This file is part of midnight-js.
+ * Copyright (C) Midnight Foundation
+ * SPDX-License-Identifier: Apache-2.0
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * You may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ * http://www.apache.org/licenses/LICENSE-2.0
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 import { UnshieldedTokenType } from '@midnight-ntwrk/ledger-v8';
 import { type FacadeState, type WalletFacade } from '@midnight-ntwrk/wallet-sdk-facade';
 import { type ShieldedWalletAPI, type ShieldedWalletState } from '@midnight-ntwrk/wallet-sdk-shielded';
 import { type UnshieldedWalletAPI, type UnshieldedWalletState } from '@midnight-ntwrk/wallet-sdk-unshielded-wallet';
 import * as Rx from 'rxjs';
-
 import { FaucetClient, type EnvironmentConfiguration } from '@midnight-ntwrk/testkit-js';
 import { Logger } from 'pino';
 import { UnshieldedAddress } from '@midnight-ntwrk/wallet-sdk-address-format';
 import { getNetworkId } from '@midnight-ntwrk/midnight-js-network-id';
 
-export const getInitialShieldedState = async (logger: Logger, wallet: ShieldedWalletAPI): Promise<ShieldedWalletState> => {
+/**
+ * Encodes a string as UTF-8 and pads (or truncates) it to exactly `length` bytes.
+ */
+export const pad = (value: string, length: number): Uint8Array => {
+  const encoded = new TextEncoder().encode(value);
+  const result = new Uint8Array(length);
+  result.set(encoded.subarray(0, length));
+  return result;
+};
+
+export const getInitialShieldedState = async (
+  logger: Logger,
+  wallet: ShieldedWalletAPI,
+): Promise<ShieldedWalletState> => {
   logger.info('Getting initial state of wallet...');
   return Rx.firstValueFrom(wallet.state);
 };
@@ -23,9 +50,13 @@ export const getInitialUnshieldedState = async (
 };
 
 const isProgressStrictlyComplete = (progress: unknown): boolean => {
-  if (!progress || typeof progress !== 'object') return false;
+  if (!progress || typeof progress !== 'object') {
+    return false;
+  }
   const candidate = progress as { isStrictlyComplete?: unknown };
-  if (typeof candidate.isStrictlyComplete !== 'function') return false;
+  if (typeof candidate.isStrictlyComplete !== 'function') {
+    return false;
+  }
   return (candidate.isStrictlyComplete as () => boolean)();
 };
 
@@ -39,9 +70,36 @@ export const syncWallet = (logger: Logger, wallet: WalletFacade, throttleTime = 
 
   return Rx.firstValueFrom(
     wallet.state().pipe(
+      Rx.tap((state: FacadeState) => {
+        const shieldedSynced = isProgressStrictlyComplete(state.shielded.state.progress);
+        const unshieldedSynced = isProgressStrictlyComplete(state.unshielded.progress);
+        const dustSynced = isProgressStrictlyComplete(state.dust.state.progress);
+        logger.debug(
+          `Wallet synced state emission: { shielded=${shieldedSynced}, unshielded=${unshieldedSynced}, dust=${dustSynced} }`,
+        );
+      }),
       Rx.throttleTime(throttleTime),
+      Rx.tap((state: FacadeState) => {
+        const shieldedSynced = isProgressStrictlyComplete(state.shielded.state.progress);
+        const unshieldedSynced = isProgressStrictlyComplete(state.unshielded.progress);
+        const dustSynced = isProgressStrictlyComplete(state.dust.state.progress);
+        const isSynced = shieldedSynced && dustSynced && unshieldedSynced;
+
+        logger.debug(
+          `Wallet synced state emission (synced=${isSynced}): { shielded=${shieldedSynced}, unshielded=${unshieldedSynced}, dust=${dustSynced} }`,
+        );
+      }),
       Rx.filter((state: FacadeState) => isFacadeStateSynced(state)),
       Rx.tap(() => logger.info('Sync complete')),
+      Rx.tap((state: FacadeState) => {
+        const shieldedBalances = state.shielded.balances || {};
+        const unshieldedBalances = state.unshielded.balances || {};
+        const dustBalances = state.dust.balance(new Date(Date.now())) || 0n;
+
+        logger.info(
+          `Wallet balances after sync - Shielded: ${JSON.stringify(shieldedBalances)}, Unshielded: ${JSON.stringify(unshieldedBalances)}, Dust: ${dustBalances}`,
+        );
+      }),
     ),
   );
 };
@@ -57,25 +115,39 @@ export const waitForUnshieldedFunds = async (
   const initialState = await getInitialUnshieldedState(logger, wallet.unshielded);
   const unshieldedAddress = UnshieldedAddress.codec.encode(getNetworkId(), initialState.address);
   logger.info(`Using unshielded address: ${unshieldedAddress.toString()} waiting for funds...`);
-
   if (fundFromFaucet && env.faucet) {
     logger.info('Requesting tokens from faucet...');
     await new FaucetClient(env.faucet, logger).requestTokens(unshieldedAddress.toString());
   }
-
   const initialBalance = initialState.balances[tokenType.raw];
   if (initialBalance === undefined || initialBalance === 0n) {
-    logger.info('Waiting to receive tokens...');
+    logger.info(`Your wallet initial balance is: 0 (not yet initialized)`);
+    logger.info(`Waiting to receive tokens...`);
     return Rx.firstValueFrom(
       wallet.state().pipe(
+        Rx.tap((state: FacadeState) => {
+          const balance = state.unshielded.balances[tokenType.raw] ?? 0n;
+          logger.debug(
+            `Wallet funds state emission: { synced=${isFacadeStateSynced(state)}, balance=${balance.toString()} }`,
+          );
+        }),
         Rx.throttleTime(throttleTime),
         Rx.filter(
           (state: FacadeState) => isFacadeStateSynced(state) && (state.unshielded.balances[tokenType.raw] ?? 0n) > 0n,
         ),
+        Rx.tap(() => logger.info('Sync complete')),
+        Rx.tap((state: FacadeState) => {
+          const shieldedBalances = state.shielded.balances || {};
+          const unshieldedBalances = state.unshielded.balances || {};
+          const dustBalances = state.dust.balance(new Date(Date.now())) || 0n;
+
+          logger.info(
+            `Wallet balances after sync - Shielded: ${JSON.stringify(shieldedBalances)}, Unshielded: ${JSON.stringify(unshieldedBalances)}, Dust: ${dustBalances}`,
+          );
+        }),
         Rx.map((state: FacadeState) => state.unshielded),
       ),
     );
   }
-
   return initialState;
 };

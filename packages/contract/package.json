@@ -6,11 +6,17 @@
   "types": "./dist/index.d.ts",
   "private": true,
   "exports": {
-    "*": {
+    ".": {
       "default": "./dist/index.js",
       "import": "./dist/index.js",
       "require": "./dist/index.js",
       "types": "./dist/index.d.ts"
+    },
+    "./bootstrap": {
+      "default": "./dist/managed/veil-protocol-bootstrap/contract/index.js",
+      "import": "./dist/managed/veil-protocol-bootstrap/contract/index.js",
+      "require": "./dist/managed/veil-protocol-bootstrap/contract/index.js",
+      "types": "./dist/managed/veil-protocol-bootstrap/contract/index.d.ts"
     }
   },
   "scripts": {

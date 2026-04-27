@@ -6,9 +6,9 @@
   "scripts": {
     "build": "rm -rf dist && tsc --project tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "standalone": "node --experimental-specifier-resolution=node --loader ts-node/esm src/launcher/standalone.ts",
-    "preview-remote": "node --experimental-specifier-resolution=node --loader ts-node/esm src/launcher/preview.ts",
-    "preprod-remote": "node --experimental-specifier-resolution=node --loader ts-node/esm src/launcher/preprod.ts"
+    "standalone": "node --max-old-space-size=4096 --experimental-specifier-resolution=node --loader ts-node/esm src/launcher/standalone.ts",
+    "preview-remote": "node --max-old-space-size=4096 --experimental-specifier-resolution=node --loader ts-node/esm src/launcher/preview.ts",
+    "preprod-remote": "node --max-old-space-size=4096 --experimental-specifier-resolution=node --loader ts-node/esm src/launcher/preprod.ts"
   },
   "dependencies": {
     "@midnight-ntwrk/midnight-js-contracts": "^4.0.4",

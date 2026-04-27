@@ -1,14 +1,27 @@
 {
-  "name": "my-v0-project",
+  "name": "@veil/veil-ui",
   "version": "0.1.0",
   "private": true,
   "scripts": {
     "build": "next build",
     "dev": "next dev",
     "lint": "eslint .",
-    "start": "next start"
+    "start": "next start",
+    "sync-zk": "node -e \"const {cpSync,mkdirSync}=require('fs'),c='../../contract/src/managed';mkdirSync('public/zk/bootstrap/keys',{recursive:true});mkdirSync('public/zk/bootstrap/zkir',{recursive:true});mkdirSync('public/zk/full/keys',{recursive:true});mkdirSync('public/zk/full/zkir',{recursive:true});cpSync(c+'/veil-protocol-bootstrap/keys','public/zk/bootstrap/keys',{recursive:true});cpSync(c+'/veil-protocol-bootstrap/zkir','public/zk/bootstrap/zkir',{recursive:true,filter:f=>f.endsWith('.bzkir')||!f.includes('.')});cpSync(c+'/veil-protocol/keys','public/zk/full/keys',{recursive:true});cpSync(c+'/veil-protocol/zkir','public/zk/full/zkir',{recursive:true,filter:f=>f.endsWith('.bzkir')||!f.includes('.')})\""
   },
   "dependencies": {
+    "@midnight-ntwrk/compact-js": "^2.5.0",
+    "@midnight-ntwrk/compact-runtime": "^0.15.0",
+    "@midnight-ntwrk/dapp-connector-api": "^4.0.0",
+    "@midnight-ntwrk/ledger-v8": "^8.0.3",
+    "@midnight-ntwrk/midnight-js-contracts": "^4.0.4",
+    "@midnight-ntwrk/midnight-js-fetch-zk-config-provider": "^4.0.4",
+    "@midnight-ntwrk/midnight-js-http-client-proof-provider": "^4.0.4",
+    "@midnight-ntwrk/midnight-js-indexer-public-data-provider": "^4.0.4",
+    "@midnight-ntwrk/midnight-js-level-private-state-provider": "^4.0.4",
+    "@midnight-ntwrk/midnight-js-network-id": "^4.0.4",
+    "nite-api": "^0.0.14",
+    "@veil/veil-contract": "workspace:*",
     "@hookform/resolvers": "^3.10.0",
     "@radix-ui/react-accordion": "1.2.2",
     "@radix-ui/react-alert-dialog": "1.1.4",
