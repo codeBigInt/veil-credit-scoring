@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { useWallet } from '@/context/WalletContext';
 import { syncNetworkId } from '@/utils/network-id';
 import { PRIVATE_STATE_ID, makeFullCompiledContract } from '@/contract-api-utils';
-import { createCircuitContext, fromHex, sampleSigningKey, toHex } from '@midnight-ntwrk/compact-runtime';
+import { createCircuitContext, sampleSigningKey, toHex } from '@midnight-ntwrk/compact-runtime';
 import { DynamicContractAPI } from 'nite-api';
 import { Contract, ledger, VeilPrivateState, witness, Witnesses } from '@veil/veil-contract';
 import { ProvableCircuitId } from '@midnight-ntwrk/compact-js';
@@ -66,7 +66,8 @@ function serializeError(err: unknown, depth = 0): string {
   return String(err);
 }
 function createInitialPrivateState(secreteKey: Uint8Array) {
-  return { secreteKey, scoreAmmulations: {}, creditScores: {}, ownershipSecret: fromHex(sampleSigningKey()) };
+  // hexToBytes returns plain Uint8Array; fromHex returns Buffer which SuperJSON can't deserialize.
+  return { secreteKey, scoreAmmulations: {}, creditScores: {}, ownershipSecret: hexToBytes(sampleSigningKey()) };
 }
 function shortAddr(addr: string) {
   return `${addr.slice(0, 8)}…${addr.slice(-6)}`;
@@ -174,16 +175,11 @@ export default function DashboardPage() {
     };
   };
 
-  const deriveAndCheck = async (api: any, coinPublicKey: string, _contractAddress: string) => {
+  const deriveAndCheck = async (api: any, coinPublicKey: string, contractAddress: string) => {
     setIsDeriving(true);
     setError(null);
     console.log('Deriving Veil ID…');
     try {
-      // The contractState observable emits [ContractState, PrivateState | null].
-      // PrivateState from the observable is compact-typed (Bytes<32> with metadata),
-      // unlike privateStateProvider.get() which returns plain Uint8Array and causes
-      // "Trying to deserialize unknown typed array" in persistentHash.
-      // We filter until private state is populated (handles cleared IndexedDB).
       const [contractState, privateState] = await firstValueFrom(
         (api.contractState as any).pipe(
           filter(([, ps]: [any, any]) => ps != null && ps.secreteKey != null)
@@ -203,8 +199,36 @@ export default function DashboardPage() {
         console.log('PoT NFT active in registry');
       }
     } catch (err) {
-      console.error('Veil ID derivation error:', err);
-      setError(`Could not derive Veil ID: ${serializeError(err)}`);
+      const msg = serializeError(err);
+      // SuperJSON can't deserialize Buffer (stored by the old fromHex call). Clear the stale
+      // IndexedDB state, re-join with a fresh plain-Uint8Array private state, and retry once.
+      if (msg.includes('unknown typed array')) {
+        console.log('Stale private state (Buffer serialization issue) — clearing and re-joining…');
+        try {
+          await clearPrivateStore();
+          await doJoin(contractAddress);
+          const j = joinedRef.current!;
+          const [cs, ps] = await firstValueFrom(
+            (j.api.contractState as any).pipe(
+              filter(([, p]: [any, any]) => p != null && p.secreteKey != null)
+            )
+          ) as [any, any];
+          const ctx2 = createCircuitContext(j.api.deployedContractAddress, j.coinPublicKey, cs.data, ps);
+          const { result: pkBytes2 } = new Contract(witness as any).impureCircuits.Utils_generateUserPk(ctx2, ps.secreteKey);
+          const pk2 = toHex(pkBytes2);
+          setUserPk(pk2);
+          console.log('Veil ID derived after state reset:', pk2);
+          if (ledger(cs.data).LedgerStates_nftRegistry.member(hexToBytes(pk2))) {
+            setHasMinted(true);
+          }
+        } catch (retryErr) {
+          console.error('Veil ID derivation failed after state reset:', retryErr);
+          setError(`Could not derive Veil ID: ${serializeError(retryErr)}`);
+        }
+      } else {
+        console.error('Veil ID derivation error:', err);
+        setError(`Could not derive Veil ID: ${msg}`);
+      }
     } finally {
       setIsDeriving(false);
     }

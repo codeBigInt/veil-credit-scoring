@@ -1,7 +1,6 @@
 "use client"
 
 import { useState } from "react"
-import Link from "next/link"
 
 export default function Header() {
   const [open, setOpen] = useState(false)
@@ -42,12 +41,12 @@ export default function Header() {
               </svg>
             </button>
 
-            <Link
+            <a
               href="/dashboard"
               className="hidden sm:inline-block bg-linear-to-r from-primary to-primary/90 text-primary-foreground px-5 py-2 rounded-lg font-medium hover:shadow-lg hover:shadow-primary/40 transition-all duration-300 transform hover:scale-105 shadow-md"
             >
               Launch App
-            </Link>
+            </a>
           </div>
 
           {/* Mobile dropdown menu */}
@@ -58,7 +57,7 @@ export default function Header() {
                 <a href="#" onClick={() => setOpen(false)} className="px-3 py-2 rounded-md text-sm text-foreground hover:bg-primary/5">Docs</a>
                 <a href="#" onClick={() => setOpen(false)} className="px-3 py-2 rounded-md text-sm text-foreground hover:bg-primary/5">Integrations</a>
                 <div className="border-t border-border/50 mt-2 pt-2">
-                  <Link href="/dashboard" onClick={() => setOpen(false)} className="block text-center bg-primary text-primary-foreground px-4 py-2 rounded-md font-medium">Launch App</Link>
+                  <a href="/dashboard" className="block text-center bg-primary text-primary-foreground px-4 py-2 rounded-md font-medium">Launch App</a>
                 </div>
               </div>
             </div>

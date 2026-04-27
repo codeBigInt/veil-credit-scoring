@@ -19,9 +19,9 @@ export default function HeroSection() {
               revealing identities. Built for DeFi protocols that prioritize privacy.
             </p>
             <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 pt-4 justify-center md:justify-start">
-              <button className="w-full sm:w-auto bg-primary text-primary-foreground px-8 py-3 rounded-lg font-medium hover:opacity-90 transition-opacity shadow-lg hover:shadow-primary/50">
+              <a href="/dashboard" className="w-full sm:w-auto bg-primary text-primary-foreground px-8 py-3 rounded-lg font-medium hover:opacity-90 transition-opacity shadow-lg hover:shadow-primary/50 text-center">
                 Launch Protocol
-              </button>
+              </a>
               <button className="w-full sm:w-auto border border-border text-foreground px-8 py-3 rounded-lg font-medium hover:bg-muted/50 transition-colors">
                 <a href="https://veil-docs.vercel.app/introduction" className="no-underline hover:no-underline">Read Docs</a>
               </button>

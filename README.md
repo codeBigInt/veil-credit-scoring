@@ -57,6 +57,8 @@ Veil is a privacy-preserving credit scoring protocol built on [Midnight](https:/
 
 > **Design note:** The current architecture (API-driven, backend-mediated interactions) is a direct consequence of the absence of contract composability on Midnight at this stage of its development. Once composability is available, some flows may be restructured.
 
+> **Contract Deployment Address**: 7c7d7b78ebcf6a67862fde64d5717f08109cadf0666b90b3b8179aef15ec1b9e
+
 ---
 
 ## Core Concepts

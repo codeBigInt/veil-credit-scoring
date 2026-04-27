@@ -2,6 +2,7 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  output: "export",
   transpilePackages: ["@veil/veil-contract"],
   // Keep midnight-js-contracts out of the SSR bundle — it uses Node.js APIs
   // (fs/path) that are fine at runtime in Node but must never be SSR-bundled.
