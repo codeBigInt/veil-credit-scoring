@@ -2,7 +2,7 @@ import {
   type CompiledContract,
   type Contract as CompactContract,
 } from "@midnight-ntwrk/compact-js";
-import { fromHex } from "@midnight-ntwrk/compact-runtime";
+import { createCircuitContext, fromHex, toHex } from "@midnight-ntwrk/compact-runtime";
 import { indexerPublicDataProvider } from "@midnight-ntwrk/midnight-js-indexer-public-data-provider";
 import { NodeZkConfigProvider } from "@midnight-ntwrk/midnight-js-node-zk-config-provider";
 import { httpClientProofProvider } from "@midnight-ntwrk/midnight-js-http-client-proof-provider";
@@ -165,6 +165,57 @@ export class ContractService {
       input.eventEpoch,
       input.eventId,
     );
+  }
+
+  async readUserData(
+    userSecret: Uint8Array,
+    claimedUserPk: Uint8Array,
+  ): Promise<{
+    scoreAccumulators: VeilPrivateState['scoreAmmulations'][string] | null;
+    creditScore: VeilPrivateState['creditScores'][string] | null;
+  }> {
+    if (!this.api) {
+      throw new Error('Contract service has not joined the deployed contract yet.');
+    }
+
+    const contractState =
+      await this.api.providers.publicDataProvider.queryContractState(
+        this.api.deployedContractAddress,
+      );
+    if (!contractState) {
+      throw new Error(
+        `No public state found for contract ${this.api.deployedContractAddress}`,
+      );
+    }
+
+    const privateState = await this.api.providers.privateStateProvider.get(
+      this.config.privateStateId,
+    );
+    if (!privateState) {
+      throw new Error("No backend private state found for the Veil contract");
+    }
+
+    const coinPublicKey = this.walletProvider.getCoinPublicKey() as any;
+    const contract = new VeilContractClass(witness as any);
+    const ctx = createCircuitContext(
+      this.api.deployedContractAddress,
+      coinPublicKey,
+      contractState.data,
+      privateState,
+    );
+
+    const { result: derivedPkBytes } = contract.impureCircuits.Utils_generateUserPk(ctx, userSecret);
+    const derivedPkHex = toHex(derivedPkBytes);
+    const claimedPkHex = toHex(claimedUserPk);
+
+    if (derivedPkHex !== claimedPkHex) {
+      throw new Error('Unauthorized: ownership proof does not match claimed public key');
+    }
+
+    return {
+      scoreAccumulators: privateState.scoreAmmulations[claimedPkHex] ?? null,
+      creditScore: privateState.creditScores[claimedPkHex] ?? null,
+    };
   }
 
   private async join(): Promise<void> {

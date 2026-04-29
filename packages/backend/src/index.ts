@@ -5,6 +5,7 @@ import { setNetworkId } from '@midnight-ntwrk/midnight-js-network-id';
 import { apiVersion, createApp } from './app.js';
 import { getConfig, preprodEnvironment } from './config.js';
 import { ContractService } from './services/contract-service.js';
+import { TxQueue } from './services/tx-queue.js';
 
 const logger = pino({
   level: process.env.LOG_LEVEL ?? 'info',
@@ -28,8 +29,10 @@ const main = async (): Promise<void> => {
 
   const env = preprodEnvironment(config.proofServer);
   const contract = await ContractService.build(config, env, db, logger);
+  const txQueue = new TxQueue(db, logger);
+  await txQueue.init();
 
-  const app = createApp(contract);
+  const app = createApp(contract, txQueue);
 
   const server = app.listen(config.port, () => {
     logger.info(`Veil backend API listening at http://localhost:${config.port}${apiVersion}`);

@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { useWallet } from '@/context/WalletContext';
 import { syncNetworkId } from '@/utils/network-id';
 import { PRIVATE_STATE_ID, makeFullCompiledContract } from '@/contract-api-utils';
-import { createCircuitContext, sampleSigningKey, toHex } from '@midnight-ntwrk/compact-runtime';
+import { createCircuitContext, toHex } from '@midnight-ntwrk/compact-runtime';
 import { DynamicContractAPI } from 'nite-api';
 import { Contract, ledger, VeilPrivateState, witness, Witnesses } from '@veil/veil-contract';
 import { ProvableCircuitId } from '@midnight-ntwrk/compact-js';
@@ -12,6 +12,7 @@ import { httpClientProofProvider } from '@midnight-ntwrk/midnight-js-http-client
 import { Transaction } from '@midnight-ntwrk/ledger-v8';
 import { indexerPublicDataProvider } from '@midnight-ntwrk/midnight-js-indexer-public-data-provider';
 import { levelPrivateStateProvider } from '@midnight-ntwrk/midnight-js-level-private-state-provider';
+import { parseCoinPublicKeyToHex } from '@midnight-ntwrk/midnight-js-utils';
 import { filter, firstValueFrom } from 'rxjs';
 
 const NETWORK_ID = 'preprod';
@@ -21,6 +22,45 @@ const PREPROD_ENV = {
 };
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? 'http://localhost:8081';
 const CONTRACT_ADDRESS = process.env.NEXT_PUBLIC_CONTRACT_ADDRESS ?? '';
+const PRIVATE_STATE_STORE_NAME = 'veil-private-state';
+
+const backendApiUrl = (path: string): string => {
+  const base = BACKEND_URL.replace(/\/+$/, '');
+  const apiBase = base.endsWith('/api/v1') ? base : `${base}/api/v1`;
+  return `${apiBase}${path.startsWith('/') ? path : `/${path}`}`;
+};
+
+const readJsonResponse = async (res: Response): Promise<any> => {
+  const contentType = res.headers.get('content-type') ?? '';
+  if (contentType.includes('application/json')) {
+    return res.json();
+  }
+
+  const text = await res.text();
+  throw new Error(`Expected JSON from backend but received ${contentType || 'unknown content type'} from ${res.url}: ${text.slice(0, 120)}`);
+};
+
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+const waitForJob = async (jobId: string): Promise<any> => {
+  const deadline = Date.now() + 5 * 60_000;
+
+  while (Date.now() < deadline) {
+    const res = await fetch(backendApiUrl(`/jobs/${jobId}`));
+    const data = await readJsonResponse(res);
+    if (!res.ok || data.success === false) {
+      throw new Error(data.message ?? `Job lookup failed with HTTP ${res.status}`);
+    }
+
+    const job = data.job;
+    if (job?.status === 'succeeded') return job.result;
+    if (job?.status === 'failed') throw new Error(job.error ?? `Queued job ${jobId} failed`);
+
+    await sleep(2_000);
+  }
+
+  throw new Error(`Queued job ${jobId} did not finish within 5 minutes`);
+};
 
 type VeilContrat = Contract<VeilPrivateState, Witnesses<VeilPrivateState>>;
 type CircuitKeys = ProvableCircuitId<VeilContrat>;
@@ -65,9 +105,42 @@ function serializeError(err: unknown, depth = 0): string {
   }
   return String(err);
 }
-function createInitialPrivateState(secreteKey: Uint8Array) {
-  // hexToBytes returns plain Uint8Array; fromHex returns Buffer which SuperJSON can't deserialize.
-  return { secreteKey, scoreAmmulations: {}, creditScores: {}, ownershipSecret: hexToBytes(sampleSigningKey()) };
+type StoredUserSecrets = {
+  readonly secreteKey: string;
+  readonly ownershipSecret: string;
+};
+
+const userSecretsStorageKey = (accountId: string, contractAddress: string): string =>
+  `veil-user-secrets:v1:${accountId.toUpperCase()}:${contractAddress.toLowerCase()}`;
+
+function getOrCreateUserSecrets(accountId: string, contractAddress: string): StoredUserSecrets {
+  const key = userSecretsStorageKey(accountId, contractAddress);
+  const existing = localStorage.getItem(key);
+  if (existing) {
+    const parsed = JSON.parse(existing) as Partial<StoredUserSecrets>;
+    if (typeof parsed.secreteKey === 'string' && typeof parsed.ownershipSecret === 'string') {
+      return {
+        secreteKey: parsed.secreteKey,
+        ownershipSecret: parsed.ownershipSecret,
+      };
+    }
+  }
+
+  const secrets = {
+    secreteKey: bytesToHex(browserRandomBytes(32)),
+    ownershipSecret: bytesToHex(browserRandomBytes(32)),
+  };
+  localStorage.setItem(key, JSON.stringify(secrets));
+  return secrets;
+}
+
+function createInitialPrivateStateFromSecrets(secrets: StoredUserSecrets) {
+  return {
+    secreteKey: hexToBytes(secrets.secreteKey),
+    scoreAmmulations: {},
+    creditScores: {},
+    ownershipSecret: hexToBytes(secrets.ownershipSecret),
+  };
 }
 function shortAddr(addr: string) {
   return `${addr.slice(0, 8)}…${addr.slice(-6)}`;
@@ -118,7 +191,7 @@ export default function DashboardPage() {
   const { isConnected, isConnecting, walletApi, connect, walletAddress, disconnect } = useWallet();
 
   const [joinedAddress, setJoinedAddress] = useState<string | null>(null);
-  const joinedRef = useRef<{ api: any; coinPublicKey: string; providers: any } | null>(null);
+  const joinedRef = useRef<{ api: any; coinPublicKey: string; providers: any; accountId: string } | null>(null);
   const [isJoining, setIsJoining] = useState(false);
   const [userPk, setUserPk] = useState<string | null>(null);
   const [isDeriving, setIsDeriving] = useState(false);
@@ -126,6 +199,8 @@ export default function DashboardPage() {
   const [isMinting, setIsMinting] = useState(false);
   const [isRenewing, setIsRenewing] = useState(false);
   const [scoreStatus, setScoreStatus] = useState<ScoreStatus>('idle');
+  const [creditScore, setCreditScore] = useState<number | null>(null);
+  const [isSyncingScore, setIsSyncingScore] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   /* Auto-join once wallet connects, if we have a contract address */
@@ -143,9 +218,14 @@ export default function DashboardPage() {
     const accountId: string = account.unshieldedAddress;
     const zkConfigProvider = new FetchZkConfigProvider<CircuitKeys>(zkBasePath, fetch.bind(window));
     const passwordProvider = () => {
-      const k = `veil-user-pw:${accountId.toUpperCase()}`;
-      const ex = localStorage.getItem(k);
-      if (ex) return ex;
+      const accountKey = accountId.toUpperCase();
+      const k = `veil-private-state-password:${accountKey}`;
+      const legacyKey = `veil-user-pw:${accountKey}`;
+      const ex = localStorage.getItem(k) ?? localStorage.getItem(legacyKey);
+      if (ex) {
+        localStorage.setItem(k, ex);
+        return ex;
+      }
       const g = `${bytesToHex(browserRandomBytes(32))}!VeIl`;
       localStorage.setItem(k, g);
       return g;
@@ -168,11 +248,105 @@ export default function DashboardPage() {
           },
         },
         publicDataProvider: indexerPublicDataProvider(PREPROD_ENV.indexer, PREPROD_ENV.indexerWS),
-        privateStateProvider: levelPrivateStateProvider({ privateStateStoreName: 'veil-user-ps', accountId, privateStoragePasswordProvider: passwordProvider }),
+        privateStateProvider: levelPrivateStateProvider({ privateStateStoreName: PRIVATE_STATE_STORE_NAME, accountId, privateStoragePasswordProvider: passwordProvider }),
         zkConfigProvider,
       },
-      coinPublicKey: shielded.shieldedCoinPublicKey as string,
+      coinPublicKey: parseCoinPublicKeyToHex(shielded.shieldedCoinPublicKey as string, NETWORK_ID),
+      accountId,
     };
+  };
+
+  const parseScoreAccumulators = (raw: Record<string, any>) => ({
+    firstSeenEpoch: BigInt(raw.firstSeenEpoch ?? 0),
+    lastEventEpoch: BigInt(raw.lastEventEpoch ?? 0),
+    lastComputedEpoch: BigInt(raw.lastComputedEpoch ?? 0),
+    onTimeCount: BigInt(raw.onTimeCount ?? 0),
+    lateCount: BigInt(raw.lateCount ?? 0),
+    weightedRepaymentVolume: BigInt(raw.weightedRepaymentVolume ?? 0),
+    liquidationCount: BigInt(raw.liquidationCount ?? 0),
+    liquidationPenaltyPoints: BigInt(raw.liquidationPenaltyPoints ?? 0),
+    distinctProtocols: BigInt(raw.distinctProtocols ?? 0),
+    activeDebtFlag: BigInt(raw.activeDebtFlag ?? 0),
+    riskBand: BigInt(raw.riskBand ?? 0),
+    mtIndex: BigInt(raw.mtIndex ?? 0),
+  });
+
+  const parseCreditScore = (raw: Record<string, any>) => ({
+    score: BigInt(raw.score ?? 0),
+    durationWeeks: BigInt(raw.durationWeeks ?? 0),
+    lastComputedEpoch: BigInt(raw.lastComputedEpoch ?? 0),
+    repaymentRatio: BigInt(raw.repaymentRatio ?? 0),
+    liquidationCount: BigInt(raw.liquidationCount ?? 0),
+    protocolsUsed: BigInt(raw.protocolsUsed ?? 0),
+    activeDebt: Boolean(raw.activeDebt),
+    mtIndex: BigInt(raw.mtIndex ?? 0),
+  });
+
+  const syncScoreFromBackend = async (userPkHex: string): Promise<boolean> => {
+    const j = joinedRef.current;
+    if (!j) return false;
+    const secrets = getOrCreateUserSecrets(j.accountId, j.api.deployedContractAddress);
+    setIsSyncingScore(true);
+    try {
+      const chalRes = await fetch(backendApiUrl('/challenges'), { method: 'POST' });
+      const challengeData = await readJsonResponse(chalRes) as { challenge: string; message?: string };
+      if (!chalRes.ok) throw new Error(challengeData.message ?? `Challenge request failed with HTTP ${chalRes.status}`);
+      const { challenge } = challengeData;
+
+      const queryRes = await fetch(backendApiUrl('/user-data/query'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userPk: userPkHex, challenge, secreteKey: secrets.secreteKey }),
+      });
+
+      const data = await readJsonResponse(queryRes) as {
+        success: boolean;
+        message?: string;
+        scoreAccumulators: Record<string, any> | null;
+        creditScore: Record<string, any> | null;
+      };
+      if (!queryRes.ok || !data.success) throw new Error(data.message ?? `Score sync failed with HTTP ${queryRes.status}`);
+      if (!data.scoreAccumulators) return false;
+
+      const currentPs = await j.providers.privateStateProvider.get(PRIVATE_STATE_ID);
+      if (!currentPs) throw new Error('No local private state available for score sync');
+      const parsedAcc = parseScoreAccumulators(data.scoreAccumulators);
+      const parsedScore = data.creditScore ? parseCreditScore(data.creditScore) : null;
+
+      const mergedPs = {
+        ...currentPs,
+        scoreAmmulations: { ...currentPs.scoreAmmulations, [userPkHex]: parsedAcc },
+        creditScores: { ...currentPs.creditScores, ...(parsedScore ? { [userPkHex]: parsedScore } : {}) },
+      };
+
+      await j.providers.privateStateProvider.set(PRIVATE_STATE_ID, mergedPs);
+
+      if (parsedScore != null) setCreditScore(Number(parsedScore.score));
+      setScoreStatus('done');
+      console.log('Score synced from backend — accumulator present, credit score:', parsedScore?.score ?? 'not yet computed');
+      return true;
+    } catch (err) {
+      console.warn('Score sync failed:', serializeError(err));
+      throw err;
+    } finally {
+      setIsSyncingScore(false);
+    }
+  };
+
+  const syncScoreInBackground = (userPkHex: string): void => {
+    void syncScoreFromBackend(userPkHex).catch((err) => {
+      console.warn('Background score sync failed:', serializeError(err));
+    });
+  };
+
+  const readLocalCreditScore = async (userPkHex: string) => {
+    const j = joinedRef.current;
+    if (!j) return;
+    try {
+      const ps = await j.providers.privateStateProvider.get(PRIVATE_STATE_ID);
+      const score = ps?.creditScores?.[userPkHex];
+      if (score?.score != null) setCreditScore(Number(score.score));
+    } catch { /* best-effort */ }
   };
 
   const deriveAndCheck = async (api: any, coinPublicKey: string, contractAddress: string) => {
@@ -197,7 +371,10 @@ export default function DashboardPage() {
       if (ledgerState.LedgerStates_nftRegistry.member(hexToBytes(pk))) {
         setHasMinted(true);
         console.log('PoT NFT active in registry');
+        void readLocalCreditScore(pk);
       }
+
+      syncScoreInBackground(pk);
     } catch (err) {
       const msg = serializeError(err);
       // SuperJSON can't deserialize Buffer (stored by the old fromHex call). Clear the stale
@@ -220,7 +397,9 @@ export default function DashboardPage() {
           console.log('Veil ID derived after state reset:', pk2);
           if (ledger(cs.data).LedgerStates_nftRegistry.member(hexToBytes(pk2))) {
             setHasMinted(true);
+            void readLocalCreditScore(pk2);
           }
+          syncScoreInBackground(pk2);
         } catch (retryErr) {
           console.error('Veil ID derivation failed after state reset:', retryErr);
           setError(`Could not derive Veil ID: ${serializeError(retryErr)}`);
@@ -243,7 +422,7 @@ export default function DashboardPage() {
       localStorage.removeItem(pwKey);
     } catch { /* best-effort */ }
     await new Promise<void>((resolve) => {
-      const req = indexedDB.deleteDatabase('veil-user-ps');
+      const req = indexedDB.deleteDatabase(PRIVATE_STATE_STORE_NAME);
       req.onsuccess = () => resolve();
       req.onerror = () => resolve();
       req.onblocked = () => resolve();
@@ -253,16 +432,16 @@ export default function DashboardPage() {
   const doJoin = async (addr: string) => {
     syncNetworkId(NETWORK_ID);
     const fullZkPath = new URL('/zk/full', window.location.origin).toString();
-    const { providers, coinPublicKey } = await buildProviders(walletApi!, fullZkPath);
+    const { providers, coinPublicKey, accountId } = await buildProviders(walletApi!, fullZkPath);
     console.log('Joining contract…');
     const api = await DynamicContractAPI.join({
       providers: providers as any,
       compiledContract: makeFullCompiledContract(fullZkPath),
       contractAddress: addr,
       privateStateId: PRIVATE_STATE_ID,
-      initialPrivateState: createInitialPrivateState(browserRandomBytes(32)),
+      initialPrivateState: createInitialPrivateStateFromSecrets(getOrCreateUserSecrets(accountId, addr)),
     });
-    joinedRef.current = { api, coinPublicKey, providers };
+    joinedRef.current = { api, coinPublicKey, providers, accountId };
     setJoinedAddress(api.deployedContractAddress);
     console.log('Connected to', api.deployedContractAddress);
   };
@@ -277,6 +456,7 @@ export default function DashboardPage() {
     setUserPk(null);
     setHasMinted(false);
     setScoreStatus('idle');
+    setCreditScore(null);
     joinedRef.current = null;
     setJoinedAddress(null);
 
@@ -341,15 +521,25 @@ export default function DashboardPage() {
     setError(null);
     console.log('Requesting score entry from backend…');
     try {
-      const res = await fetch(`${BACKEND_URL}/api/v1/score-entries`, {
+      const res = await fetch(backendApiUrl('/score-entries'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userPk }),
       });
-      const data = await res.json();
+      const data = await readJsonResponse(res);
       if (!res.ok) throw new Error(data.message ?? `HTTP ${res.status}`);
+      if (data.job?.id) {
+        setScoreStatus('pending');
+        console.log('Score entry queued:', data.job.id);
+        const result = await waitForJob(data.job.id);
+        setScoreStatus('done');
+        console.log('Score entry confirmed on-chain!', result);
+        if (userPk) await syncScoreFromBackend(userPk);
+        return;
+      }
       setScoreStatus('done');
       console.log('Score entry confirmed on-chain!', data.result);
+      if (userPk) await syncScoreFromBackend(userPk);
     } catch (err) {
       console.error('Score error:', err);
       setError(`Score entry: ${serializeError(err)}`);
@@ -358,14 +548,19 @@ export default function DashboardPage() {
   };
 
   const handleMint = async () => {
-    if (!joinedRef.current) return;
+    if (!joinedRef.current || !userPk) return;
     setIsMinting(true);
     setError(null);
     console.log('Minting PoT NFT — generating ZK proof…');
     try {
+      const hasBackendScoreState = await syncScoreFromBackend(userPk);
+      if (!hasBackendScoreState) {
+        throw new Error('No backend score accumulator found for this Veil ID. Create a score entry before minting.');
+      }
       await joinedRef.current.api.callTx('NFT_mintPoTNFT');
       setHasMinted(true);
       console.log('PoT NFT minted!');
+      if (userPk) void readLocalCreditScore(userPk);
     } catch (err) {
       console.error('Mint failed:', err);
       setError(`Mint failed: ${serializeError(err)}`);
@@ -409,7 +604,7 @@ export default function DashboardPage() {
     }
   };
 
-  const isBusy = isJoining || isDeriving || isMinting || isRenewing || scoreStatus === 'submitting' || scoreStatus === 'pending';
+  const isBusy = isJoining || isDeriving || isMinting || isRenewing || isSyncingScore || scoreStatus === 'submitting' || scoreStatus === 'pending';
   const isLoading = isJoining;
 
   /* ─────────── NOT CONNECTED WALL ─────────── */
@@ -537,9 +732,19 @@ export default function DashboardPage() {
           />
           <StatCard
             label="Credit Score"
-            value={scoreStatus === 'done' ? 'Registered' : scoreStatus === 'pending' ? 'Pending…' : '—'}
-            sub={scoreStatus === 'done' ? 'On-chain entry confirmed' : 'Submit to backend'}
-            shimmer={isLoading}
+            value={
+              creditScore != null ? String(creditScore)
+                : isSyncingScore ? 'Syncing…'
+                : scoreStatus === 'done' ? 'Entry confirmed'
+                : scoreStatus === 'pending' ? 'Pending…'
+                : '—'
+            }
+            sub={
+              creditScore != null ? 'Computed on-chain'
+                : scoreStatus === 'done' ? 'Accumulator synced — mint to compute score'
+                : 'Submit score entry to backend'
+            }
+            shimmer={isLoading || isSyncingScore}
           />
           <StatCard
             label="PoT NFT"
@@ -602,7 +807,7 @@ export default function DashboardPage() {
                 <p className="text-xs font-mono text-[#00e5c0]">{joinedAddress}</p>
               </div>
               <button
-                onClick={() => { joinedRef.current = null; setJoinedAddress(null); setUserPk(null); setHasMinted(false); setScoreStatus('idle'); setError(null); }}
+                onClick={() => { joinedRef.current = null; setJoinedAddress(null); setUserPk(null); setHasMinted(false); setScoreStatus('idle'); setCreditScore(null); setError(null); }}
                 className="text-xs px-3 py-1.5 rounded-lg border border-[#2d3748] text-[#a0aec0] hover:text-white transition-colors shrink-0 ml-4"
               >
                 Switch

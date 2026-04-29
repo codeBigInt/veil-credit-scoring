@@ -22,6 +22,32 @@ type QueueTask = {
   readonly run: () => Promise<unknown>;
 };
 
+const serializeError = (error: unknown, depth = 0): string => {
+  if (depth > 4) return '[max depth]';
+  if (error == null) return 'Unknown error';
+  if (typeof error === 'string') return error;
+  if (error instanceof Error) {
+    const record = error as unknown as Record<string, unknown>;
+    const parts = [`${error.name}: ${error.message}`];
+    for (const key of ['cause', 'reason', 'details', 'code']) {
+      if (record[key] != null) parts.push(`${key}: ${serializeError(record[key], depth + 1)}`);
+    }
+    return parts.join(' | ');
+  }
+  if (typeof error === 'object') {
+    try {
+      const record = error as Record<string, unknown>;
+      const parts = Object.entries(record)
+        .filter(([, value]) => value != null)
+        .map(([key, value]) => `${key}: ${serializeError(value, depth + 1)}`);
+      return parts.length > 0 ? parts.join(' | ') : JSON.stringify(error);
+    } catch {
+      return String(error);
+    }
+  }
+  return String(error);
+};
+
 export class TxQueue {
   private readonly jobs: Collection<JobRecord>;
   private readonly tasks: QueueTask[] = [];
@@ -91,13 +117,14 @@ export class TxQueue {
         },
       );
     } catch (error) {
-      this.logger.error({ jobId: task.id, error }, 'Queued transaction failed');
+      const message = serializeError(error);
+      this.logger.error({ jobId: task.id, err: error, message }, 'Queued transaction failed');
       await this.jobs.updateOne(
         { id: task.id },
         {
           $set: {
             status: 'failed',
-            error: error instanceof Error ? error.message : String(error),
+            error: message,
             finishedAt: new Date(),
             updatedAt: new Date(),
           },

@@ -9,9 +9,10 @@ import {
   makeBootstrapCompiledContract,
   makeFullCompiledContract,
 } from '@/contract-api-utils';
-import { fromHex, sampleSigningKey } from '@midnight-ntwrk/compact-runtime';
+import { sampleSigningKey } from '@midnight-ntwrk/compact-runtime';
 
 const NETWORK_ID = 'preprod';
+const PRIVATE_STATE_STORE_NAME = 'veil-private-state';
 
 const PREPROD_ENV = {
   indexer: 'https://indexer.preprod.midnight.network/api/v4/graphql',
@@ -71,7 +72,45 @@ function createVeilPrivateState(secretKey: Uint8Array) {
     secreteKey: secretKey,
     scoreAmmulations: {},
     creditScores: {},
-    ownershipSecret: fromHex(sampleSigningKey()),
+    ownershipSecret: hexToBytes(sampleSigningKey()),
+  };
+}
+
+type StoredUserSecrets = {
+  readonly secreteKey: string;
+  readonly ownershipSecret: string;
+};
+
+const userSecretsStorageKey = (accountId: string, contractAddress: string): string =>
+  `veil-user-secrets:v1:${accountId.toUpperCase()}:${contractAddress.toLowerCase()}`;
+
+function getOrCreateUserSecrets(accountId: string, contractAddress: string): StoredUserSecrets {
+  const key = userSecretsStorageKey(accountId, contractAddress);
+  const existing = localStorage.getItem(key);
+  if (existing) {
+    const parsed = JSON.parse(existing) as Partial<StoredUserSecrets>;
+    if (typeof parsed.secreteKey === 'string' && typeof parsed.ownershipSecret === 'string') {
+      return {
+        secreteKey: parsed.secreteKey,
+        ownershipSecret: parsed.ownershipSecret,
+      };
+    }
+  }
+
+  const secrets = {
+    secreteKey: bytesToHex(browserRandomBytes(32)),
+    ownershipSecret: bytesToHex(browserRandomBytes(32)),
+  };
+  localStorage.setItem(key, JSON.stringify(secrets));
+  return secrets;
+}
+
+function createInitialPrivateStateFromSecrets(secrets: StoredUserSecrets) {
+  return {
+    secreteKey: hexToBytes(secrets.secreteKey),
+    scoreAmmulations: {},
+    creditScores: {},
+    ownershipSecret: hexToBytes(secrets.ownershipSecret),
   };
 }
 
@@ -141,11 +180,12 @@ export default function DeployPage() {
       },
       publicDataProvider: indexerPublicDataProvider(PREPROD_ENV.indexer, PREPROD_ENV.indexerWS),
       privateStateProvider: levelPrivateStateProvider({
-        privateStateStoreName: 'veil-deploy-private-state',
+        privateStateStoreName: PRIVATE_STATE_STORE_NAME,
         accountId,
         privateStoragePasswordProvider,
       }),
       zkConfigProvider,
+      accountId,
     };
   };
 
@@ -179,6 +219,12 @@ export default function DeployPage() {
         initialPrivateState: createVeilPrivateState(browserRandomBytes(32)),
         args: [browserRandomBytes(32), BigInt(Date.now())],
       });
+
+      const secrets = getOrCreateUserSecrets(providers.accountId, api.deployedContractAddress);
+      await providers.privateStateProvider.set(
+        PRIVATE_STATE_ID,
+        createInitialPrivateStateFromSecrets(secrets),
+      );
 
       deployedApiRef.current = { api, providers };
       setContractAddress(api.deployedContractAddress);
