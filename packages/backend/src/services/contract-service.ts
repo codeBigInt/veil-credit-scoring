@@ -1,8 +1,12 @@
+import { randomBytes as nodeRandomBytes } from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
 import {
   type CompiledContract,
   type Contract as CompactContract,
 } from "@midnight-ntwrk/compact-js";
-import { fromHex } from "@midnight-ntwrk/compact-runtime";
+import { encodeContractAddress, fromHex } from "@midnight-ntwrk/compact-runtime";
+import { createCircuitMaintenanceTxInterface } from "@midnight-ntwrk/midnight-js-contracts";
 import { indexerPublicDataProvider } from "@midnight-ntwrk/midnight-js-indexer-public-data-provider";
 import { NodeZkConfigProvider } from "@midnight-ntwrk/midnight-js-node-zk-config-provider";
 import { httpClientProofProvider } from "@midnight-ntwrk/midnight-js-http-client-proof-provider";
@@ -17,6 +21,10 @@ import {
   type Witnesses as VeilWitnesses,
   type VeilPrivateState,
 } from "../contract-build/index.js";
+import {
+  Contract as VeilBootstrapContractClass,
+  type Witnesses as VeilBootstrapWitnesses,
+} from "../contract-build/managed/veil-protocol-bootstrap/contract/index.js";
 
 import type { BackendConfig } from "../config.js";
 import { BackendWalletProvider } from "./wallet-service.js";
@@ -27,12 +35,50 @@ type VeilContract = VeilContractClass<
   VeilWitnesses<VeilPrivateState>
 >;
 type VeilAPI = DynamicContractAPI<VeilContract, "veil_ps">;
+type VeilBootstrapContract = VeilBootstrapContractClass<
+  VeilPrivateState,
+  VeilBootstrapWitnesses<VeilPrivateState>
+>;
+
+const FULL_CONTRACT_CIRCUITS = [
+  "Utils_generateUserPk",
+  "Utils_initializeContractConfigurations",
+  "NFT_verifyPoTNFT",
+  "NFT_mintPoTNFT",
+  "NFT_renewPoTNFT",
+  "Scoring_submitRepaymentEvent",
+  "Scoring_submitLiquidationEvent",
+  "Scoring_submitProtocolUsageEvent",
+  "Scoring_submitDebtStateEvent",
+  "Scoring_createScoreEntry",
+  "Admin_addIssuer",
+  "Admin_removeIssuer",
+  "Admin_updateTokenUris",
+  "Admin_addAdmin",
+  "Admin_removeAdmin",
+  "Admin_updatedProtocolConfig",
+  "Admin_updatedScoreConfig",
+] as const;
+
+const BOOTSTRAP_CONTRACT_CIRCUITS = [
+  "Utils_generateUserPk",
+  "Utils_initializeContractConfigurations",
+  "Admin_addIssuer",
+] as const;
+
+const randomBytes32 = (): Uint8Array => new Uint8Array(nodeRandomBytes(32));
 
 export type ContractCallResult = {
   readonly circuit: string;
   readonly txHash?: string;
   readonly contractAddress: string;
+  readonly circuitResult?: unknown;
   readonly raw: unknown;
+};
+
+export type StagedDeploymentResult = {
+  readonly contractAddress: string;
+  readonly installedCircuits: readonly string[];
 };
 
 export class ContractService {
@@ -68,7 +114,13 @@ export class ContractService {
       logger,
       walletProvider,
     );
-    await service.join();
+    if (config.contractAddress) {
+      await service.join(config.contractAddress);
+    } else {
+      logger.warn(
+        "VEIL_CONTRACT_ADDRESS is not set; backend will start without joining a contract. Use the deployment endpoint first.",
+      );
+    }
     return service;
   }
 
@@ -76,8 +128,82 @@ export class ContractService {
     await this.walletProvider.stop();
   }
 
+  getContractAddress(): string | undefined {
+    return this.api?.deployedContractAddress ?? this.config.contractAddress;
+  }
+
   async createScoreEntry(userPk: Uint8Array): Promise<ContractCallResult> {
     return this.call("Scoring_createScoreEntry", userPk);
+  }
+
+  async addIssuer(input: {
+    protocolName: string;
+    contractAddress: string;
+  }): Promise<ContractCallResult> {
+    return this.call("Admin_addIssuer", input.protocolName, {
+      bytes: encodeContractAddress(input.contractAddress),
+    });
+  }
+
+  async deployStagedContract(input?: {
+    nonce?: Uint8Array;
+    currentTime?: bigint;
+  }): Promise<StagedDeploymentResult> {
+    await this.assertZkArtifacts(
+      this.config.bootstrapZkConfigPath,
+      BOOTSTRAP_CONTRACT_CIRCUITS,
+      "bootstrap contract",
+    );
+    await this.assertZkArtifacts(
+      this.config.zkConfigPath,
+      FULL_CONTRACT_CIRCUITS,
+      "full contract",
+    );
+
+    const bootstrapProviders = await this.providers(
+      this.config.bootstrapZkConfigPath,
+    );
+    const fullProviders = await this.providers(this.config.zkConfigPath);
+    const fullCompiledContract = this.compiledContract();
+
+    const bootstrapApi = await DynamicContractAPI.deploy<
+      VeilBootstrapContract,
+      "veil_ps"
+    >({
+      providers: bootstrapProviders as any,
+      compiledContract: this.bootstrapCompiledContract(),
+      privateStateId: this.config.privateStateId,
+      initialPrivateState: createVeilPrivateState(fromHex(this.config.walletSeed)),
+      args: [input?.nonce ?? randomBytes32(), input?.currentTime ?? BigInt(Date.now())],
+      logger: this.logger,
+    });
+
+    const contractAddress = bootstrapApi.deployedContractAddress;
+    this.logger.info(
+      { contractAddress },
+      "Bootstrap contract deployed; installing full verifier keys",
+    );
+
+    const installedCircuits = await this.installFullContractVerifierKeys(
+      fullProviders,
+      fullCompiledContract,
+      contractAddress,
+    );
+
+    this.api = await DynamicContractAPI.join<VeilContract, "veil_ps">({
+      providers: fullProviders,
+      compiledContract: fullCompiledContract,
+      contractAddress,
+      privateStateId: this.config.privateStateId,
+      logger: this.logger,
+    });
+
+    this.logger.info({ contractAddress }, "Staged contract deployment complete");
+
+    return {
+      contractAddress,
+      installedCircuits,
+    };
   }
 
   async verifyPoTNFT(input: {
@@ -167,14 +293,14 @@ export class ContractService {
     );
   }
 
-  private async join(): Promise<void> {
+  private async join(contractAddress: string): Promise<void> {
     const compiledContract = this.compiledContract();
     const providers = await this.providers();
 
     this.api = await DynamicContractAPI.join<VeilContract, "veil_ps">({
       providers,
       compiledContract,
-      contractAddress: this.config.contractAddress,
+      contractAddress,
       privateStateId: this.config.privateStateId,
       initialPrivateState: createVeilPrivateState(
         fromHex(this.config.walletSeed),
@@ -183,12 +309,14 @@ export class ContractService {
     });
   }
 
-  private async providers(): Promise<
+  private async providers(
+    zkConfigPath = this.config.zkConfigPath,
+  ): Promise<
     DynamicProviders<VeilContract, "veil_ps">
   > {
     const zkConfigProvider = new NodeZkConfigProvider<
       CompactContract.ProvableCircuitId<VeilContract>
-    >(this.config.zkConfigPath);
+    >(zkConfigPath);
     const accountId = (await this.walletProvider.wallet.unshielded.getAddress())
       .hexString;
     const privateStateProvider = new MongoPrivateStateProvider<
@@ -227,6 +355,84 @@ export class ContractService {
     ) as CompiledContract.CompiledContract<any, any>;
   }
 
+  private bootstrapCompiledContract(): CompiledContract.CompiledContract<
+    any,
+    any
+  > {
+    return utils.createCompiledContract<VeilBootstrapContract>(
+      "veil-protocol-bootstrap",
+      VeilBootstrapContractClass,
+      witness as any,
+      this.config.bootstrapZkConfigPath,
+    ) as CompiledContract.CompiledContract<any, any>;
+  }
+
+  private async installFullContractVerifierKeys(
+    providers: DynamicProviders<VeilContract, "veil_ps">,
+    compiledContract: CompiledContract.CompiledContract<any, any>,
+    contractAddress: string,
+  ): Promise<string[]> {
+    const installedCircuits: string[] = [];
+
+    for (const circuitId of FULL_CONTRACT_CIRCUITS) {
+      const [[, verifierKey]] = await providers.zkConfigProvider.getVerifierKeys([
+        circuitId as never,
+      ]);
+      const contractState =
+        await providers.publicDataProvider.queryContractState(contractAddress);
+      const maintenanceTx = createCircuitMaintenanceTxInterface(
+        providers as any,
+        circuitId as any,
+        compiledContract,
+        contractAddress,
+      );
+
+      if (contractState?.operation(circuitId) != null) {
+        this.logger.info({ circuitId }, "Replacing verifier key");
+        await maintenanceTx.removeVerifierKey();
+      }
+
+      this.logger.info({ circuitId }, "Installing verifier key");
+      await maintenanceTx.insertVerifierKey(verifierKey);
+      installedCircuits.push(circuitId);
+    }
+
+    return installedCircuits;
+  }
+
+  private async assertZkArtifacts(
+    zkConfigPath: string,
+    circuitIds: readonly string[],
+    label: string,
+  ): Promise<void> {
+    const missing: string[] = [];
+
+    for (const circuitId of circuitIds) {
+      const expectedFiles = [
+        path.join(zkConfigPath, "keys", `${circuitId}.prover`),
+        path.join(zkConfigPath, "keys", `${circuitId}.verifier`),
+        path.join(zkConfigPath, "zkir", `${circuitId}.bzkir`),
+      ];
+
+      for (const file of expectedFiles) {
+        if (!fs.existsSync(file)) {
+          missing.push(path.relative(process.cwd(), file));
+        }
+      }
+    }
+
+    if (missing.length > 0) {
+      throw new Error(
+        [
+          `Missing ${label} ZK artifacts required for deployment.`,
+          "Run `bun --filter @veil/veil-contract compile` before deploying.",
+          "Do not use `test:compile` for deployable artifacts because it uses `--skip-zk`.",
+          `Missing files:\n${missing.map((file) => `- ${file}`).join("\n")}`,
+        ].join("\n"),
+      );
+    }
+  }
+
   private async call(
     circuit: string,
     ...args: unknown[]
@@ -243,6 +449,7 @@ export class ContractService {
       circuit,
       contractAddress: this.api.deployedContractAddress,
       txHash: extractTxHash(raw),
+      circuitResult: extractCircuitResult(raw),
       raw,
     };
   }
@@ -259,4 +466,14 @@ const extractTxHash = (raw: unknown): string | undefined => {
     if (typeof publicTxHash === "string") return publicTxHash;
   }
   return undefined;
+};
+
+const extractCircuitResult = (raw: unknown): unknown | undefined => {
+  if (!raw || typeof raw !== "object") return undefined;
+  const record = raw as Record<string, unknown>;
+  const privateData = record.private;
+  if (privateData && typeof privateData === "object") {
+    return (privateData as Record<string, unknown>).result;
+  }
+  return record.result;
 };

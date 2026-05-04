@@ -140,6 +140,54 @@ Response `201 Created`:
 }
 ```
 
+### Deploy Staged Contract
+
+```http
+POST /deployments/staged
+```
+
+Deploys the lightweight bootstrap contract, installs all full contract verifier keys, and joins the newly deployed full contract in the running backend process.
+
+Optional request:
+
+```json
+{
+  "nonce": "aabbcc...",
+  "currentTime": "1777285281000"
+}
+```
+
+Response `201 Created`:
+
+```json
+{
+  "success": true,
+  "result": {
+    "contractAddress": "0200...",
+    "installedCircuits": ["Utils_generateUserPk", "Scoring_createScoreEntry"]
+  }
+}
+```
+
+### Add Issuer
+
+```http
+POST /admin/issuers
+```
+
+Runs `Admin_addIssuer` on the currently joined contract. Use this before submitting scoring events, because random issuer keys are rejected by the contract.
+
+Request:
+
+```json
+{
+  "protocolName": "Aave",
+  "contractAddress": "0200..."
+}
+```
+
+`contractAddress` defaults to the currently joined Veil contract address if omitted.
+
 ### Get Job
 
 ```http

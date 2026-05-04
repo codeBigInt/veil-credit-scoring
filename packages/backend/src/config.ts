@@ -23,23 +23,34 @@ export type BackendConfig = {
   readonly mongoUri: string;
   readonly mongoDbName: string;
   readonly walletSeed: string;
-  readonly contractAddress: string;
+  readonly contractAddress?: string;
   readonly proofServer: string;
   readonly zkConfigPath: string;
+  readonly bootstrapZkConfigPath: string;
   readonly privateStateId: 'veil_ps';
 };
 
 export const getConfig = (): BackendConfig => {
   const contractZkPath = path.resolve(currentDir, '..', '..', 'contract', 'src', 'managed', 'veil-protocol');
+  const bootstrapZkPath = path.resolve(
+    currentDir,
+    '..',
+    '..',
+    'contract',
+    'src',
+    'managed',
+    'veil-protocol-bootstrap',
+  );
 
   return {
     port: optionalNumber('PORT', 3001),
     mongoUri: required('MONGODB_URI'),
     mongoDbName: process.env.MONGODB_DB_NAME ?? 'veil_backend',
     walletSeed: required('VEIL_BACKEND_WALLET_SEED'),
-    contractAddress: required('VEIL_CONTRACT_ADDRESS'),
+    contractAddress: process.env.VEIL_CONTRACT_ADDRESS,
     proofServer: required('VEIL_PROOF_SERVER_URL'),
     zkConfigPath: process.env.VEIL_ZK_CONFIG_PATH ?? contractZkPath,
+    bootstrapZkConfigPath: process.env.VEIL_BOOTSTRAP_ZK_CONFIG_PATH ?? bootstrapZkPath,
     privateStateId: 'veil_ps',
   };
 };

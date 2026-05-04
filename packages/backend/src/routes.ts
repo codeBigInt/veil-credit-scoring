@@ -5,6 +5,7 @@ import type { ContractService } from './services/contract-service.js';
 import {
   optionalBigInt,
   optionalBytes,
+  optionalString,
   randomBytes32,
   requiredBigInt,
   requiredBytes,
@@ -22,6 +23,38 @@ export const buildRouter = (contract: ContractService): Router => {
 
   router.get('/health', (_req: Request, res: Response) => {
     res.status(200).json({ success: true, service: 'veil-backend', version: 'v1' });
+  });
+
+  router.post('/deployments/staged', async (req: Request, res: Response) => {
+    try {
+      const body = req.body as Record<string, unknown>;
+      const result = await contract.deployStagedContract({
+        nonce: optionalBytes(body, 'nonce', randomBytes32()),
+        currentTime: optionalBigInt(body, 'currentTime', BigInt(Date.now())),
+      });
+      res.status(201).json(toJsonSafe({ success: true, result }));
+    } catch (error) {
+      sendError(res, 500, errorMessage(error));
+    }
+  });
+
+  router.post('/admin/issuers', async (req: Request, res: Response) => {
+    try {
+      const body = req.body as Record<string, unknown>;
+      const protocolName = optionalString(body, 'protocolName') ?? 'Aave';
+      const contractAddress = optionalString(body, 'contractAddress') ?? contract.getContractAddress();
+      if (!contractAddress) {
+        throw new Error('contractAddress is required because no Veil contract is joined yet');
+      }
+
+      const result = await contract.addIssuer({
+        protocolName,
+        contractAddress,
+      });
+      res.status(200).json(toJsonSafe({ success: true, result }));
+    } catch (error) {
+      sendError(res, 500, errorMessage(error));
+    }
   });
 
   router.post('/score-entries', async (req: Request, res: Response) => {
