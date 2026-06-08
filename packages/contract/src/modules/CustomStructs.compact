@@ -15,20 +15,6 @@
 
 module CustomStructs {
     import CompactStandardLibrary;
-
-    export enum Tier {
-        unranked,
-        bronze,
-        silver,
-        gold,
-        platinum
-    }
-
-    export struct UserMetadata {
-        firstSeenEpoch: Uint<64>;       // when they joined the protocol
-        lastUpdatedEpoch: Uint<64>;       // last time score was recalculated
-        isBlacklisted: Boolean;      // liquidation/default flag
-    };
     
     export struct CreditScore {
         score: Uint<32>; // credit score 
@@ -48,45 +34,6 @@ module CustomStructs {
         dataSubmissions: Uint<32>;       // how many times this issuer has submitted
         registeredEpoch: Uint<64>;       // when they were approved
         contractAddress: ContractAddress; // Issuer contract address
-    };
-
-    export struct PoTNFTMetadata {
-        uri: Bytes<32>; // token marker for offchain URI resolution
-        tokenId: Uint<64>;    // unique NFT identifier
-        nonce: Bytes<32>;       // replay protection for score submissions
-        tier: Tier;        // tier at time of minting (snapshot)
-        mintedAt: Uint<64>;       // when it was minted
-        trustDuration: Uint<64>;       // weeks of behavior proven at mint time
-        isRevoked: Boolean;      // if user defaulted post-mint
-        expiresAtEpoch: Uint<64>;       // NFTs expire — trust is time-bounded
-        creditScoreCommitment: Bytes<32>;
-        ownershipCommitment: Bytes<32>; // Commitment proving the NFT owner's authorization secret
-    };
-
-    export struct ProtocolConfig {
-        unranked: Uint<8>;
-        bronzeThreshold: Uint<8>;    // min repaymentRatio for Bronze
-        silverThreshold: Uint<8>;
-        goldThreshold: Uint<8>;
-        platinumThreshold: Uint<8>;
-        maxLiquidationsAllowed: Uint<8>;    // above this → blacklisted
-        nftEpochValidity: Uint<32>;   // how long an NFT is valid
-    };
-
-    export struct TokenImageUris {
-        unranked: Opaque<"string">;
-        bronze: Opaque<"string">; // e.g ipfs://Qm.../bronze.svg
-        silver: Opaque<"string">;
-        gold: Opaque<"string">;
-        platinum: Opaque<"string">;
-    };
-
-    export struct TokenMarkers {
-        unranked: Opaque<"string">;
-        bronze: Bytes<32>;
-        silver: Bytes<32>;
-        gold: Bytes<32>;
-        platinum: Bytes<32>;
     };
 
     export struct ScoreAccumulators {
@@ -119,7 +66,5 @@ module CustomStructs {
         liquidationWeight: Uint<32>;
         activeDebtPenalty: Uint<32>;
         riskBandWeight: Uint<32>;
-
-        maxScoreDeltaPerEpoch: Uint<32>;
     };
 }

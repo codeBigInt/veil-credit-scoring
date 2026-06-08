@@ -1,0 +1,11 @@
+.git
+.turbo
+**/.turbo
+**/.next
+**/dist
+**/node_modules
+**/.wallet-cache
+**/.env
+**/logs
+npm-debug.log
+yarn-error.log

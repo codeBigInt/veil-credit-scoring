@@ -1,60 +1,116 @@
 "use client"
 
+const BarChartIcon = () => (
+  <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="2" y="11" width="3.5" height="7" rx="0.5"/>
+    <rect x="8.25" y="7" width="3.5" height="11" rx="0.5"/>
+    <rect x="14.5" y="3" width="3.5" height="15" rx="0.5"/>
+  </svg>
+)
+
+const ShieldIcon = () => (
+  <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M10 2L3.5 5v5.5c0 4 2.8 7.7 6.5 8.5 3.7-.8 6.5-4.5 6.5-8.5V5L10 2z"/>
+    <path d="M7 10l2 2 4-4"/>
+  </svg>
+)
+
+const ArrowSwapIcon = () => (
+  <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M5 13V5M5 5L2 8M5 5L8 8"/>
+    <path d="M15 7v8m0 0l-3-3m3 3l3-3"/>
+  </svg>
+)
+
+const ChainLinkIcon = () => (
+  <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M8.5 11.5a4.24 4.24 0 006 0l2-2a4.243 4.243 0 00-6-6l-1 1"/>
+    <path d="M11.5 8.5a4.24 4.24 0 00-6 0l-2 2a4.243 4.243 0 006 6l1-1"/>
+  </svg>
+)
+
 export default function UseCasesSection() {
   const useCases = [
     {
+      number: "01",
       title: "Lending Protocols",
-      description:
-        "Assess borrower creditworthiness and adjust lending parameters based on anonymous credit scores without identity disclosure.",
-      icon: "💰",
+      description: "Any lending protocol on Ethereum, Solana, or CKB can call Veil's API to adjust rates and LTV limits based on ZK-proven credit bands — no raw score disclosed, no identity required.",
+      icon: <BarChartIcon />,
+      tag: "Ethereum · Solana · CKB"
     },
     {
+      number: "02",
       title: "Stablecoin Systems",
-      description:
-        "Verify collateral provider trustworthiness while maintaining user privacy in collateralized stablecoin protocols.",
-      icon: "📌",
+      description: "Verify collateral provider trustworthiness across chains while preserving complete identity privacy via Midnight ZK verification. Accept or reject collateral without KYC.",
+      icon: <ShieldIcon />,
+      tag: "Any EVM · Midnight"
     },
     {
-      title: "DEX & Yield",
-      description:
-        "Enable tiered access and better pricing for high-trust users while preserving complete privacy on Midnight.",
-      icon: "⚡",
+      number: "03",
+      title: "DEX & Yield Protocols",
+      description: "Enable tiered fee structures and better APYs for high-credit users — without any on-chain identity linkage across Midnight, Ethereum, or Solana.",
+      icon: <ArrowSwapIcon />,
+      tag: "Midnight · Ethereum"
     },
     {
-      title: "Payment Protocols",
-      description:
-        "Reduce fraud risk in payment channels by verifying user creditworthiness without revealing transaction history.",
-      icon: "✅",
+      number: "04",
+      title: "Cross-Chain Bridges",
+      description: "Reduce bridge fraud and high-value transfer risk by scoring user history before large transactions. Veil ZK proofs travel across chains without exposing raw wallet data.",
+      icon: <ChainLinkIcon />,
+      tag: "Multi-chain"
     },
   ]
 
   return (
-    <section className="w-full py-24 bg-slate-950 text-white relative overflow-hidden">
-      <div className="container mx-auto px-6 relative z-10">
-        <div className="text-center mb-16 space-y-4">
-          <h2 className="text-4xl md:text-5xl font-bold">Built for Privacy-First DeFi</h2>
-          <p className="text-xl text-white/60">
-            <span className="text-primary">Veil</span> solves the privacy paradox—trust without identity disclosure.
+    <section className="w-full py-24 bg-background/80 relative overflow-hidden">
+      <div className="container mx-auto px-6 max-w-7xl">
+
+        {/* Section header */}
+        <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 pb-8 border-b border-border/20 mb-0">
+          <div>
+            <span className="section-label mb-3 block">Cap. 02 · Use Cases</span>
+            <h2 className="font-black uppercase leading-none tracking-tight" style={{ fontSize: 'clamp(2rem, 4vw, 3rem)' }}>
+              Built for Any Protocol
+            </h2>
+          </div>
+          <p className="text-muted-foreground text-sm max-w-xs md:text-right">
+            A single REST API. Any chain. Any DeFi protocol.
           </p>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          {useCases.map((useCase, i) => (
-            <div
-              key={i}
-              className="bg-linear-to-br from-slate-900/80 to-slate-900/40 border border-slate-800/50 rounded-2xl p-8 space-y-4 hover:border-primary/50 transition-all duration-300 hover:bg-slate-900/60"
-            >
-              {/* Icon */}
-              <div className="text-4xl">{useCase.icon}</div>
-
-              {/* Title and Description */}
-              <div className="space-y-3">
-                <h3 className="text-xl font-bold">{useCase.title}</h3>
-                <p className="text-slate-400 text-sm leading-relaxed">{useCase.description}</p>
-              </div>
+        {/* Editorial numbered list */}
+        {useCases.map((uc, i) => (
+          <div
+            key={i}
+            className="grid grid-cols-12 gap-4 md:gap-8 py-8 border-b border-border/20 group hover:bg-card/5 transition-colors -mx-6 px-6"
+          >
+            {/* Number */}
+            <div className="col-span-2 md:col-span-1 flex items-start pt-1">
+              <span className="font-black text-2xl tabular-nums" style={{ color: 'oklch(0.28 0 0)' }}>{uc.number}</span>
             </div>
-          ))}
-        </div>
+
+            {/* Icon + Title */}
+            <div className="col-span-10 md:col-span-3 space-y-3">
+              <div className="w-9 h-9 flat-card rounded-sm flex items-center justify-center text-primary">
+                {uc.icon}
+              </div>
+              <h3 className="font-black uppercase tracking-tight text-base text-foreground leading-tight">{uc.title}</h3>
+              <span className="section-label" style={{ color: 'var(--color-primary)', opacity: 0.8 }}>{uc.tag}</span>
+            </div>
+
+            {/* Description */}
+            <div className="col-span-12 md:col-span-7 md:col-start-6 flex items-center">
+              <p className="text-muted-foreground text-base leading-relaxed">{uc.description}</p>
+            </div>
+
+            {/* Arrow indicator */}
+            <div className="hidden md:flex col-span-1 items-center justify-end">
+              <svg className="w-4 h-4 text-muted-foreground/30 group-hover:text-primary transition-colors" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <path d="M3 8h10M9 4l4 4-4 4" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </div>
+          </div>
+        ))}
       </div>
     </section>
   )

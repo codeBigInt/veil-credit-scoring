@@ -6,59 +6,64 @@ export default function Header() {
   const [open, setOpen] = useState(false)
 
   return (
-    <header className="sticky top-0 z-50 bg-background/95 backdrop-blur-2xl border-b border-primary/10">
-      <div className="container mx-auto px-4 sm:px-6 py-3 sm:py-5 max-w-7xl">
+    <header className="site-header sticky top-0 z-50">
+      <div className="container mx-auto px-4 sm:px-6 py-4 max-w-7xl">
         <div className="flex items-center justify-between">
-          {/* Logo */}
-          <div className="flex items-center gap-3 group cursor-pointer">
-            <div className="w-11 h-11 rounded-xl bg-linear-to-br from-primary via-primary/80 to-primary/60 flex items-center justify-center shadow-lg shadow-primary/30 group-hover:shadow-primary/50 transition-all duration-300">
-              <span className="text-primary-foreground font-bold text-lg">V</span>
-            </div>
-            <div className="flex flex-col">
-              <span className="text-lg font-bold bg-linear-to-r from-primary to-primary/80 bg-clip-text text-transparent">Veil</span>
-              <span className="text-xs text-muted-foreground/80 font-medium">Credit Protocol</span>
-            </div>
-          </div>
+          <a href="/" className="site-brand" aria-label="Veil Protocol home">
+            <span className="site-brand-mark">
+              <img src="/veil-cred-logo.PNG" alt="" className="h-9 w-9 object-contain" />
+            </span>
+            <span className="site-brand-copy">
+              <span className="site-brand-name">Veil Protocol</span>
+              <span className="site-brand-sub">Private credit infrastructure</span>
+            </span>
+          </a>
 
-          {/* Navigation */}
-          <nav className="hidden lg:flex items-center gap-1">
-            <a href="https://veil-docs.vercel.app/introduction" className="text-sm font-medium text-muted-foreground hover:text-primary px-4 py-2 rounded-lg transition-all duration-300 hover:bg-primary/5">
+          <nav className="site-nav" aria-label="Primary navigation">
+            <a href="https://veil-docs.vercel.app/introduction" target="_blank" className="site-nav-link">
               Docs
             </a>
-            <a href="https://veil-docs.vercel.app/introduction" className="text-sm font-medium text-muted-foreground hover:text-primary px-4 py-2 rounded-lg transition-all duration-300 hover:bg-primary/5">
+            <a href="https://veil-docs.vercel.app/introduction" target="_blank" className="site-nav-link">
               Integrations
             </a>
+            <a href="https://github.com/codeBigInt/veil-credit-scoring/tree/dev" target="_blank" className="site-nav-link">
+              GitHub
+            </a>
           </nav>
-          {/* Mobile menu toggle + CTA */}
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => setOpen(!open)}
-              aria-label="Toggle menu"
-              className="lg:hidden p-2 rounded-md hover:bg-primary/5 transition-colors"
-            >
-              <svg className="w-6 h-6 text-foreground" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M4 6H20M4 12H20M4 18H20" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-            </button>
 
+          <div className="flex items-center gap-2 sm:gap-3">
             <a
               href="/dashboard"
-              className="hidden sm:inline-block bg-linear-to-r from-primary to-primary/90 text-primary-foreground px-5 py-2 rounded-lg font-medium hover:shadow-lg hover:shadow-primary/40 transition-all duration-300 transform hover:scale-105 shadow-md"
+              className="site-cta hidden sm:inline-flex"
             >
               Launch App
             </a>
+
+            <button
+              onClick={() => setOpen(!open)}
+              aria-label={open ? "Close menu" : "Open menu"}
+              aria-expanded={open}
+              className="site-menu-button lg:hidden"
+            >
+              {open ? (
+                <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+                </svg>
+              ) : (
+                <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path d="M5 7h14M5 12h14M5 17h14" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+                </svg>
+              )}
+            </button>
           </div>
 
-          {/* Mobile dropdown menu */}
           {open && (
-            <div className="lg:hidden absolute right-4 top-full mt-2 w-52 bg-card border border-border rounded-lg shadow-lg z-50 overflow-hidden">
-              <div className="flex flex-col p-2">
-                <a href="#" onClick={() => setOpen(false)} className="px-3 py-2 rounded-md text-sm text-foreground hover:bg-primary/5">Protocol</a>
-                <a href="#" onClick={() => setOpen(false)} className="px-3 py-2 rounded-md text-sm text-foreground hover:bg-primary/5">Docs</a>
-                <a href="#" onClick={() => setOpen(false)} className="px-3 py-2 rounded-md text-sm text-foreground hover:bg-primary/5">Integrations</a>
-                <div className="border-t border-border/50 mt-2 pt-2">
-                  <a href="/dashboard" className="block text-center bg-primary text-primary-foreground px-4 py-2 rounded-md font-medium">Launch App</a>
-                </div>
+            <div className="site-mobile-panel lg:hidden">
+              <div className="site-mobile-grid">
+                <a href="https://veil-docs.vercel.app/introduction" target="_blank" onClick={() => setOpen(false)} className="site-mobile-link">Docs</a>
+                <a href="https://veil-docs.vercel.app/introduction" target="_blank" onClick={() => setOpen(false)} className="site-mobile-link">Integrations</a>
+                <a href="https://github.com/codeBigInt/veil-credit-scoring/tree/dev" target="_blank" onClick={() => setOpen(false)} className="site-mobile-link">GitHub</a>
+                <a href="/dashboard" onClick={() => setOpen(false)} className="site-mobile-cta">Launch App</a>
               </div>
             </div>
           )}

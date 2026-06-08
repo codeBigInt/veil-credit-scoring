@@ -3,7 +3,8 @@ import pino from 'pino';
 import { setNetworkId } from '@midnight-ntwrk/midnight-js-network-id';
 
 import { apiVersion, createApp } from './app.js';
-import { getConfig, preprodEnvironment } from './config.js';
+import { configureEnvironment, getConfig, MIDNIGHT_NETWORK_MODES } from './config.js';
+import { VeilDobService } from './modules/ckb/index.js';
 import { ContractService } from './services/contract-service.js';
 import { TxQueue } from './services/tx-queue.js';
 
@@ -14,7 +15,7 @@ const logger = pino({
 
 const main = async (): Promise<void> => {
   const config = getConfig();
-  setNetworkId('preprod');
+  setNetworkId(process.env.MIDNIGHT_NETWORK as MIDNIGHT_NETWORK_MODES);
 
   const mongo = new MongoClient(config.mongoUri);
   try {
@@ -27,12 +28,14 @@ const main = async (): Promise<void> => {
   }
   const db = mongo.db(config.mongoDbName);
 
-  const env = preprodEnvironment(config.proofServer);
+  const env = configureEnvironment(config.proofServer, process.env.MIDNIGHT_NETWORK as MIDNIGHT_NETWORK_MODES ?? "preview");
   const contract = await ContractService.build(config, env, db, logger);
+  process.env.MIDNIGHT_CONTRACT_ADDRESS ??= contract.contractAddress();
   const txQueue = new TxQueue(db, logger);
   await txQueue.init();
+  const veilDob = new VeilDobService(db);
 
-  const app = createApp(contract, txQueue);
+  const app = createApp(contract, txQueue, veilDob);
 
   const server = app.listen(config.port, () => {
     logger.info(`Veil backend API listening at http://localhost:${config.port}${apiVersion}`);

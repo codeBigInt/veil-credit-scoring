@@ -47,16 +47,28 @@ const getInitialShieldedState = async (
 
 type WalletStateCache = {
   savedAt: string;
+  networkId: string;
   shielded: string;
   unshielded: string;
   dust: string;
 };
 
-const getWalletStateCachePath = (): string =>
-  path.resolve(process.cwd(), ".wallet-cache", "backend-wallet-state.json");
 
-const readWalletStateCache = (logger: Logger): WalletStateCache | undefined => {
-  const cachePath = getWalletStateCachePath();
+const safeCacheSegment = (value: string): string =>
+  value.replace(/[^a-zA-Z0-9._-]/g, "_");
+
+const getWalletStateCachePath = (networkId: string): string =>
+  path.resolve(
+    process.cwd(),
+    ".wallet-cache",
+    `backend-wallet-state-${safeCacheSegment(networkId)}.json`,
+  );
+
+const readWalletStateCache = (
+  logger: Logger,
+  networkId: string,
+): WalletStateCache | undefined => {
+  const cachePath = getWalletStateCachePath(networkId);
 
   if (!fs.existsSync(cachePath)) return undefined;
 
@@ -64,6 +76,13 @@ const readWalletStateCache = (logger: Logger): WalletStateCache | undefined => {
     const cache = JSON.parse(
       fs.readFileSync(cachePath, "utf8"),
     ) as WalletStateCache;
+
+    if (cache.networkId !== networkId) {
+      logger.warn(
+        `Ignoring backend wallet state cache for ${cache.networkId}; active network is ${networkId}`,
+      );
+      return undefined;
+    }
 
     logger.info(`Loaded backend wallet state cache: ${cachePath}`);
     return cache;
@@ -95,7 +114,7 @@ export class BackendWalletProvider implements MidnightProvider, WalletProvider {
   private cacheTimer?: NodeJS.Timeout;
 
   private async saveWalletStateCache(): Promise<void> {
-    const cachePath = getWalletStateCachePath();
+    const cachePath = getWalletStateCachePath(this.env.walletNetworkId);
 
     fs.mkdirSync(path.dirname(cachePath), { recursive: true });
 
@@ -110,6 +129,7 @@ export class BackendWalletProvider implements MidnightProvider, WalletProvider {
       JSON.stringify(
         {
           savedAt: new Date().toISOString(),
+          networkId: this.env.walletNetworkId,
           shielded,
           unshielded,
           dust,
@@ -351,7 +371,7 @@ export class BackendWalletProvider implements MidnightProvider, WalletProvider {
       },
     };
 
-    const cache = readWalletStateCache(logger);
+    const cache = readWalletStateCache(logger, env.walletNetworkId);
 
     const shieldedWallet = cache
       ? ShieldedWallet(config).restore(cache.shielded)

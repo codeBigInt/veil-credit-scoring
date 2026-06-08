@@ -2,12 +2,13 @@ import cors from 'cors';
 import express, { type Express, type Request, type Response } from 'express';
 
 import { buildRouter } from './routes.js';
+import type { VeilDobService } from './modules/ckb/index.js';
 import type { ContractService } from './services/contract-service.js';
 import type { TxQueue } from './services/tx-queue.js';
 
 export const apiVersion = '/api/v1';
 
-export const createApp = (contract: ContractService, txQueue: TxQueue): Express => {
+export const createApp = (contract: ContractService, txQueue: TxQueue, veilDob: VeilDobService): Express => {
   const app = express();
 
   app.use(express.json({ limit: '1mb' }));
@@ -17,7 +18,7 @@ export const createApp = (contract: ContractService, txQueue: TxQueue): Express 
     res.status(200).send(`Welcome to Veil backend API: ${apiVersion}`);
   });
 
-  app.use(apiVersion, buildRouter(contract, txQueue));
+  app.use(apiVersion, buildRouter(contract, txQueue, veilDob));
 
   return app;
 };
