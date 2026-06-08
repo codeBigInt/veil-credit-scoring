@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fromHex, toHex } from "@midnight-ntwrk/compact-runtime";
-import { CustomStructs_TokenImageUris } from "../managed/veil-protocol/contract";
+import { fromHex } from "@midnight-ntwrk/compact-runtime";
 import { VeilScoreSimulator } from "./veil-score-setup";
 import { randomBytes } from "./utils";
 
@@ -29,7 +28,6 @@ describe("Test admin functionality", () => {
   it("add/update/remove admin and issuer configuration", () => {
     const simulator = createVeilScoreContract("Admin Test Contract");
     simulator.registerUser("issuer");
-    const adminCandidateAddress = randomBytes(32);
 
     simulator.as("admin");
     const issuerPk = simulator.addIssuer();
@@ -37,71 +35,82 @@ describe("Test admin functionality", () => {
       true
     );
 
-    const newTokenUris: CustomStructs_TokenImageUris = {
-      unranked: "ipfs://veil/new-unranked",
-      bronze: "ipfs://veil/new-bronze",
-      silver: "ipfs://veil/new-silver",
-      gold: "ipfs://veil/new-gold",
-      platinum: "ipfs://veil/new-platinum",
-    };
-    // simulator.updateTokenUris(newTokenUris);
-    // expect(simulator.getLedgerState().LedgerStates_tokenImageUris.unranked).toBe(
-    //   newTokenUris.unranked
-    // );
-
-    // simulator.updateProtocolConfig(
-    //   {
-    //     unranked: 0n,
-    //     bronzeThreshold: 25n,
-    //     silverThreshold: 45n,
-    //     goldThreshold: 65n,
-    //     platinumThreshold: 85n,
-    //     maxLiquidationsAllowed: 2n,
-    //     nftEpochValidity: 10n,
-    //   }
-    // );
-    // expect(
-    //   simulator.getLedgerState().LedgerStates_protocolConfig.bronzeThreshold
-    // ).toBe(25n);
-
-    // simulator.updateScoreConfig(
-    //   {
-    //     baseScore: 350n,
-    //     maxScore: 900n,
-    //     scale: 100n,
-    //     repaymentWeight: 2n,
-    //     protocolWeight: 12n,
-    //     tenureWeight: 1n,
-    //     liquidationWeight: 4n,
-    //     activeDebtPenalty: 6n,
-    //     riskBandWeight: 5n,
-    //     maxScoreDeltaPerEpoch: 40n,
-    //   }
-    // );
+    simulator.updateScoreConfig({
+      baseScore: 360n,
+      maxScore: 900n,
+      scale: 100n,
+      repaymentWeight: 2n,
+      protocolWeight: 12n,
+      tenureWeight: 1n,
+      liquidationWeight: 4n,
+      activeDebtPenalty: 6n,
+      riskBandWeight: 5n,
+    });
     expect(simulator.getLedgerState().LedgerStates_scoreConfig.baseScore).toBe(
-      350n
+      360n
     );
 
-    // simulator.addAdmin(adminCandidateAddress);
-    // const adminSet = Array.from(simulator.getLedgerState().LedgerStates_admins);
-    // expect(adminSet.length).toBeGreaterThan(0);
+    const adminCandidate = randomBytes(32);
+    simulator.addAdmin(adminCandidate);
+    expect(simulator.getLedgerState().LedgerStates_admins.member(adminCandidate)).toBe(
+      true
+    );
 
-    // const adminPk = adminSet[0];
-    // if (!adminPk) {
-    //   throw new Error("Expected admin key to exist");
-    // }
-    // simulator.removeAdmin(adminPk);
+    simulator.removeAdmin(adminCandidate);
+    expect(simulator.getLedgerState().LedgerStates_admins.member(adminCandidate)).toBe(
+      false
+    );
 
-    // simulator.removeIssuer(issuerPk);
-    // expect(simulator.getLedgerState().LedgerStates_issuers.member(issuerPk)).toBe(
-    //   false
-    // );
+    simulator.removeIssuer(issuerPk);
+    expect(simulator.getLedgerState().LedgerStates_issuers.member(issuerPk)).toBe(
+      false
+    );
+  });
+
+  it("rejects non-admin issuer and score config changes", () => {
+    const simulator = createVeilScoreContract("Admin Negative Test Contract");
+    simulator.registerUser("alice");
+
+    simulator.as("alice");
+
+    expect(() => simulator.addIssuer()).toThrowError(/Unauthorized/);
+    expect(() =>
+      simulator.updateScoreConfig({
+        baseScore: 300n,
+        maxScore: 900n,
+        scale: 100n,
+        repaymentWeight: 2n,
+        protocolWeight: 10n,
+        tenureWeight: 1n,
+        liquidationWeight: 3n,
+        activeDebtPenalty: 5n,
+        riskBandWeight: 5n,
+      })
+    ).toThrowError(/Unauthorized/);
+  });
+
+  it("does not expose deprecated Midnight PoT NFT contract surface", () => {
+    const simulator = createVeilScoreContract("PoT Regression Test Contract");
+    const impureCircuits = simulator.contract.impureCircuits as Record<string, unknown>;
+    const ledgerState = simulator.getLedgerState() as unknown as Record<string, unknown>;
+
+    expect(impureCircuits.NFT_mintPoTNFT).toBeUndefined();
+    expect(impureCircuits.NFT_renewPoTNFT).toBeUndefined();
+    expect(impureCircuits.NFT_verifyPoTNFT).toBeUndefined();
+    expect(impureCircuits.Utils_initializeContractConfigurations).toBeUndefined();
+    expect(impureCircuits.Admin_updateTokenUris).toBeUndefined();
+    expect(impureCircuits.Admin_updatedProtocolConfig).toBeUndefined();
+
+    expect(ledgerState.LedgerStates_nftRegistry).toBeUndefined();
+    expect(ledgerState.LedgerStates_protocolConfig).toBeUndefined();
+    expect(ledgerState.LedgerStates_tokenImageUris).toBeUndefined();
+    expect(ledgerState.LedgerStates_tokenMarkers).toBeUndefined();
   });
 });
 
-describe("Test scoring and PoTNFT functionality", () => {
-  it("create score entry, submit events, recompute score, mint/renew/verify nft", () => {
-    const simulator = createVeilScoreContract("Scoring & NFT Test Contract");
+describe("Test scoring functionality", () => {
+  it("create score entry, submit events, and recompute private score state", () => {
+    const simulator = createVeilScoreContract("Scoring Test Contract");
     simulator.registerUser("issuer");
     simulator.registerUser("alice");
 
@@ -130,47 +139,7 @@ describe("Test scoring and PoTNFT functionality", () => {
     // }
     // expect(updatedScore.score).toBe(score.score);
 
-    simulator.mintPoTNFT();
-    const mintedMetadata = simulator.getUserPoTNFTMetadata(userPk);
-    expect(mintedMetadata.isRevoked).toBe(false);
-
-    const mintedCoin = simulator.getLastOutputCoin();
-    simulator.renewPoTNFT(mintedCoin);
-    const renewedMetadata = simulator.getUserPoTNFTMetadata(userPk);
-    expect(renewedMetadata.tokenId).toBe(mintedMetadata.tokenId);
-
-    const challenge = randomBytes(32);
-    const challengeExpiresAt =
-      simulator.getLedgerState().LedgerStates_epochLastUpdateTimeStamp + 1_000n;
-    expect(() =>
-      simulator.verifyPoTNFT(
-        issuerPk,
-        userPk,
-        randomBytes(32),
-        challengeExpiresAt,
-        randomBytes(32)
-      )
-    ).toThrowError(/Invalid ownership secret/);
-
-    const verifyStatus = simulator.verifyPoTNFT(
-      issuerPk,
-      userPk,
-      challenge,
-      challengeExpiresAt
-    );
-    expect(verifyStatus).toBe(true);
-    expect(() =>
-      simulator.verifyPoTNFT(issuerPk, userPk, challenge, challengeExpiresAt)
-    ).toThrowError(/Verification challenge already used/);
-
-    expect(() => simulator.mintPoTNFT()).toThrowError(
-      /PoTNFT already exists, use renewPoTNFT/
-    );
-
     simulator.as("admin");
-    // simulator.revokePoTNFT(userPk, adminPk);
-    // const revokedMetadata = simulator.getUserPoTNFTMetadata(userPk);
-    // expect(revokedMetadata.isRevoked).toBe(true);
   });
 
   it("fails for invalid scoring flows and duplicate actions", () => {
@@ -229,12 +198,36 @@ describe("Test scoring and PoTNFT functionality", () => {
     ).toThrowError(/Unauthorized issuer/);
 
     simulator.as("bob");
-    expect(() => simulator.mintPoTNFT()).toThrowError(
-      /No credit score for the specified user/
+    expect(simulator.getLedgerState().LedgerStates_issuers.member(issuerPk)).toBe(
+      true
     );
+  });
 
-    expect(() => simulator.verifyPoTNFT(issuerPk, userPk)).toThrowError(
-      /PoTNFT for specified user does not exist/
-    );
+  it("rejects malformed scoring event flags", () => {
+    const simulator = createVeilScoreContract("Malformed Event Test Contract");
+    simulator.registerUser("alice");
+
+    simulator.as("admin");
+    const issuerPk = simulator.addIssuer();
+
+    simulator.as("alice");
+    simulator.createScoreEntry();
+    const userPk = getUserPkFromPrivateState(simulator.getPrivateState());
+
+    expect(() =>
+      simulator.submitRepaymentEvent(userPk, issuerPk, 2n, 100n, 0n, randomBytes(32))
+    ).toThrowError(/paidOnTimeFlag must be 0 or 1/);
+
+    expect(() =>
+      simulator.submitDebtStateEvent(userPk, issuerPk, 2n, 1n, 0n, randomBytes(32))
+    ).toThrowError(/activeDebtFlag must be 0 or 1/);
+
+    expect(() =>
+      simulator.submitDebtStateEvent(userPk, issuerPk, 1n, 4n, 0n, randomBytes(32))
+    ).toThrowError(/riskBand must be 0..3/);
+
+    expect(() =>
+      simulator.submitLiquidationEvent(userPk, issuerPk, 4n, 0n, randomBytes(32))
+    ).toThrowError(/Invalid severity/);
   });
 });

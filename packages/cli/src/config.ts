@@ -125,6 +125,18 @@ export class PreviewTestEnvironment extends RemoteTestEnvironment {
       proofServer: this.getProofServerUrl(),
     };
   }
+
+  healthCheck = async (): Promise<void> => {
+    const logger = (this as unknown as { logger: Logger }).logger;
+    logger.info('Performing env health check (timeout: 15s)');
+    const cfg = this.getEnvironmentConfiguration();
+    await checkUrl(`${cfg.node}/health`, logger);
+    await checkUrl(`${cfg.indexer.replace('/graphql', '/health')}`, logger);
+    await checkUrl(`${cfg.proofServer}/health`, logger);
+    if (cfg.faucet) {
+      await checkUrl(`${cfg.faucet.replace('/api/request-tokens', '/api/health')}`, logger);
+    }
+  };
 }
 
 export class PreprodTestEnvironment extends RemoteTestEnvironment {

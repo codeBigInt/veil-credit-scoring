@@ -1,52 +1,87 @@
 "use client"
 
 export default function HeroSection() {
-  return (
-    <section className="w-full flex items-center justify-center py-20 md:py-32 relative bg-background overflow-hidden">
-      <div className="container mx-auto px-6 relative z-10 max-w-7xl">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-12 md:gap-20 items-center justify-items-center md:justify-items-start">
-          {/* Left Content */}
-          <div className="space-y-8 text-center md:text-left">
-            <div className="space-y-4">
-              <h1 className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-bold leading-tight">
-                Private Trust,
-                <br />
-                <span className="text-primary">Verified Credit</span>
-              </h1>
-            </div>
-            <p className="text-lg text-muted-foreground max-w-lg mx-auto md:mx-0">
-              Veil enables anonymous credit scoring on Midnight blockchain. Verify financial trustworthiness without
-              revealing identities. Built for DeFi protocols that prioritize privacy.
-            </p>
-            <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 pt-4 justify-center md:justify-start">
-              <a href="/dashboard" className="w-full sm:w-auto bg-primary text-primary-foreground px-8 py-3 rounded-lg font-medium hover:opacity-90 transition-opacity shadow-lg hover:shadow-primary/50 text-center">
-                Launch Protocol
-              </a>
-              <button className="w-full sm:w-auto border border-border text-foreground px-8 py-3 rounded-lg font-medium hover:bg-muted/50 transition-colors">
-                <a href="https://veil-docs.vercel.app/introduction" className="no-underline hover:no-underline">Read Docs</a>
-              </button>
-            </div>
-          </div>
+  const chains = ['ETHEREUM', 'SOLANA', 'CKB', 'MIDNIGHT', 'POLYGON', 'ARBITRUM', 'BASE', 'AVALANCHE', 'OPTIMISM', 'ANY CHAIN']
+  const ticker = [...chains, ...chains]
 
-          {/* Right Decorative Element */}
-          <div className="hidden md:flex items-center justify-center relative h-96">
-            {/* Soft glowing base layer (strong blur) */}
-            <div
-              className="absolute -inset-6 rounded-full bg-linear-to-br from-primary/30 via-primary/15 to-transparent opacity-80 transform scale-110 animate-pulse"
-              style={{ filter: "blur(80px)" }}
-            />
-            {/* Inner subtle halo (softer blur for depth) */}
-            <div
-              className="absolute inset-0 bg-linear-to-br from-primary/8 to-transparent rounded-full opacity-60 transform scale-102"
-              style={{ filter: "blur(36px)" }}
-            />
-            <div className="relative w-100 h-100 bg-linear-to-br from-primary/15 to-primary/5 rounded-full border border-primary/30 flex items-center justify-center shadow-2xl ring-8 ring-primary/10">
-              <div className="text-center space-y-4">
-                <div className="text-6xl">🔐</div>
-                <p className="text-sm text-muted-foreground font-medium">Anonymous Verification</p>
-              </div>
-            </div>
+  return (
+    <section className="hero-grid-shell w-full bg-background relative overflow-hidden">
+      <div className="hero-grid-lines" aria-hidden="true" />
+      <div className="hero-scanline" aria-hidden="true" />
+
+      {/* Main hero content */}
+      <div className="container relative z-10 mx-auto px-6 max-w-7xl pt-20 md:pt-36 pb-16">
+        {/* Section label */}
+        <p className="section-label mb-8">Cross-Chain Credit Protocol</p>
+
+        {/* Main heading — full width, massive */}
+        <div className="mb-10">
+          <h1
+            className="font-black uppercase leading-none tracking-tight text-foreground"
+            style={{ fontSize: 'clamp(3.8rem, 10.5vw, 8.5rem)' }}
+          >
+            Cross-Chain
+          </h1>
+          <h1
+            className="font-black uppercase leading-none tracking-tight"
+            style={{
+              fontSize: 'clamp(3.8rem, 10.5vw, 8.5rem)',
+              WebkitTextStroke: '3px var(--color-primary)',
+              color: 'transparent',
+            }}
+          >
+            Credit Score.
+          </h1>
+        </div>
+
+        {/* Three-column stat strip */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-px bg-border/20 mb-14 max-w-3xl">
+          <div className="flat-card px-6 py-5">
+            <p className="section-label mb-1">Privacy Layer</p>
+            <p className="font-black uppercase text-foreground text-base">Midnight ZK Proofs</p>
           </div>
+          <div className="flat-card px-6 py-5">
+            <p className="section-label mb-1">Identity Anchor</p>
+            <p className="font-black uppercase text-foreground text-base">CKB Spore DOB</p>
+          </div>
+          <div className="flat-card px-6 py-5">
+            <p className="section-label mb-1">Open to</p>
+            <p className="font-black uppercase text-primary text-base">Any Protocol</p>
+          </div>
+        </div>
+
+        {/* Description + CTAs */}
+        <div className="max-w-2xl">
+          {/* <p className="text-lg text-muted-foreground mb-8 leading-relaxed">
+            Your on-chain history from Ethereum, Solana, CKB, or any chain builds a private credit score — verified by Midnight ZK proofs, anchored as a Spore DOB on CKB. Any DeFi protocol on any chain can consume it. No identity disclosed.
+          </p> */}
+          <div className="flex flex-col sm:flex-row gap-4">
+            <a
+              href="/dashboard"
+              className="inline-block bg-primary text-primary-foreground px-8 py-4 rounded-sm font-bold hover:opacity-90 transition-opacity uppercase tracking-widest text-sm text-center"
+            >
+              Launch Protocol
+            </a>
+            <a
+              href="https://veil-docs.vercel.app/introduction"
+              target="_blank"
+              className="inline-block border border-border/40 text-foreground px-8 py-4 rounded-sm font-medium hover:border-primary/60 transition-colors uppercase tracking-widest text-sm text-center no-underline"
+            >
+              Read Docs
+            </a>
+          </div>
+        </div>
+      </div>
+
+      {/* Chain ticker strip */}
+      <div className="chain-ticker-wrap py-3">
+        <div className="chain-ticker gap-0">
+          {ticker.map((chain, i) => (
+            <span key={i} className="inline-flex items-center gap-5 px-5">
+              <span className="section-label" style={{ color: 'var(--color-primary)', letterSpacing: '0.2em' }}>{chain}</span>
+              <span className="ticker-dot" />
+            </span>
+          ))}
         </div>
       </div>
     </section>

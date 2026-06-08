@@ -1,119 +1,79 @@
-# Veil Backend API Integration Guide
+# Veil Backend — API Reference
 
-This document describes the backend HTTP API for integrating applications, issuers, and protocol services with the Veil credit scoring protocol on Midnight preprod.
+HTTP API for submitting credit-scoring events to the Veil protocol on Midnight preprod and preparing user-signed CKB Spore/DOB identity anchors.
 
 ## Base URL
 
-Local development:
-
-```text
-http://localhost:3001/api/v1
+```
+http://localhost:3001/api/v1        # local development
+https://<backend-host>/api/v1       # production
 ```
 
-Production and shared environments should expose the same versioned path:
+## How it works
 
-```text
-https://<backend-host>/api/v1
-```
+Midnight transaction endpoints are queued. The server:
 
-## Integration Flow
+1. Validates the request body.
+2. Passes the inputs to the on-chain Veil contract circuit.
+3. Generates a ZK proof via the proof server (15–60 seconds per circuit).
+4. Balances and signs the transaction with the backend wallet.
+5. Submits the transaction to Midnight preprod and waits for confirmation.
+6. Updates the queued job result with the Midnight transaction response.
 
-1. Check backend readiness with `GET /health`.
-2. Create or update protocol state by calling the relevant resource endpoint.
-3. Transaction endpoints return `202 Accepted` with a queued job record.
-4. Read the returned `id`.
-5. Poll `GET /jobs/{jobId}` until the job status is `succeeded` or `failed`.
+CKB Spore/DOB minting is not backend-funded. The backend returns an immutable mint intent, the user's CKB wallet constructs/signs/sends the Spore transaction, then the app records the minted Spore ID with the backend.
 
-The backend submits Midnight contract transactions asynchronously because proof generation and chain confirmation can take longer than a normal HTTP request lifecycle.
+## Data conventions
 
-## Data Formats
+| Type | Wire format | Example |
+|---|---|---|
+| Byte arrays | Lowercase hex string, no `0x` prefix | `"aabbccdd..."` |
+| `BigInt` / `Uint` integers | Decimal string (recommended) or JSON number | `"1777285281000"` |
+| Timestamps | Unix milliseconds as decimal string | `"1777285341000"` |
 
-All requests and responses use JSON.
+## Response envelope
 
-Hex-encoded byte fields are sent as strings without a required `0x` prefix. Values that map to Compact `Uint` or JavaScript `bigint` are returned as decimal strings in JSON responses. Request integer fields can be sent as JSON numbers or decimal strings; decimal strings are recommended for large values.
+All responses share the same outer shape.
 
-Common byte fields:
-
-| Field | Type | Description |
-| --- | --- | --- |
-| `userPk` | hex string | User public key or Veil identity public key expected by the contract circuit. |
-| `issuerPk` | hex string | Issuer or protocol public key submitting or verifying data. |
-| `eventId` | hex string, optional | Unique 32-byte id for replay protection. If omitted, the backend generates one. |
-| `challenge` | hex string, optional | Unique 32-byte verification challenge. If omitted, the backend generates one. |
-| `ownershipSecret` | hex string | Secret used by the PoT NFT verification circuit. |
-
-## Job Object
-
-Transaction endpoints return the same job shape as `GET /jobs/{jobId}`.
+**Success**
 
 ```json
 {
-  "id": "6c8cfa3d-6fd4-458c-8ad9-0c58dcbfef69",
-  "name": "Scoring_createScoreEntry",
-  "status": "queued",
-  "createdAt": "2026-04-27T10:21:00.000Z",
-  "updatedAt": "2026-04-27T10:21:00.000Z"
+  "success": true,
+  "result": { ... }
 }
 ```
 
-Possible statuses:
-
-| Status | Meaning |
-| --- | --- |
-| `queued` | The transaction is waiting to be processed. |
-| `running` | The backend is generating proof data and submitting the transaction. |
-| `succeeded` | The contract call completed. The `result` field contains transaction metadata. |
-| `failed` | The contract call failed. The `error` field contains the failure message. |
-
-Successful job result example:
-
-```json
-{
-  "id": "6c8cfa3d-6fd4-458c-8ad9-0c58dcbfef69",
-  "name": "Scoring_createScoreEntry",
-  "status": "succeeded",
-  "createdAt": "2026-04-27T10:21:00.000Z",
-  "updatedAt": "2026-04-27T10:21:18.000Z",
-  "startedAt": "2026-04-27T10:21:01.000Z",
-  "finishedAt": "2026-04-27T10:21:18.000Z",
-  "result": {
-    "circuit": "Scoring_createScoreEntry",
-    "contractAddress": "0200...",
-    "txHash": "..."
-  }
-}
-```
-
-## Errors
-
-Validation and lookup errors use this shape:
+**Error**
 
 ```json
 {
   "success": false,
-  "message": "Job not found"
+  "message": "description of what went wrong"
 }
 ```
 
-Common status codes:
+## HTTP status codes
 
-| Status | Meaning |
-| --- | --- |
-| `200 OK` | Read request succeeded. |
-| `201 Created` | Challenge was generated. |
-| `202 Accepted` | Transaction job was queued. |
-| `400 Bad Request` | Request body or parameters are invalid. |
-| `404 Not Found` | Requested resource does not exist. |
+| Code | Meaning |
+|---|---|
+| `200 OK` | Request succeeded. |
+| `201 Created` | Challenge generated. |
+| `202 Accepted` | Transaction job accepted. Poll the returned job endpoint if the client needs completion details. |
+| `500 Internal Server Error` | Validation failure, proof error, or chain submission failure. The `message` field contains the reason. |
+
+---
 
 ## Endpoints
 
-### Health Check
+### Health check
 
-```http
+```
 GET /health
 ```
 
-Response:
+Returns the service status. Use this to verify the backend is running and reachable before making transaction calls.
+
+**Response `200`**
 
 ```json
 {
@@ -123,93 +83,224 @@ Response:
 }
 ```
 
-### Generate Verification Challenge
+---
 
-```http
-POST /challenges
+### Contract info
+
+```
+GET /contract
 ```
 
-Creates a fresh challenge for PoT NFT verification. The challenge expires after roughly 60 seconds.
+Returns the active Midnight Veil contract address managed by this backend. If `VEIL_AUTO_DEPLOY=true`, this is the address deployed by the backend wallet and persisted in MongoDB.
 
-Response `201 Created`:
+**Response `200`**
 
 ```json
 {
-  "challenge": "8f6c...",
+  "success": true,
+  "contractAddress": "7c7d7b...",
+  "superAdminSource": "VEIL_BACKEND_WALLET_SEED"
+}
+```
+
+---
+
+### Generate verification challenge
+
+```
+POST /challenges
+```
+
+Generates a fresh 32-byte random challenge and a 60-second expiry timestamp for off-chain user authorization flows.
+
+**Request body** — none required.
+
+**Response `201`**
+
+```json
+{
+  "challenge": "8f6c2a...",
   "challengeExpiresAt": "1777285341000"
 }
 ```
 
-### Get Job
+| Field | Type | Description |
+|---|---|---|
+| `challenge` | hex string | 32-byte random challenge. |
+| `challengeExpiresAt` | decimal string | Unix milliseconds when the challenge expires (current time + 60 000 ms). |
 
-```http
-GET /jobs/{jobId}
+---
+
+### Create credit decision
+
+```
+POST /credit-decisions
 ```
 
-Path parameters:
+Returns a minimized user-authorized risk decision. This endpoint never accepts the user's Midnight secret key and never returns raw credit score state, score accumulators, repayment history, or private behavior data.
 
-| Parameter | Type | Description |
-| --- | --- | --- |
-| `jobId` | UUID string | Job id returned by a transaction endpoint. |
+The user signs this exact message with their CKB wallet:
 
-Response `200 OK`: a job object.
+```text
+Veil credit decision authorization
+challenge:<challenge>
+userPk:<userPk>
+veilIdHash:<veilIdHash>
+sporeId:<sporeId>
+```
 
-### Create Score Entry
+**Request body**
 
-```http
+```json
+{
+  "userPk": "aabbcc...",
+  "veilIdHash": "0x...",
+  "sporeId": "0x...",
+  "userCkbAddress": "ckt...",
+  "challenge": "8f6c2a...",
+  "authorization": {
+    "signature": "0x...",
+    "identity": "0x...",
+    "signType": "CkbSecp256k1"
+  }
+}
+```
+
+**Response `200`**
+
+```json
+{
+  "success": true,
+  "approved": true,
+  "scoreBand": "gold",
+  "maxLtvBps": 7000,
+  "riskPremiumBps": 150,
+  "hasCreditScore": true,
+  "reason": "Credit score meets gold risk policy.",
+  "veilIdHash": "0x...",
+  "validAt": "2026-06-06T10:20:30.000Z"
+}
+```
+
+Verification performed:
+- challenge is single-use and unexpired
+- Spore/DOB exists and matches `veilIdHash`
+- DOB lock matches deployed `veil_sbt_lock`
+- `userCkbAddress` matches the DOB `ownerCkbLockHash`
+- wallet signature validates against the canonical message
+- for `CkbSecp256k1`, the signature public key derives to the same CKB owner lock
+
+---
+
+### Get score entry status
+
+```
+GET /score-entries/:userPk
+```
+
+Checks the backend MongoDB private state for an existing score entry for the user's stable Veil public key. Use this before creating a score entry so existing users do not submit a duplicate `Scoring_createScoreEntry` transaction.
+
+Optional query params:
+
+| Field | Type | Description |
+|---|---|---|
+| `userCkbAddress` | string | If supplied and the score entry exists, the response includes a CKB Veil Identity DOB mint intent. |
+| `veilIdHash` | 0x-prefixed hex string | Optional precomputed Veil ID hash. Defaults to `sha256(userPk)`. |
+
+**Response `200`**
+
+```json
+{
+  "success": true,
+  "userPk": "aabbcc...",
+  "veilIdHash": "0x...",
+  "scoreEntry": {
+    "exists": true,
+    "hasAccumulator": true,
+    "hasCreditScore": false
+  },
+  "ckbDob": {
+    "veilIdHash": "0x...",
+    "sporeId": "0x...",
+    "txHash": "0x..."
+  },
+  "ckbMintIntent": {
+    "contentType": "application/json",
+    "content": {}
+  }
+}
+```
+
+---
+
+### Create score entry
+
+```
 POST /score-entries
 ```
 
-Queues `Scoring_createScoreEntry`.
+Calls the `Scoring_createScoreEntry` circuit only if the backend private state does not already contain a score entry for `userPk`. Registers an initial on-chain credit score accumulator for a user who has not been seen before. Must be called before any scoring event can be submitted for that user. The response job result also includes a CKB Veil Identity DOB mint intent that the user's CKB wallet signs and pays for.
 
-Request:
-
-```json
-{
-  "userPk": "aabbcc..."
-}
-```
-
-Response `202 Accepted`: queued job object.
-
-### Verify PoT NFT
-
-```http
-POST /pot-nft/verifications
-```
-
-Queues `NFT_verifyPoTNFT`. Use `POST /challenges` first when the client needs to display or sign a challenge before verification.
-
-Request:
+**Request body**
 
 ```json
 {
-  "issuerPk": "112233...",
   "userPk": "aabbcc...",
-  "challenge": "8f6c...",
-  "challengeExpiresAt": "1777285341000",
-  "ownershipSecret": "998877..."
+  "userCkbAddress": "ckt..."
 }
 ```
 
-Optional fields:
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `userPk` | hex string | yes | The user's Veil public key (derived from the user's secret key via `Utils_generateUserPk`). |
+| `userCkbAddress` | string | yes | User's CKB testnet address. The backend derives its lock hash and binds the Veil Identity DOB lock args to it. |
+| `veilIdHash` | 0x-prefixed hex string | no | 32-byte hash of the Veil ID. Defaults to `sha256(userPk)` if omitted. |
 
-| Field | Default |
-| --- | --- |
-| `challenge` | Backend-generated 32-byte random value. |
-| `challengeExpiresAt` | Current server time plus 60 seconds, in Unix milliseconds. |
+**Response `202`**
 
-Response `202 Accepted`: queued job object.
+```json
+{
+  "success": true,
+  "job": {
+    "id": "01HZ...",
+    "status": "queued"
+  }
+}
+```
 
-### Submit Repayment Event
+If the score entry already exists, the backend returns `200` instead of submitting a duplicate transaction:
 
-```http
+```json
+{
+  "success": true,
+  "created": false,
+  "scoreEntry": {
+    "exists": true,
+    "hasAccumulator": true,
+    "hasCreditScore": false
+  },
+  "ckbDob": {
+    "veilIdHash": "0x...",
+    "sporeId": "0x...",
+    "txHash": "0x..."
+  },
+  "ckbMintIntent": {}
+}
+```
+
+If `ckbDob` is present, the Veil Identity DOB has already been minted for that `veilIdHash`; clients must display the existing DOB and skip reminting.
+
+---
+
+### Submit repayment event
+
+```
 POST /scoring-events/repayments
 ```
 
-Queues `Scoring_submitRepaymentEvent`.
+Calls the `Scoring_submitRepaymentEvent` circuit. Records a loan repayment outcome for a user and updates their on-chain score accumulators.
 
-Request:
+**Request body**
 
 ```json
 {
@@ -217,69 +308,95 @@ Request:
   "issuerPk": "112233...",
   "paidOnTimeFlag": "1",
   "amountWeight": "75",
-  "eventEpoch": "1777285281000",
+  "eventEpoch": "42",
   "eventId": "0f0e0d..."
 }
 ```
 
-`eventId` is optional. If omitted, the backend generates a unique 32-byte id.
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `userPk` | hex string | yes | The user's Veil public key. |
+| `issuerPk` | hex string | yes | The issuer's public key. |
+| `paidOnTimeFlag` | decimal string | yes | `"1"` if the repayment was on time, `"0"` if late. |
+| `amountWeight` | decimal string | yes | Weighted repayment volume in protocol-defined units. |
+| `eventEpoch` | decimal string | yes | The epoch number in which this repayment occurred. |
+| `eventId` | hex string | no | Unique 32-byte identifier for this event (replay protection). Backend generates one if omitted. |
 
-Response `202 Accepted`: queued job object.
+**Response `202`** — same queued job shape as [Create score entry](#create-score-entry), with a completed job result for `circuit: "Scoring_submitRepaymentEvent"`.
 
-### Submit Liquidation Event
+---
 
-```http
+### Submit liquidation event
+
+```
 POST /scoring-events/liquidations
 ```
 
-Queues `Scoring_submitLiquidationEvent`.
+Calls the `Scoring_submitLiquidationEvent` circuit. Records a liquidation event for a user and applies the corresponding penalty to their score accumulators.
 
-Request:
+**Request body**
 
 ```json
 {
   "userPk": "aabbcc...",
   "issuerPk": "112233...",
   "severity": "3",
-  "eventEpoch": "1777285281000",
+  "eventEpoch": "42",
   "eventId": "0f0e0d..."
 }
 ```
 
-`eventId` is optional.
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `userPk` | hex string | yes | The user's Veil public key. |
+| `issuerPk` | hex string | yes | The issuer's public key. |
+| `severity` | decimal string | yes | Liquidation severity level as defined by the protocol config. |
+| `eventEpoch` | decimal string | yes | The epoch number in which this liquidation occurred. |
+| `eventId` | hex string | no | Unique 32-byte event identifier. Backend generates one if omitted. |
 
-Response `202 Accepted`: queued job object.
+**Response `202`** — same queued job shape as [Create score entry](#create-score-entry), with a completed job result for `circuit: "Scoring_submitLiquidationEvent"`.
 
-### Submit Protocol Usage Event
+---
 
-```http
+### Submit protocol usage event
+
+```
 POST /scoring-events/protocol-usage
 ```
 
-Queues `Scoring_submitProtocolUsageEvent`.
+Calls the `Scoring_submitProtocolUsageEvent` circuit. Records that a user interacted with a specific DeFi protocol, contributing to their protocol diversity score.
 
-Request:
+**Request body**
 
 ```json
 {
   "userPk": "aabbcc...",
   "issuerPk": "112233...",
   "protocolId": "556677...",
-  "eventEpoch": "1777285281000"
+  "eventEpoch": "42"
 }
 ```
 
-Response `202 Accepted`: queued job object.
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `userPk` | hex string | yes | The user's Veil public key. |
+| `issuerPk` | hex string | yes | The issuer's public key. |
+| `protocolId` | hex string | yes | Unique 32-byte identifier for the DeFi protocol. |
+| `eventEpoch` | decimal string | yes | The epoch number in which this interaction occurred. |
 
-### Submit Debt State Event
+**Response `202`** — same queued job shape as [Create score entry](#create-score-entry), with a completed job result for `circuit: "Scoring_submitProtocolUsageEvent"`.
 
-```http
+---
+
+### Submit debt state event
+
+```
 POST /scoring-events/debt-states
 ```
 
-Queues `Scoring_submitDebtStateEvent`.
+Calls the `Scoring_submitDebtStateEvent` circuit. Records the current debt state and risk classification of a user.
 
-Request:
+**Request body**
 
 ```json
 {
@@ -287,33 +404,250 @@ Request:
   "issuerPk": "112233...",
   "activeDebtFlag": "1",
   "riskBand": "2",
-  "eventEpoch": "1777285281000",
+  "eventEpoch": "42",
   "eventId": "0f0e0d..."
 }
 ```
 
-`eventId` is optional.
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `userPk` | hex string | yes | The user's Veil public key. |
+| `issuerPk` | hex string | yes | The issuer's public key. |
+| `activeDebtFlag` | decimal string | yes | `"1"` if the user currently has active debt, `"0"` otherwise. |
+| `riskBand` | decimal string | yes | Risk classification band as defined by the protocol score config. |
+| `eventEpoch` | decimal string | yes | The epoch number of this debt state snapshot. |
+| `eventId` | hex string | no | Unique 32-byte event identifier. Backend generates one if omitted. |
 
-Response `202 Accepted`: queued job object.
+**Response `202`** — same queued job shape as [Create score entry](#create-score-entry), with a completed job result for `circuit: "Scoring_submitDebtStateEvent"`.
 
-## Curl Examples
+---
 
-Create a score entry:
+## CKB Veil Identity DOB
+
+### Create Veil Identity DOB mint intent
+
+`POST /ckb/veil-identity/mint-intent`
+
+Builds the immutable Spore/DOB content and lock script for the user's wallet. This endpoint does not sign, send, fund, or mint the CKB transaction.
+
+```json
+{
+  "veilIdHash": "0x...",
+  "userCkbAddress": "ckt..."
+}
+```
+
+**Response `200`**
+
+```json
+{
+  "success": true,
+  "intent": {
+    "contentType": "application/json",
+    "content": {
+      "protocol": "Veil",
+      "objectType": "VeilIdentity",
+      "veilIdHash": "0x...",
+      "ownerCkbLockHash": "0x...",
+      "midnightNetwork": "testnet",
+      "midnightContract": "0x...",
+      "version": "1"
+    },
+    "lockScript": {
+      "codeHash": "0x...",
+      "hashType": "data2",
+      "args": "0x..."
+    },
+    "cellDeps": [
+      {
+        "outPoint": {
+          "txHash": "0x...",
+          "index": "0x0"
+        },
+        "depType": "code"
+      }
+    ]
+  }
+}
+```
+
+### Record minted Veil Identity DOB
+
+`POST /ckb/veil-identity/record`
+
+After the user's CKB wallet sends the Spore transaction, this endpoint verifies the minted Spore content and lock script, then stores the backend mapping.
+
+```json
+{
+  "veilIdHash": "0x...",
+  "userCkbAddress": "ckt...",
+  "sporeId": "0x...",
+  "txHash": "0x..."
+}
+```
+
+**Response `201`**
+
+```json
+{
+  "success": true,
+  "sporeId": "0x...",
+  "txHash": "0x...",
+  "veilIdHash": "0x..."
+}
+```
+
+### Read Veil Identity DOB
+
+`GET /ckb/veil-identity/:sporeId`
+
+Fetches the Spore cell, decodes the JSON content, and verifies that it is a Veil identity anchor locked by the deployed `veil_sbt_lock`.
+
+**Response `200`**
+
+```json
+{
+  "sporeId": "0x...",
+  "content": {
+    "protocol": "Veil",
+    "objectType": "VeilIdentity",
+    "veilIdHash": "0x...",
+    "ownerCkbLockHash": "0x...",
+    "midnightNetwork": "testnet",
+    "midnightContract": "0x...",
+    "version": "1"
+  },
+  "validVeilIdentity": true
+}
+```
+
+---
+
+## Typical integration flow
+
+```
+1.  GET  /health                          — confirm backend is up
+
+2.  POST /score-entries                   — register the user on Midnight and prepare a CKB DOB mint intent
+        { userPk, userCkbAddress }
+
+3.  User CKB wallet                       — signs and sends the Spore/DOB mint transaction
+
+4.  POST /ckb/veil-identity/record        — verify and record the minted Spore/DOB
+        { veilIdHash, userCkbAddress, sporeId, txHash }
+
+5.  POST /challenges                      — get a single-use challenge for a score decision
+
+6.  User CKB wallet                       — signs the canonical credit decision message
+
+7.  POST /credit-decisions                — receive minimized score band and risk terms
+        { userPk, veilIdHash, sporeId, userCkbAddress, challenge, authorization }
+
+8.  POST /scoring-events/repayments       — submit repayment data after each loan
+        { userPk, issuerPk, paidOnTimeFlag, amountWeight, eventEpoch }
+
+9.  POST /scoring-events/liquidations     — submit liquidation data if a position is liquidated
+        { userPk, issuerPk, severity, eventEpoch }
+
+10. POST /scoring-events/protocol-usage   — record each new protocol the user interacts with
+        { userPk, issuerPk, protocolId, eventEpoch }
+
+11. POST /scoring-events/debt-states      — snapshot the user's debt state each epoch
+        { userPk, issuerPk, activeDebtFlag, riskBand, eventEpoch }
+```
+
+---
+
+## curl examples
+
+**Check health**
+
+```bash
+curl http://localhost:3001/api/v1/health
+```
+
+**Register a new user**
 
 ```bash
 curl -X POST http://localhost:3001/api/v1/score-entries \
   -H 'Content-Type: application/json' \
-  -d '{"userPk":"aabbcc"}'
+  -d '{"userPk":"aabbccddeeff...","userCkbAddress":"ckt..."}'
 ```
 
-Poll the queued transaction:
+**Submit a repayment event**
 
 ```bash
-curl http://localhost:3001/api/v1/jobs/6c8cfa3d-6fd4-458c-8ad9-0c58dcbfef69
+curl -X POST http://localhost:3001/api/v1/scoring-events/repayments \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "userPk": "aabbccddeeff...",
+    "issuerPk": "112233445566...",
+    "paidOnTimeFlag": "1",
+    "amountWeight": "75",
+    "eventEpoch": "42"
+  }'
 ```
 
-Generate a verification challenge:
+**Submit a liquidation event**
 
 ```bash
-curl -X POST http://localhost:3001/api/v1/challenges
+curl -X POST http://localhost:3001/api/v1/scoring-events/liquidations \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "userPk": "aabbccddeeff...",
+    "issuerPk": "112233445566...",
+    "severity": "3",
+    "eventEpoch": "42"
+  }'
+```
+
+**Submit a protocol usage event**
+
+```bash
+curl -X POST http://localhost:3001/api/v1/scoring-events/protocol-usage \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "userPk": "aabbccddeeff...",
+    "issuerPk": "112233445566...",
+    "protocolId": "556677889900...",
+    "eventEpoch": "42"
+  }'
+```
+
+**Submit a debt state snapshot**
+
+```bash
+curl -X POST http://localhost:3001/api/v1/scoring-events/debt-states \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "userPk": "aabbccddeeff...",
+    "issuerPk": "112233445566...",
+    "activeDebtFlag": "1",
+    "riskBand": "2",
+    "eventEpoch": "42"
+  }'
+```
+
+**Create a CKB Veil Identity DOB mint intent directly**
+
+```bash
+curl -X POST http://localhost:3001/api/v1/ckb/veil-identity/mint-intent \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "veilIdHash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "userCkbAddress": "ckt..."
+  }'
+```
+
+**Record a user-signed CKB Veil Identity DOB mint**
+
+```bash
+curl -X POST http://localhost:3001/api/v1/ckb/veil-identity/record \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "veilIdHash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "userCkbAddress": "ckt...",
+    "sporeId": "0x...",
+    "txHash": "0x..."
+  }'
 ```

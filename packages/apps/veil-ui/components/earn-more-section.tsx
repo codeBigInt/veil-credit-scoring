@@ -1,71 +1,103 @@
 "use client"
 
+const UserIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="8" cy="5" r="3"/>
+    <path d="M2 14c0-3.314 2.686-6 6-6s6 2.686 6 6"/>
+  </svg>
+)
+
+const CheckCircleIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="8" cy="8" r="6"/>
+    <polyline points="5 8 7 10 11 6"/>
+  </svg>
+)
+
+const DiamondIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <polygon points="8 1 15 8 8 15 1 8"/>
+  </svg>
+)
+
 export default function EarnMoreSection() {
+  const benefits = [
+    { label: 'Lower borrow rates', detail: 'Down to 0.5% for Platinum band' },
+    { label: 'Higher LTV limits', detail: 'Up to 90% vs 60% default' },
+    { label: 'Priority liquidation buffer', detail: '48h notice for high-credit users' },
+    { label: 'Fee waivers on bridges', detail: 'Zero bridge fees for Gold+' },
+    { label: 'Early access to yield vaults', detail: 'Private allocation rounds' },
+    { label: 'Governance weight bonus', detail: '1.5x vote multiplier' },
+  ]
+
   return (
-    <section className="w-full flex items-center justify-center py-16 md:py-24 bg-background relative overflow-hidden">
+    <section className="w-full py-16 md:py-24 bg-card/10 border-y border-border/20 relative overflow-hidden">
       <div className="container mx-auto px-6 relative z-10 max-w-7xl">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-12 md:gap-20 items-center justify-items-center">
-          {/* Left: Dashboard Mockup */}
-          <div className="flex justify-center order-2 md:order-1">
-            <div className="relative w-70 h-80 sm:w-72 sm:h-96 md:w-96 md:h-100">
-              {/* Top Card - User Profile */}
-              <div className="absolute top-0 left-0 right-0 bg-card rounded-2xl p-5 shadow-xl border border-border/50 transform -rotate-3 z-30">
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center">👤</div>
-                  <div className="flex-1">
-                    <p className="text-xs text-muted-foreground">Anonymous User</p>
-                    <p className="text-sm font-semibold text-foreground">ID: 0x742d...35cc</p>
-                  </div>
+        <div className="grid grid-cols-12 gap-8 items-start">
+
+          {/* Left: heading + copy (5 cols) */}
+          <div className="col-span-12 md:col-span-5 space-y-6 md:sticky md:top-24">
+            <span className="section-label">Cap. 04 · Protocol Benefits</span>
+            <h2 className="font-black uppercase leading-none tracking-tight" style={{ fontSize: 'clamp(2.2rem, 4.5vw, 3.5rem)' }}>
+              Unlock{" "}
+              <span style={{ WebkitTextStroke: '2px var(--color-primary)', color: 'transparent' }}>Better Terms</span>
+              {" "}With Higher Credit
+            </h2>
+            <p className="text-base text-muted-foreground leading-relaxed">
+              High Veil credit scores unlock exclusive benefits across any integrated DeFi protocol — while your identity and raw score stay completely private.
+            </p>
+
+            {/* Identity card mockup */}
+            <div className="flat-card rounded-sm p-5 space-y-4 max-w-xs">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-sm bg-primary/10 border border-primary/30 flex items-center justify-center text-primary">
+                  <UserIcon />
+                </div>
+                <div>
+                  <p className="section-label">Anonymous User</p>
+                  <p className="text-xs font-bold text-foreground">ID: 0x742d...35cc</p>
                 </div>
               </div>
-
-              {/* Middle Card - Credit Score */}
-              <div className="absolute top-20 left-4 right-4 bg-linear-to-br from-primary/10 to-primary/5 rounded-2xl p-5 shadow-lg border border-primary/30 transform rotate-1 z-20">
-                <div className="flex items-center justify-between mb-3">
-                  <p className="text-xs text-muted-foreground font-medium">CREDIT SCORE</p>
-                  <span className="text-lg font-bold text-primary">750</span>
+              <div className="bg-primary/10 border border-primary/30 rounded-sm p-3">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="section-label">Veil Credit Score</p>
+                  <span className="font-black text-primary text-sm">750</span>
                 </div>
-                <div className="w-full h-2 bg-background rounded-full overflow-hidden">
-                  <div className="h-full bg-linear-to-r from-primary to-primary/60" style={{ width: "75%" }}></div>
+                <div className="w-full h-0.5 bg-border/30 rounded-full overflow-hidden">
+                  <div className="h-full bg-primary rounded-full" style={{ width: '75%' }} />
                 </div>
               </div>
-
-              {/* Bottom Card 1 - Verification */}
-              <div className="absolute bottom-24 left-2 right-2 bg-card rounded-xl p-4 shadow-lg border border-border/50 transform -rotate-2 z-10">
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-full bg-green-500/20 flex items-center justify-center">✓</div>
-                  <div>
-                    <p className="text-xs text-muted-foreground">Verified</p>
-                    <p className="text-sm font-medium">On-chain Behavior</p>
-                  </div>
+              <div className="flex items-center gap-2">
+                <div className="w-6 h-6 rounded-sm bg-primary/10 border border-primary/30 flex items-center justify-center text-primary">
+                  <DiamondIcon />
                 </div>
-              </div>
-
-              {/* Bottom Card 2 - PoT NFT */}
-              <div className="absolute bottom-0 left-6 right-6 bg-card rounded-xl p-4 shadow-lg border border-border/50">
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center">🎖️</div>
-                  <div>
-                    <p className="text-xs text-muted-foreground">PoT NFT</p>
-                    <p className="text-sm font-medium">Proof of Trustworthiness</p>
-                  </div>
-                </div>
+                <p className="section-label text-primary">Spore DOB Anchored · CKB</p>
               </div>
             </div>
+
+            <a href="https://github.com/codeBigInt/veil-credit-scoring/tree/dev/packages/contract" target="_blank" className="inline-block bg-primary text-primary-foreground px-6 py-3 rounded-sm font-bold hover:opacity-90 transition-opacity uppercase tracking-wide text-sm no-underline">
+              Build Credit Score
+            </a>
           </div>
 
-          {/* Right Content */}
-          <div className="space-y-6 text-center md:text-left order-1 md:order-2">
-            <h2 className="text-3xl sm:text-4xl md:text-5xl font-bold leading-tight">
-              Access <span className="text-primary">Better Terms</span> With Your Credit Score
-            </h2>
-            <p className="text-lg text-muted-foreground max-w-lg mx-auto md:mx-0">
-              High credit scores unlock exclusive benefits across Midnight DeFi. Get lower fees, better rates, and
-              priority access to premium strategies—all while staying anonymous.
-            </p>
-            <button className="w-full md:w-auto bg-primary text-primary-foreground px-6 py-3 rounded-lg font-medium hover:opacity-90 transition-opacity shadow-lg hover:shadow-primary/50">
-              Build Credit Score
-            </button>
+          {/* Right: benefits list (7 cols) */}
+          <div className="col-span-12 md:col-span-7 space-y-0">
+            {benefits.map((b, i) => (
+              <div key={i} className="flex items-center justify-between py-5 border-b border-border/20 group">
+                <div className="flex items-center gap-4">
+                  <div className="w-6 h-6 rounded-sm bg-primary/10 border border-primary/30 flex items-center justify-center text-primary shrink-0">
+                    <CheckCircleIcon />
+                  </div>
+                  <div>
+                    <p className="font-bold text-foreground text-sm uppercase tracking-wide">{b.label}</p>
+                    <p className="section-label mt-0.5">{b.detail}</p>
+                  </div>
+                </div>
+                <svg className="w-4 h-4 text-border/40 group-hover:text-primary transition-colors shrink-0" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+                  <path d="M3 8h10M9 4l4 4-4 4" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </div>
+            ))}
           </div>
         </div>
       </div>

@@ -7,6 +7,7 @@ midnight-level-db
 managed
 logs
 packages/cli/logs/
+.wallet-cache/
 packages/apps/veil-ui/public/zk
 packages/backend/src/contract-build
 .cache
