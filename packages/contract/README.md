@@ -1,6 +1,6 @@
 # Veil Credit Scoring Contract
 
-Compact smart contract for privacy-preserving credit scoring and Proof-of-Trust (PoT) NFT issuance on Midnight.
+Compact smart contract for privacy-preserving credit scoring on Midnight.
 
 ## Overview
 
@@ -8,12 +8,11 @@ This package contains the core contract logic for:
 - Registering approved issuers.
 - Creating and updating private user credit score state.
 - Verifiable on-chain commitments for private score and accumulator records.
-- Minting, renewing, and verifying PoT NFTs tied to current score state.
+- Deriving the private Veil user identifier that can be anchored publicly on CKB through a Spore/DOB.
 
 The entrypoint contract is [`src/main.compact`](./src/main.compact), which composes the following modules:
 - `modules/Admin.compact`
 - `modules/Scoring.compact`
-- `modules/PoTNFT.compact`
 - `modules/Utils.compact`
 - `modules/GlobalLedgerStates.compact`
 - `modules/CustomStructs.compact`
@@ -28,9 +27,23 @@ The entrypoint contract is [`src/main.compact`](./src/main.compact), which compo
 - Public on-chain state stores commitment roots and indexes:
   - `creditScoreCommitments` and `scoreAccumulatorCommitments`
   - `userCreditScoreIndex` and `userAccumulatorIndex`
-  - NFT metadata registry and issuer registry
+  - issuer registry and score event replay protection
 
 This allows off-chain private data to be proven against on-chain commitment trees.
+
+### Public Identity Anchor
+
+Public credential minting has moved out of Midnight. After `Scoring_createScoreEntry` creates the private Veil ID and initial score commitment, the app hashes the Veil ID and lets the user mint a Veil Identity Spore/DOB on CKB testnet from their own CKB wallet.
+
+The Spore content stores only stable public metadata:
+- protocol: `Veil`
+- object type: `VeilIdentity`
+- `veilIdHash`
+- Midnight network and contract address
+- content version
+- owner CKB lock hash
+
+Mutable credit scores, score commitments, behavioral data, raw identity data, and private state are not written into the Spore content.
 
 ### Issuers
 
@@ -62,16 +75,7 @@ Epoch progression is lazy-computed via `Utils_computeCurrentEpoch` using witness
 - `Scoring_submitProtocolUsageEvent(userPk, issuerPk, protocolId, eventEpoch)`
 - `Scoring_recomputeAndReturnScore(userPk, issuerPk) -> CreditScore`
 
-### PoT NFT
-
-- `NFT_mintPoTNFT()`
-- `NFT_renewPoTNFT(token)`
-- `NFT_verifyPoTNFT(issuerPk) -> Boolean`
-
 ### Utility
-
-- `Utils_initializeContractConfigurations(tokenImageUris, tokenName, protocolConfig, scoreConfig, tokenMarkers)`
-
 ## Credit Score Computation
 
 `Utils_recomputeAndPersistScore` calculates score using:
@@ -137,7 +141,6 @@ Current tests (`src/tests/veil-credit-scoring.test.ts`) cover:
 - score entry creation
 - repayment/protocol/liquidation event submission
 - score recomputation and persistence checks
-- PoT NFT mint/renew/verify flows
 - duplicate event rejection and invalid path failures
 
 Several admin/debt/revocation paths are scaffolded but currently commented out in code and tests.
@@ -145,5 +148,6 @@ Several admin/debt/revocation paths are scaffolded but currently commented out i
 ## Notes
 
 - Constructor initializes `superAdmin` from witness local secret key.
-- Mint/renew use shielded token mechanics and nonce evolution.
-- Configuration values (`ProtocolConfig`, `ScoreConfig`, token URIs/markers) are set via `Utils_initializeContractConfigurations` and consumed by scoring/NFT logic.
+- Veil Identity DOB minting is handled by CKB Spore in the app/backend CKB module, not by Midnight token circuits.
+- Constructor receives the initial `ScoreConfig`; later score policy updates use `Admin_updatedScoreConfig`.
+- PoT NFT mint/renew/verify circuits and token URI/marker configuration have been removed from the Midnight source. Public identity anchoring now lives on CKB as a user-minted Spore/DOB, while Midnight keeps private scoring state and proof-oriented credit decision logic.

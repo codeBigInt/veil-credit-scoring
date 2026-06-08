@@ -29,11 +29,7 @@ import {
   ledger,
   type Ledger,
   type Witnesses as VeilWitnesses,
-  type CustomStructs_ProtocolConfig,
   type CustomStructs_ScoreConfig,
-  type ShieldedCoinInfo,
-  type CustomStructs_TokenImageUris,
-  type CustomStructs_TokenMarkers,
   pureCircuits,
 } from '../../contract/src/managed/veil-protocol/contract/index.js';
 import {
@@ -55,32 +51,6 @@ type VeilBootstrapContract = VeilBootstrapContractClass<VeilPrivateState, VeilBo
 
 const randomBytes = (length: number): Uint8Array => new Uint8Array(nodeRandomBytes(length));
 
-const DEFAULT_TOKEN_IMAGE_URIS: CustomStructs_TokenImageUris = {
-  unranked: 'ipfs://veil/unranked',
-  bronze: 'ipfs://veil/bronze',
-  silver: 'ipfs://veil/silver',
-  gold: 'ipfs://veil/gold',
-  platinum: 'ipfs://veil/platinum',
-};
-
-const DEFAULT_PROTOCOL_CONFIG: CustomStructs_ProtocolConfig = {
-  unranked: 0n,
-  bronzeThreshold: 20n,
-  silverThreshold: 40n,
-  goldThreshold: 60n,
-  platinumThreshold: 80n,
-  maxLiquidationsAllowed: 3n,
-  nftEpochValidity: 12n,
-};
-
-const DEFAULT_TOKEN_MARKERS: CustomStructs_TokenMarkers = {
-  unranked: 'UNRANKED',
-  bronze: randomBytes(32),
-  silver: randomBytes(32),
-  gold: randomBytes(32),
-  platinum: randomBytes(32),
-};
-
 const DEFAULT_SCORE_CONFIG: CustomStructs_ScoreConfig = {
   baseScore: 300n,
   maxScore: 900n,
@@ -91,7 +61,6 @@ const DEFAULT_SCORE_CONFIG: CustomStructs_ScoreConfig = {
   liquidationWeight: 3n,
   activeDebtPenalty: 5n,
   riskBandWeight: 5n,
-  maxScoreDeltaPerEpoch: 50n,
 };
 
 const isIterable = (value: unknown): value is Iterable<unknown> =>
@@ -247,14 +216,31 @@ const logLevelDbLockRecovery = (logger: Logger, config: Config, error: unknown):
   );
 };
 
-const prompt = async (rli: Interface, question: string): Promise<string> => (await rli.question(question)).trim();
+class CliInputClosedError extends Error {
+  constructor() {
+    super('CLI input closed');
+    this.name = 'CliInputClosedError';
+  }
+}
+
+const isReadlineClosedError = (error: unknown): boolean =>
+  error instanceof Error &&
+  ((error as NodeJS.ErrnoException).code === 'ERR_USE_AFTER_CLOSE' ||
+    error.message.includes('readline was closed'));
+
+const prompt = async (rli: Interface, question: string): Promise<string> => {
+  try {
+    return (await rli.question(question)).trim();
+  } catch (error) {
+    if (isReadlineClosedError(error)) {
+      throw new CliInputClosedError();
+    }
+    throw error;
+  }
+};
 
 const FULL_CONTRACT_CIRCUITS = [
   'Utils_generateUserPk',
-  'Utils_initializeContractConfigurations',
-  'NFT_verifyPoTNFT',
-  'NFT_mintPoTNFT',
-  'NFT_renewPoTNFT',
   'Scoring_submitRepaymentEvent',
   'Scoring_submitLiquidationEvent',
   'Scoring_submitProtocolUsageEvent',
@@ -262,16 +248,13 @@ const FULL_CONTRACT_CIRCUITS = [
   'Scoring_createScoreEntry',
   'Admin_addIssuer',
   'Admin_removeIssuer',
-  'Admin_updateTokenUris',
   'Admin_addAdmin',
   'Admin_removeAdmin',
-  'Admin_updatedProtocolConfig',
   'Admin_updatedScoreConfig',
 ] as const;
 
 const BOOTSTRAP_CONTRACT_CIRCUITS = [
   'Utils_generateUserPk',
-  'Utils_initializeContractConfigurations',
   'Admin_addIssuer',
 ] as const;
 
@@ -347,7 +330,6 @@ const deployStagedContract = async (
   logger: Logger,
 ): Promise<VeilAPI> => {
   const initialPrivateState = createVeilPrivateState(randomBytes(32));
-  const args = [randomBytes(32), BigInt(Date.now())] as const;
   const bootstrapProviders = withZkConfigPath(providers, env, config.bootstrapZkConfigPath);
   const fullCompiledContract = compiledVeilContract(config.zkConfigPath);
 
@@ -356,7 +338,7 @@ const deployStagedContract = async (
     compiledContract: compiledVeilBootstrapContract(config.bootstrapZkConfigPath),
     privateStateId: PRIVATE_STATE_ID,
     initialPrivateState,
-    args: [...args],
+    args: [DEFAULT_SCORE_CONFIG],
     logger,
   });
 
@@ -411,10 +393,7 @@ const deployOrJoin = async (
         compiledContract: compiledVeilContract(config.zkConfigPath),
         privateStateId: PRIVATE_STATE_ID,
         initialPrivateState: createVeilPrivateState(randomBytes(32)),
-        args: [
-          randomBytes(32),
-          BigInt(Date.now())
-        ],
+        args: [DEFAULT_SCORE_CONFIG],
         logger,
       });
 
@@ -484,11 +463,6 @@ const resolveUserPkFromPrivateState = async (api: VeilAPI): Promise<Uint8Array |
   return fromHex(keys[0] as string);
 };
 
-const resolveOwnershipSecretFromPrivateState = async (api: VeilAPI): Promise<Uint8Array | null> => {
-  const ps = await getPrivateState(api);
-  return ps?.ownershipSecret ?? null;
-};
-
 const askHexBytes = async (rli: Interface, label: string, fallback?: Uint8Array): Promise<Uint8Array> => {
   const entry = await prompt(rli, `${label}${fallback ? ` [default: ${toHex(fallback)}]` : ''}: `);
   if (entry === '' && fallback) return fallback;
@@ -499,14 +473,6 @@ const askBigInt = async (rli: Interface, label: string, fallback: bigint): Promi
   const entry = await prompt(rli, `${label} [default: ${fallback.toString()}]: `);
   if (entry === '') return fallback;
   return BigInt(entry);
-};
-
-const askShieldedCoinInfo = async (rli: Interface): Promise<ShieldedCoinInfo> => {
-  const nonce = await askHexBytes(rli, 'token nonce (hex)');
-  const color = await askHexBytes(rli, 'token color (hex)');
-  const value = await askBigInt(rli, 'token value', 1n);
-
-  return { nonce, color, value };
 };
 
 const printLedger = async (api: VeilAPI): Promise<void> => {
@@ -603,15 +569,20 @@ const menuLoop = async (
   let cachedIssuerPk: Uint8Array | null = null;
 
   while (true) {
-    const choice = await prompt(
-      rli,
-      '\n1. Add issuer (admin)\n2. Initialize contract config (admin)\n3. Create score entry (self)\n4. Submit repayment event\n5. Submit liquidation event\n6. Submit protocol usage event\n7. Recompute score\n8. Mint PoT NFT\n9. Renew PoT NFT\n10. Verify PoT NFT\n11. Show ledger state\n12. Show private state\n13. Exit\nChoose: ',
-    );
+      const choice = await prompt(
+        rli,
+      '\n1. Add issuer (admin)\n2. Create score entry (self)\n3. Submit repayment event\n4. Submit liquidation event\n5. Submit protocol usage event\n6. Submit debt state event\n7. Show ledger state\n8. Show private state\n9. Exit\nChoose: ',
+      );
 
     try {
       if (choice === '1') {
         const protocolName = await prompt(rli, 'Protocol name [default: Aave]: ');
-        await api.callTx("Admin_addIssuer", protocolName || 'Aave', {bytes: encodeContractAddress("331ca6599ac1eb37ae3ad5c3bce4d026dd7a4b849016317f79955adc34e4ad75")});
+        await api.callTx(
+          "Admin_addIssuer",
+          protocolName || 'Aave',
+          { bytes: encodeContractAddress("331ca6599ac1eb37ae3ad5c3bce4d026dd7a4b849016317f79955adc34e4ad75") },
+          BigInt(Date.now()),
+        );
         const issuerPk = await getAnyIssuerPk(api);
         if (!issuerPk) {
           logger.info('Issuer transaction submitted, but no issuer key could be resolved from ledger yet.');
@@ -623,27 +594,13 @@ const menuLoop = async (
       }
 
       if (choice === '2') {
-        const tokenName = await prompt(rli, 'Token name [default: Veil]: ');
-        await api.callTx(
-          'Utils_initializeContractConfigurations',
-          DEFAULT_TOKEN_IMAGE_URIS,
-          tokenName || 'Veil',
-          DEFAULT_PROTOCOL_CONFIG,
-          DEFAULT_SCORE_CONFIG,
-          DEFAULT_TOKEN_MARKERS,
-        );
-        logger.info('Contract configuration initialized');
-        continue;
-      }
-
-      if (choice === '3') {
         const userPk = await askHexBytes(rli, 'userPk (hex)', (await resolveUserPkFromPrivateState(api)) ?? undefined);
         await api.callTx("Scoring_createScoreEntry", userPk);
         logger.info(`Score entry created. userPk=${toHex(userPk)}`);
         continue;
       }
 
-      if (choice === '4') {
+      if (choice === '3') {
         const userPk = await askHexBytes(rli, 'userPk (hex)', (await resolveUserPkFromPrivateState(api)) ?? undefined);
         const issuerPk = await askHexBytes(rli, 'issuerPk (hex)', cachedIssuerPk ?? undefined);
         const paidOnTime = await askBigInt(rli, 'paidOnTimeFlag (0|1)', 1n);
@@ -662,7 +619,7 @@ const menuLoop = async (
         continue;
       }
 
-      if (choice === '5') {
+      if (choice === '4') {
         const userPk = await askHexBytes(rli, 'userPk (hex)', (await resolveUserPkFromPrivateState(api)) ?? undefined);
         const issuerPk = await askHexBytes(rli, 'issuerPk (hex)', cachedIssuerPk ?? undefined);
         const severity = await askBigInt(rli, 'severity (1..3)', 2n);
@@ -679,7 +636,7 @@ const menuLoop = async (
         continue;
       }
 
-      if (choice === '6') {
+      if (choice === '5') {
         const userPk = await askHexBytes(rli, 'userPk (hex)', (await resolveUserPkFromPrivateState(api)) ?? undefined);
         const issuerPk = await askHexBytes(rli, 'issuerPk (hex)', cachedIssuerPk ?? undefined);
         const epoch = await askBigInt(rli, 'eventEpoch', 0n);
@@ -688,95 +645,36 @@ const menuLoop = async (
         continue;
       }
 
-      // if (choice === '6') {
-      //   const userPk = await askHexBytes(rli, 'userPk (hex)', (await resolveUserPkFromPrivateState(api)) ?? undefined);
-      //   const issuerPk = await askHexBytes(rli, 'issuerPk (hex)', cachedIssuerPk ?? undefined);
-      //   const activeDebt = await askBigInt(rli, 'activeDebtFlag (0|1)', 0n);
-      //   const riskBand = await askBigInt(rli, 'riskBand (0..3)', 1n);
-      //   const epoch = await askBigInt(rli, 'eventEpoch', 0n);
-      //   await api.callTx(
-      //     'Scoring_submitDebtStateEvent',
-      //     userPk,
-      //     issuerPk,
-      //     activeDebt,
-      //     riskBand,
-      //     epoch,
-      //     randomBytes(32),
-      //   );
-      //   logger.info('Debt state event submitted');
-      //   continue;
-      // }
-
-      // if (choice === '7') {
-      //   const userPk = await askHexBytes(rli, 'userPk (hex)', (await resolveUserPkFromPrivateState(api)) ?? undefined);
-      //   const issuerPk = await askHexBytes(rli, 'issuerPk (hex)', cachedIssuerPk ?? undefined);
-      //   await api.callTx("Scoring_recomputeAndReturnScore", userPk, issuerPk);
-      //   logger.info('Recompute score transaction submitted. Check private/ledger state for updates.');
-      //   continue;
-      // }
-
-      if (choice === '8') {
-        try {
-          await walletProvider.withTokenKindsToBalance(['unshielded', 'dust'], () => api.callTx('NFT_mintPoTNFT'));
-          logger.info('PoT NFT minted');
-        } catch (error) {
-          if (!isInsufficientFundsError(error)) throw error;
-
-          logger.warn('Insufficient shielded funds for mint. Generating dust and retrying once...');
-          const tx = await generateDust(logger, seed, walletFacade);
-          if (tx) {
-            logger.info(`Dust tx submitted: ${tx}`);
-          }
-          await syncWallet(logger, walletFacade);
-
-          const dustBalance = await getDustBalance(walletFacade);
-          logger.info(`Dust balance before retry: ${dustBalance.toString()}`);
-          if (dustBalance <= 0n) {
-            throw new Error(
-              'Dust balance is still zero after dust registration sync. Fund the wallet with more NIGHT (new UTXO) and retry mint.',
-            );
-          }
-
-          await walletProvider.withTokenKindsToBalance(['unshielded', 'dust'], () => api.callTx('NFT_mintPoTNFT'));
-          logger.info('PoT NFT minted');
-        }
-        continue;
-      }
-
-      if (choice === '9') {
-        const token = await askShieldedCoinInfo(rli);
-        await api.callTx('NFT_renewPoTNFT', token);
-        logger.info('PoT NFT renewed');
-        continue;
-      }
-
-      if (choice === '10') {
-        const issuerPk = await askHexBytes(rli, 'issuerPk (hex)', cachedIssuerPk ?? undefined);
+      if (choice === '6') {
         const userPk = await askHexBytes(rli, 'userPk (hex)', (await resolveUserPkFromPrivateState(api)) ?? undefined);
-        const challenge = await askHexBytes(rli, 'challenge (hex)', randomBytes(32));
-        const challengeExpiresAt = await askBigInt(rli, 'challengeExpiresAt ms', BigInt(Date.now() + 60_000));
-        const ownershipSecret = await askHexBytes(
-          rli,
-          'ownershipSecret (hex)',
-          (await resolveOwnershipSecretFromPrivateState(api)) ?? undefined,
+        const issuerPk = await askHexBytes(rli, 'issuerPk (hex)', cachedIssuerPk ?? undefined);
+        const activeDebt = await askBigInt(rli, 'activeDebtFlag (0|1)', 0n);
+        const riskBand = await askBigInt(rli, 'riskBand (0..3)', 1n);
+        const epoch = await askBigInt(rli, 'eventEpoch', 0n);
+        await api.callTx(
+          'Scoring_submitDebtStateEvent',
+          userPk,
+          issuerPk,
+          activeDebt,
+          riskBand,
+          epoch,
+          randomBytes(32),
         );
-        await api.callTx('NFT_verifyPoTNFT', issuerPk, userPk, challenge, challengeExpiresAt, ownershipSecret);
-        logger.info('Verify PoTNFT transaction submitted.');
+        logger.info('Debt state event submitted');
         continue;
       }
 
-
-      if (choice === '11') {
+      if (choice === '7') {
         await printLedger(api);
         continue;
       }
 
-      if (choice === '12') {
+      if (choice === '8') {
         await printPrivateState(api);
         continue;
       }
 
-      if (choice === '13') return;
+      if (choice === '9') return;
     } catch (error) {
       logDeepError(logger, 'Menu action failed', error);
     }
@@ -817,6 +715,7 @@ export const run = async (config: Config, testEnv: TestEnvironment, logger: Logg
     const walletFacade: WalletFacade = walletProvider.wallet;
 
     await walletProvider.start();
+    walletProvider.startWalletStateCache();
 
     const unshieldedState = await waitForUnshieldedFunds(
       logger,
@@ -843,6 +742,11 @@ export const run = async (config: Config, testEnv: TestEnvironment, logger: Logg
 
     await menuLoop(api, rli, logger, walletProvider, walletFacade, seed);
   } catch (error) {
+    if (error instanceof CliInputClosedError) {
+      logger.info('CLI input closed; exiting.');
+      return;
+    }
+
     if (isLevelDbLockedError(error)) {
       logLevelDbLockRecovery(logger, config, error);
       return;

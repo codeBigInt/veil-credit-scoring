@@ -22,6 +22,7 @@ module Admin {
     export circuit addIssuer(
         _protocolName: Opaque<"string">,
         _contractAddress: ContractAddress,
+        _currentTime: Uint<64>
     ): Bytes<32>{
         Utils_assertAuthorization(disclose(Utils_getLocalSecreteKey()));
 
@@ -33,7 +34,7 @@ module Admin {
         const newIssuer = CustomStructs_Issuer{
             ...default<CustomStructs_Issuer>,
             isApproved: true,
-            registeredEpoch: LedgerStates_epochLastUpdateTimeStamp,
+            registeredEpoch: disclose(_currentTime),
             contractAddress: disclose(_contractAddress),
             protocolName: disclose(_protocolName)
         };
@@ -56,23 +57,13 @@ module Admin {
         LedgerStates_issuers.remove(disclosedIssuerPk);
     }
 
-    export circuit updateTokenUris(
-        _tokenImageUris: CustomStructs_TokenImageUris,
-        _updatedScoreConfig: CustomStructs_ScoreConfig
-    ): []{
-        Utils_assertAuthorization(disclose(Utils_getLocalSecreteKey()));
-
-        LedgerStates_tokenImageUris = disclose(_tokenImageUris);
-    }
-
     export circuit addAdmin(
         _adminPk: Bytes<32>
     ): []{
-        const superAdminpk = Utils_generateAdminPk(Utils_getLocalSecreteKey());
+        const superAdminpk = Utils_generateAdminPk(disclose(Utils_getLocalSecreteKey()));
         assert (superAdminpk == LedgerStates_superAdmin, "Unauthorized");
 
-        const newAdminPk = Utils_generateUserPk(disclose(Utils_getLocalSecreteKey()));
-        LedgerStates_admins.insert(newAdminPk);
+        LedgerStates_admins.insert(disclose(_adminPk));
     }
 
     export circuit removeAdmin(
@@ -81,14 +72,6 @@ module Admin {
         Utils_assertAuthorization(disclose(Utils_getLocalSecreteKey()));
 
         LedgerStates_admins.remove(disclose(_adminPk));
-    }
-
-    export circuit updatedProtocolConfig(
-        _updatedConfig: CustomStructs_ProtocolConfig
-    ): []{
-        Utils_assertAuthorization(disclose(Utils_getLocalSecreteKey()));
-
-        LedgerStates_protocolConfig = disclose(_updatedConfig);
     }
 
     export circuit updatedScoreConfig(
