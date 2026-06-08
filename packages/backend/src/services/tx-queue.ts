@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { Collection, Db } from 'mongodb';
 import type { Logger } from 'pino';
 import * as superjson from 'superjson';
+import { sanitizeText, toLoggableError } from '../logging.js';
 
 export type JobStatus = 'queued' | 'running' | 'succeeded' | 'failed';
 
@@ -25,10 +26,10 @@ type QueueTask = {
 const serializeError = (error: unknown, depth = 0): string => {
   if (depth > 4) return '[max depth]';
   if (error == null) return 'Unknown error';
-  if (typeof error === 'string') return error;
+  if (typeof error === 'string') return sanitizeText(error);
   if (error instanceof Error) {
     const record = error as unknown as Record<string, unknown>;
-    const parts = [`${error.name}: ${error.message}`];
+    const parts = [`${error.name}: ${sanitizeText(error.message)}`];
     for (const key of ['cause', 'reason', 'details', 'code']) {
       if (record[key] != null) parts.push(`${key}: ${serializeError(record[key], depth + 1)}`);
     }
@@ -40,12 +41,12 @@ const serializeError = (error: unknown, depth = 0): string => {
       const parts = Object.entries(record)
         .filter(([, value]) => value != null)
         .map(([key, value]) => `${key}: ${serializeError(value, depth + 1)}`);
-      return parts.length > 0 ? parts.join(' | ') : JSON.stringify(error);
+      return parts.length > 0 ? sanitizeText(parts.join(' | ')) : sanitizeText(JSON.stringify(error));
     } catch {
-      return String(error);
+      return sanitizeText(String(error));
     }
   }
-  return String(error);
+  return sanitizeText(String(error));
 };
 
 export class TxQueue {
@@ -118,7 +119,7 @@ export class TxQueue {
       );
     } catch (error) {
       const message = serializeError(error);
-      this.logger.error({ jobId: task.id, err: error, message }, 'Queued transaction failed');
+      this.logger.error({ jobId: task.id, err: toLoggableError(error), message }, 'Queued transaction failed');
       await this.jobs.updateOne(
         { id: task.id },
         {

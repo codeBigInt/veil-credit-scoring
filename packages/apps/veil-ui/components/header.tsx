@@ -7,8 +7,8 @@ export default function Header() {
 
   return (
     <header className="site-header sticky top-0 z-50">
-      <div className="container mx-auto px-4 sm:px-6 py-4 max-w-7xl">
-        <div className="flex items-center justify-between">
+      <div className="mx-auto max-w-7xl px-4 pb-3 pt-0 sm:px-6">
+        <div className="site-header-shell">
           <a href="/" className="site-brand" aria-label="Veil Protocol home">
             <span className="site-brand-mark">
               <img src="/veil-cred-logo.PNG" alt="" className="h-9 w-9 object-contain" />

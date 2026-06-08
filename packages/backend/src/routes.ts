@@ -13,6 +13,7 @@ import {
   requiredString,
   toJsonSafe,
 } from './http-utils.js';
+import { publicErrorMessage } from './logging.js';
 
 /* ── Single-use challenge store ── */
 const issuedChallenges = new Map<string, number>(); // hex → expiresAtMs
@@ -32,7 +33,7 @@ const consumeChallenge = (challengeHex: string): boolean => {
   return exp >= Date.now();
 };
 
-const errorMessage = (error: unknown): string => (error instanceof Error ? error.message : String(error));
+const errorMessage = (error: unknown): string => publicErrorMessage(error);
 
 const sendError = (res: Response, status: number, message: string): void => {
   res.status(status).json({ success: false, message });

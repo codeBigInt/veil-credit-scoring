@@ -308,6 +308,7 @@ function VeilDobNftCard({
   veilIdHash?: string | null;
   ckbAddress?: string | null;
 }) {
+  const [sporeCopied, setSporeCopied] = useState(false);
   const seed = (veilIdHash ?? sporeId).replace(/^0x/, '').padEnd(64, '0');
   const hueA = parseInt(seed.slice(0, 6), 16) % 360;
   const hueB = parseInt(seed.slice(6, 12), 16) % 360;
@@ -348,8 +349,8 @@ function VeilDobNftCard({
             ))}
           </div>
           <div className="absolute inset-x-5 bottom-5">
-            <p className="text-[10px] font-black uppercase tracking-[0.28em] text-white/50">Veil Identity</p>
-            <p className="mt-1 text-2xl font-black uppercase tracking-tight text-white">Spore DOB</p>
+            <p className="text-[10px] font-black uppercase tracking-[0.28em] text-white/80">Veil Identity</p>
+            <p className="mt-.5 text-2xl font-black uppercase tracking-tight text-white">Spore DOB</p>
           </div>
         </div>
 
@@ -384,12 +385,16 @@ function VeilDobNftCard({
             )}
             <button
               type="button"
-              onClick={() => void navigator.clipboard.writeText(sporeId)}
+              onClick={() => {
+                void navigator.clipboard.writeText(sporeId);
+                setSporeCopied(true);
+                window.setTimeout(() => setSporeCopied(false), 1400);
+              }}
               className="inline-flex flex-1 items-center justify-center gap-2 rounded-sm px-3 py-2.5 text-xs font-black uppercase tracking-wide transition-opacity hover:opacity-90"
               style={{ background: 'var(--color-primary)', color: 'var(--color-primary-foreground)' }}
             >
-              Copy Spore ID
-              <Copy size={14} aria-hidden="true" />
+              {sporeCopied ? 'Copied' : 'Copy Spore ID'}
+              {sporeCopied ? <Check size={14} aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}
             </button>
           </div>
         </div>

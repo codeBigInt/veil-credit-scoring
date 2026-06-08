@@ -5,14 +5,14 @@ export default function HeroSection() {
   const ticker = [...chains, ...chains]
 
   return (
-    <section className="hero-grid-shell w-full bg-background relative overflow-hidden">
+    <section className="hero-grid-shell w-full bg-background relative -mt-[83px] overflow-hidden pt-[83px]">
       <div className="hero-grid-lines" aria-hidden="true" />
       <div className="hero-scanline" aria-hidden="true" />
 
       {/* Main hero content */}
-      <div className="container relative z-10 mx-auto px-6 max-w-7xl pt-20 md:pt-36 pb-16">
+      <div className="container relative z-10 mx-auto px-6 max-w-7xl pt-20 md:pt-30 pb-16">
         {/* Section label */}
-        <p className="section-label mb-8">Cross-Chain Credit Protocol</p>
+        <p className="section-label mb-8">Privacy By Default On Midnight</p>
 
         {/* Main heading — full width, massive */}
         <div className="mb-10">
