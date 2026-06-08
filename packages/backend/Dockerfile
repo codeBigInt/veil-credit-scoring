@@ -45,6 +45,7 @@ ENV PORT=3001
 COPY --from=deps /app/node_modules node_modules
 COPY --from=deps /app/package.json package.json
 COPY --from=deps /app/bun.lock bun.lock
+COPY --from=deps /app/packages/backend/node_modules packages/backend/node_modules
 COPY --from=build /app/packages/backend/package.json packages/backend/package.json
 COPY --from=build /app/packages/backend/dist packages/backend/dist
 
