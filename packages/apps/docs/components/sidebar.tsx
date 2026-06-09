@@ -39,6 +39,7 @@ export const nav: NavSection[] = [
     section: "User Guide",
     pages: [
       { title: "Dashboard Guide", href: "/docs/user-guide", description: "Using the Veil dashboard" },
+      { title: "Testnet Testing Guide", href: "/docs/user-guide/testnet", description: "Shareable app testing instructions" },
       { title: "CKB Wallet Setup", href: "/docs/user-guide/ckb-wallet", description: "Set up CKB & mint your DOB" },
     ],
   },

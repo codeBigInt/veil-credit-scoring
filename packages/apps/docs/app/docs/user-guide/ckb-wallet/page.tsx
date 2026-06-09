@@ -380,7 +380,7 @@ export default function CkbWalletPage() {
         </p>
 
         <PrevNext
-          prev={{ title: "Dashboard Guide", href: "/docs/user-guide", description: "Using the Veil dashboard" }}
+          prev={{ title: "Testnet Testing Guide", href: "/docs/user-guide/testnet", description: "Shareable app testing instructions" }}
           next={{ title: "Architecture", href: "/docs/concepts", description: "How everything fits together" }}
         />
       </article>

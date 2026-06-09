@@ -359,7 +359,7 @@ export default function UserGuidePage() {
 
         <PrevNext
           prev={{ title: "API Reference", href: "/docs/integration/api-reference", description: "All endpoints documented" }}
-          next={{ title: "CKB Wallet Setup", href: "/docs/user-guide/ckb-wallet", description: "Set up CKB & mint your DOB" }}
+          next={{ title: "Testnet Testing Guide", href: "/docs/user-guide/testnet", description: "Shareable app testing instructions" }}
         />
       </article>
 

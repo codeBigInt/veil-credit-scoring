@@ -1358,7 +1358,7 @@ export default function DashboardPage() {
             <div className="space-y-3">
               <StepRow n="1" label="Connect wallet" done={isConnected} active={!isConnected} />
               <StepRow n="2" label="Join contract" done={!!joinedAddress} active={isConnected && !joinedAddress} loading={isJoining} />
-              <StepRow n="3" label="Generate Veil ID" done={!!userPk} active={!!joinedAddress && !userPk} />
+              <StepRow n="3" label="Generate Midnight Veil ID" done={!!userPk} active={!!joinedAddress && !userPk} />
               <StepRow n="4" label="Create score entry" done={scoreStatus === 'done'} active={!!userPk && scoreStatus === 'idle'} />
               <StepRow n="5" label="Mint CKB Spore DOB" done={!!ckbSporeId} active={!!ckbMintIntent && !ckbSporeId} />
             </div>
@@ -1483,7 +1483,7 @@ export default function DashboardPage() {
                   className="w-full rounded-sm px-4 py-3 text-sm font-black uppercase tracking-widest transition-transform hover:-translate-y-0.5 hover:opacity-95 disabled:translate-y-0 disabled:opacity-50"
                   style={{ background: 'var(--color-primary)', color: 'var(--color-primary-foreground)' }}
                 >
-                  Generate Veil ID
+                  Generate Midnight Veil ID
                 </button>
               )}
             </div>
