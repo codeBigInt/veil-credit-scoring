@@ -261,7 +261,7 @@ export default function ApiReferencePage() {
         <h2 id="base-url">Base URL</h2>
         <p>
           Set <code>VEIL_API_URL</code> to the Veil backend endpoint provided during
-          issuer onboarding. All paths below are relative to this base URL.
+          issuer onboarding. The current preview API base is <code>https://api.13-61-145-21.sslip.io/api/v1</code>. All paths below are relative to this base URL.
         </p>
         <div
           style={{
@@ -275,7 +275,7 @@ export default function ApiReferencePage() {
             marginBottom: "16px",
           }}
         >
-          https://&#123;VEIL_API_URL&#125;
+          https://api.13-61-145-21.sslip.io/api/v1
         </div>
 
         <Callout variant="info">

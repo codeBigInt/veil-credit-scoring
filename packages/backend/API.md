@@ -5,8 +5,8 @@ HTTP API for submitting credit-scoring events to the Veil protocol on Midnight p
 ## Base URL
 
 ```
-http://localhost:3001/api/v1        # local development
-https://<backend-host>/api/v1       # production
+http://localhost:3001/api/v1                  # local development
+https://api.13-61-145-21.sslip.io/api/v1   # deployed preview API
 ```
 
 ## How it works
@@ -560,16 +560,23 @@ Fetches the Spore cell, decodes the JSON content, and verifies that it is a Veil
 
 ## curl examples
 
+Set the API base once for the deployed preview backend:
+
+```bash
+export VEIL_API_URL=https://api.13-61-145-21.sslip.io/api/v1
+```
+
+
 **Check health**
 
 ```bash
-curl http://localhost:3001/api/v1/health
+curl https://api.13-61-145-21.sslip.io/api/v1/health
 ```
 
 **Register a new user**
 
 ```bash
-curl -X POST http://localhost:3001/api/v1/score-entries \
+curl -X POST https://api.13-61-145-21.sslip.io/api/v1/score-entries \
   -H 'Content-Type: application/json' \
   -d '{"userPk":"aabbccddeeff...","userCkbAddress":"ckt..."}'
 ```
@@ -577,7 +584,7 @@ curl -X POST http://localhost:3001/api/v1/score-entries \
 **Submit a repayment event**
 
 ```bash
-curl -X POST http://localhost:3001/api/v1/scoring-events/repayments \
+curl -X POST https://api.13-61-145-21.sslip.io/api/v1/scoring-events/repayments \
   -H 'Content-Type: application/json' \
   -d '{
     "userPk": "aabbccddeeff...",
@@ -591,7 +598,7 @@ curl -X POST http://localhost:3001/api/v1/scoring-events/repayments \
 **Submit a liquidation event**
 
 ```bash
-curl -X POST http://localhost:3001/api/v1/scoring-events/liquidations \
+curl -X POST https://api.13-61-145-21.sslip.io/api/v1/scoring-events/liquidations \
   -H 'Content-Type: application/json' \
   -d '{
     "userPk": "aabbccddeeff...",
@@ -604,7 +611,7 @@ curl -X POST http://localhost:3001/api/v1/scoring-events/liquidations \
 **Submit a protocol usage event**
 
 ```bash
-curl -X POST http://localhost:3001/api/v1/scoring-events/protocol-usage \
+curl -X POST https://api.13-61-145-21.sslip.io/api/v1/scoring-events/protocol-usage \
   -H 'Content-Type: application/json' \
   -d '{
     "userPk": "aabbccddeeff...",
@@ -617,7 +624,7 @@ curl -X POST http://localhost:3001/api/v1/scoring-events/protocol-usage \
 **Submit a debt state snapshot**
 
 ```bash
-curl -X POST http://localhost:3001/api/v1/scoring-events/debt-states \
+curl -X POST https://api.13-61-145-21.sslip.io/api/v1/scoring-events/debt-states \
   -H 'Content-Type: application/json' \
   -d '{
     "userPk": "aabbccddeeff...",
@@ -631,7 +638,7 @@ curl -X POST http://localhost:3001/api/v1/scoring-events/debt-states \
 **Create a CKB Veil Identity DOB mint intent directly**
 
 ```bash
-curl -X POST http://localhost:3001/api/v1/ckb/veil-identity/mint-intent \
+curl -X POST https://api.13-61-145-21.sslip.io/api/v1/ckb/veil-identity/mint-intent \
   -H 'Content-Type: application/json' \
   -d '{
     "veilIdHash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -642,7 +649,7 @@ curl -X POST http://localhost:3001/api/v1/ckb/veil-identity/mint-intent \
 **Record a user-signed CKB Veil Identity DOB mint**
 
 ```bash
-curl -X POST http://localhost:3001/api/v1/ckb/veil-identity/record \
+curl -X POST https://api.13-61-145-21.sslip.io/api/v1/ckb/veil-identity/record \
   -H 'Content-Type: application/json' \
   -d '{
     "veilIdHash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",

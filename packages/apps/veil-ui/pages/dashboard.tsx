@@ -17,7 +17,7 @@ import { parseCoinPublicKeyToHex } from '@midnight-ntwrk/midnight-js-utils';
 import { filter, firstValueFrom } from 'rxjs';
 import { ccc as cccConnector } from '@ckb-ccc/connector-react';
 import { spore } from '@ckb-ccc/spore';
-import { Check, Copy, ExternalLink, ShieldCheck, Wallet } from 'lucide-react';
+import { Check, Copy, ExternalLink, Loader2, ShieldCheck, Wallet } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 const NETWORK_ID = process.env.NEXT_PUBLIC_NETWORK_ID!;
@@ -430,14 +430,14 @@ function StatCard({ label, value, sub, shimmer }: { label: string; value?: strin
 }
 
 /* ── Step row ── */
-function StepRow({ n, label, done, active }: { n: string; label: string; done?: boolean; active?: boolean }) {
+function StepRow({ n, label, done, active, loading }: { n: string; label: string; done?: boolean; active?: boolean; loading?: boolean }) {
   return (
     <div className="flex items-center gap-3">
       <span
         className="w-6 h-6 rounded-sm flex items-center justify-center text-xs font-bold shrink-0"
         style={done ? { background: 'var(--color-primary)', color: 'var(--color-primary-foreground)' } : active ? { background: 'transparent', border: '1px solid var(--color-primary)', color: 'var(--color-primary)' } : { background: 'oklch(0.18 0 0)', color: 'oklch(0.5 0 0)' }}
       >
-        {done ? '✓' : n}
+        {done ? '✓' : loading ? <Loader2 size={13} className="animate-spin" aria-hidden="true" /> : n}
       </span>
       <span className={`text-sm font-medium ${done ? 'text-primary' : active ? 'text-foreground' : 'text-muted-foreground'}`}>{label}</span>
     </div>
@@ -888,7 +888,10 @@ export default function DashboardPage() {
 
   const doJoin = async (addr: string) => {
     syncNetworkId(NETWORK_ID);
-    const fullZkPath = new URL('/zk/full', window.location.origin).toString();
+    const configuredZkBase = process.env.NEXT_PUBLIC_ZK_CONFIG_BASE_URL?.trim();
+    const fullZkPath = configuredZkBase
+      ? configuredZkBase.replace(/\/$/, '')
+      : new URL('/zk/full', window.location.origin).toString();
     const { providers, coinPublicKey, accountId } = await buildProviders(walletApi!, fullZkPath);
     console.log('Joining contract…');
     const api = await DynamicContractAPI.join({
@@ -1330,8 +1333,8 @@ export default function DashboardPage() {
           <StatCard
             label="Veil ID"
             value={userPk ? `${userPk.slice(0, 10)}…${userPk.slice(-6)}` : undefined}
-            sub={userPk ? 'User public key' : joinedAddress ? 'Click Generate below' : 'Join contract first'}
-            shimmer={isDeriving}
+            sub={userPk ? 'User public key' : joinedAddress ? 'Click Generate below' : isJoining ? 'Loading Midnight contract state' : 'Join contract first'}
+            shimmer={isDeriving || isJoining}
           />
           <StatCard
             label="CKB DOB"
@@ -1354,7 +1357,7 @@ export default function DashboardPage() {
             </div>
             <div className="space-y-3">
               <StepRow n="1" label="Connect wallet" done={isConnected} active={!isConnected} />
-              <StepRow n="2" label="Join contract" done={!!joinedAddress} active={isConnected && !joinedAddress} />
+              <StepRow n="2" label="Join contract" done={!!joinedAddress} active={isConnected && !joinedAddress} loading={isJoining} />
               <StepRow n="3" label="Generate Veil ID" done={!!userPk} active={!!joinedAddress && !userPk} />
               <StepRow n="4" label="Create score entry" done={scoreStatus === 'done'} active={!!userPk && scoreStatus === 'idle'} />
               <StepRow n="5" label="Mint CKB Spore DOB" done={!!ckbSporeId} active={!!ckbMintIntent && !ckbSporeId} />
@@ -1373,7 +1376,7 @@ export default function DashboardPage() {
 
           {/* Join / Status */}
           {!joinedAddress ? (
-            <div className="space-y-3">
+            <div className="space-y-4">
               <div className="space-y-1">
                 <p className="text-sm font-bold text-foreground uppercase tracking-wide">Join Protocol Contract</p>
                 <p className="section-label">
@@ -1382,6 +1385,17 @@ export default function DashboardPage() {
                     : 'No NEXT_PUBLIC_CONTRACT_ADDRESS set — enter one below'}
                 </p>
               </div>
+              {isJoining && (
+                <div className="rounded-sm border border-primary/30 bg-primary/10 px-4 py-3">
+                  <div className="mb-2 flex items-center gap-2 text-primary">
+                    <Loader2 size={15} className="animate-spin" aria-hidden="true" />
+                    <p className="text-xs font-black uppercase tracking-widest">Joining Midnight contract</p>
+                  </div>
+                  <p className="text-xs leading-relaxed text-muted-foreground">
+                    Fetching ZK artifacts, opening the local private-state store, and loading the deployed Veil contract. This can take a moment on the first join.
+                  </p>
+                </div>
+              )}
               {!CONTRACT_ADDRESS && (
                 <input
                   id="contract-addr-input"
@@ -1396,10 +1410,11 @@ export default function DashboardPage() {
               <button
                 onClick={() => void handleJoin()}
                 disabled={isBusy}
-                className="w-full py-3 rounded-sm font-bold text-sm uppercase tracking-widest disabled:opacity-50 transition-opacity hover:opacity-90"
+                className="inline-flex w-full items-center justify-center gap-2 rounded-sm py-3 text-sm font-bold uppercase tracking-widest transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
                 style={{ background: 'var(--color-primary)', color: 'var(--color-primary-foreground)' }}
               >
-                {isJoining ? 'Joining contract…' : 'Join Contract'}
+                {isJoining && <Loader2 size={16} className="animate-spin" aria-hidden="true" />}
+                {isJoining ? 'Joining Midnight…' : 'Join Contract'}
               </button>
             </div>
           ) : (

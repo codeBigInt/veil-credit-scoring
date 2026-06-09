@@ -78,7 +78,7 @@ export default function BuildSection() {
               </div>
             </div>
             <button className="w-full md:w-auto border border-primary text-primary px-6 py-3 rounded-sm font-bold hover:bg-primary/10 transition-colors uppercase tracking-wide text-sm">
-              <a href="https://veil-docs.vercel.app/introduction" target="_blank" className="no-underline hover:no-underline">Read API Docs</a>
+              <a href="https://docs-veil-credit-scoring.netlify.app/docs/introduction" target="_blank" className="no-underline hover:no-underline">Read API Docs</a>
             </button>
           </div>
         </div>

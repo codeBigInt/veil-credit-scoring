@@ -46,7 +46,7 @@ Copy `.env.example` to `.env` and fill in all required values.
 |---|---|
 | `MONGODB_URI` | MongoDB connection string, e.g. `mongodb://localhost:27017/veil_backend` |
 | `VEIL_BACKEND_WALLET_SEED` | 64-character hex seed for the backend wallet. Must hold enough NIGHT and dust tokens to cover transaction fees. |
-| `VEIL_PROOF_SERVER_URL` | HTTP URL of the Midnight proof server, e.g. `http://127.0.0.1:6300` |
+| `VEIL_PROOF_SERVER_URL` | HTTP URL of the Midnight proof server, e.g. `https://proof810.116-203-250-124.sslip.io` |
 | `CKB_NETWORK` | Must be `testnet` for the current Veil Identity DOB milestone. |
 | `CKB_RPC_URL` | CKB testnet RPC URL, e.g. `https://testnet.ckb.dev/rpc`. |
 | `VEIL_SBT_LOCK_CODE_HASH` | Deployed `veil_sbt_lock` code hash. |
@@ -88,7 +88,7 @@ docker start veil-mongo
 
 **2. Start the proof server**
 
-Follow the Midnight proof server documentation. Verify it is reachable at `VEIL_PROOF_SERVER_URL` before starting the backend.
+Follow the Midnight proof server documentation. Verify it is reachable at `VEIL_PROOF_SERVER_URL` before starting the backend. The current deployed proof server health endpoint is `https://proof810.116-203-250-124.sslip.io/health`.
 
 **3. Fund the wallets**
 
@@ -163,14 +163,14 @@ For hosted deployment, set the same env vars in your hosting provider instead of
 After deployment, verify:
 
 ```bash
-curl https://your-backend-domain.example/api/v1/health
-curl https://your-backend-domain.example/api/v1/contract
+curl https://api.13-61-145-21.sslip.io/api/v1/health
+curl https://api.13-61-145-21.sslip.io/api/v1/contract
 ```
 
 Then update the Veil UI:
 
 ```env
-NEXT_PUBLIC_BACKEND_URL=https://your-backend-domain.example/api/v1
+NEXT_PUBLIC_BACKEND_URL=https://api.13-61-145-21.sslip.io/api/v1
 NEXT_PUBLIC_CONTRACT_ADDRESS=<value returned by /api/v1/contract>
 ```
 
@@ -191,6 +191,10 @@ The server handles `SIGINT` and `SIGTERM` by:
 
 Private state is serialized with SuperJSON to preserve `BigInt`, `Uint8Array`, and `Date` types.
 
-## API reference
+## Documentation
+
+- Live docs: https://docs-veil-credit-scoring.netlify.app
+- API reference: https://docs-veil-credit-scoring.netlify.app/docs/integration/api-reference
+- Local API reference: [API.md](./API.md)
 
 See [API.md](./API.md) for the full endpoint reference, request and response schemas, field type conventions, and curl examples.

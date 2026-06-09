@@ -239,8 +239,8 @@ img, svg {
   }
 }
 
-/* ── TOC: hide on smaller screens ── */
-@media (max-width: 1279px) {
+/* ── TOC: hide only on tablet/mobile widths. Keep it visible on desktop exports. ── */
+@media (max-width: 1099px) {
   .docs-toc-col { display: none; }
 }
 

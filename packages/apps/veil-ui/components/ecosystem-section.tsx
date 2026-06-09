@@ -87,10 +87,10 @@ export default function EcosystemSection() {
               Veil exposes a REST API any DeFi protocol can call to request verified credit decisions — no contract composability needed.
             </p>
             <div className="flex gap-3">
-              <a href="https://veil-docs.vercel.app/api-integration-guide" target="_blank" className="inline-block bg-primary text-primary-foreground px-5 py-2.5 rounded-sm font-bold hover:opacity-90 transition-opacity uppercase tracking-wide text-xs no-underline">
+              <a href="https://docs-veil-credit-scoring.netlify.app/docs/integration" target="_blank" className="inline-block bg-primary text-primary-foreground px-5 py-2.5 rounded-sm font-bold hover:opacity-90 transition-opacity uppercase tracking-wide text-xs no-underline">
                 Integration Guide
               </a>
-              <a href="https://veil-docs.vercel.app/api-integration-guide" target="_blank" className="inline-block border border-border/40 text-foreground px-5 py-2.5 rounded-sm font-medium hover:border-primary/60 transition-colors uppercase tracking-wide text-xs no-underline">
+              <a href="https://docs-veil-credit-scoring.netlify.app/docs/integration" target="_blank" className="inline-block border border-border/40 text-foreground px-5 py-2.5 rounded-sm font-medium hover:border-primary/60 transition-colors uppercase tracking-wide text-xs no-underline">
                 API Docs
               </a>
             </div>

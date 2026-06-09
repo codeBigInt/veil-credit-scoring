@@ -62,7 +62,7 @@ const step4 = `# Successful credit decision response:
   "validAt": "2025-06-07T12:00:10.000Z"
 }`;
 
-const fullExample = `const VEIL = process.env.VEIL_API_URL;
+const fullExample = `const VEIL = process.env.VEIL_API_URL ?? 'https://api.13-61-145-21.sslip.io/api/v1';
 
 async function quickIntegration(
   userPk: string,
@@ -144,7 +144,7 @@ export default function QuickStartPage() {
         <h2 id="what-you-need">What You Need</h2>
         <ul>
           <li>
-            <strong><code>VEIL_API_URL</code></strong> — the Veil backend endpoint provided during issuer onboarding.
+            <strong><code>VEIL_API_URL</code></strong> — the Veil backend endpoint provided during issuer onboarding. Current preview endpoint: <code>https://api.13-61-145-21.sslip.io/api/v1</code>.
           </li>
           <li>
             <strong><code>issuerPk</code></strong> — your protocol&apos;s issuer public key, assigned when the Veil admin

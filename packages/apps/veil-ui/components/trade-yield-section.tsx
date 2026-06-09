@@ -37,7 +37,7 @@ export default function TradeYieldSection() {
               <p className="text-muted-foreground text-base leading-relaxed">
                 Veil computes credit scores from on-chain history across Ethereum, Solana, CKB, and more — then proves them using Midnight ZK circuits. No raw score is ever disclosed.
               </p>
-              <a href="https://veil-docs.vercel.app/concepts/architecture/actors" target="_blank" className="inline-block bg-primary text-primary-foreground px-5 py-2.5 rounded-sm font-bold hover:opacity-90 transition-opacity uppercase tracking-wide text-xs no-underline">
+              <a href="https://docs-veil-credit-scoring.netlify.app/docs/concepts" target="_blank" className="inline-block bg-primary text-primary-foreground px-5 py-2.5 rounded-sm font-bold hover:opacity-90 transition-opacity uppercase tracking-wide text-xs no-underline">
                 View Smart Contract
               </a>
             </div>

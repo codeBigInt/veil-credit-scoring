@@ -63,7 +63,7 @@ export default function HeroSection() {
               Launch Protocol
             </a>
             <a
-              href="https://veil-docs.vercel.app/introduction"
+              href="https://docs-veil-credit-scoring.netlify.app/docs/introduction"
               target="_blank"
               className="inline-block border border-border/40 text-foreground px-8 py-4 rounded-sm font-medium hover:border-primary/60 transition-colors uppercase tracking-widest text-sm text-center no-underline"
             >

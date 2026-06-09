@@ -1,5 +1,8 @@
 # Veil CLI
 
+Live docs: https://docs-veil-credit-scoring.netlify.app
+
+
 CLI testing package for the Veil credit scoring protocol.
 
 This package follows the launcher/config pattern from `example-bboard`, but uses `nite-api` for contract deploy/join/circuit calls.

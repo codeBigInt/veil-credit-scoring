@@ -23,7 +23,7 @@ const tocItems = [
   { id: "error-handling", text: "Error Handling", depth: 2 },
 ];
 
-const step2Submit = `const VEIL_API = process.env.VEIL_API_URL; // e.g. https://api.veil.protocol/v1
+const step2Submit = `const VEIL_API = process.env.VEIL_API_URL ?? 'https://api.13-61-145-21.sslip.io/api/v1';
 
 // Submit a repayment event
 const res = await fetch(\`\${VEIL_API}/scoring-events/repayments\`, {
@@ -76,7 +76,7 @@ const decisionResponse = `{
   "validAt": "2025-06-07T12:00:00.000Z"
 }`;
 
-const tsExample = `const VEIL_API = process.env.VEIL_API_URL;
+const tsExample = `const VEIL_API = process.env.VEIL_API_URL ?? 'https://api.13-61-145-21.sslip.io/api/v1';
 
 // Submit any scoring event
 async function submitRepayment(params: {
@@ -156,7 +156,7 @@ export default function IntegrationPage() {
           </li>
           <li>
             <strong>Veil API access:</strong> Set <code>VEIL_API_URL</code> to the Veil backend
-            URL provided during onboarding.
+            URL provided during onboarding. Current preview endpoint: <code>https://api.13-61-145-21.sslip.io/api/v1</code>.
           </li>
           <li>
             <strong>User Veil IDs:</strong> Users must have joined the Veil protocol via the

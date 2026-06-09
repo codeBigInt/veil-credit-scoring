@@ -412,6 +412,13 @@ body,
   color: var(--foreground);
 }
 
+@media (min-width: 1024px) {
+  .site-menu-button,
+  .site-mobile-panel {
+    display: none;
+  }
+}
+
 .site-mobile-panel {
   position: absolute;
   top: calc(100% + 8px);

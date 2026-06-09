@@ -4,6 +4,14 @@ Privacy-preserving, issuer-driven credit scoring on Midnight — anonymous on-ch
 
 ---
 
+## Live Documentation
+
+- Docs: https://docs-veil-credit-scoring.netlify.app
+- API Reference: https://docs-veil-credit-scoring.netlify.app/docs/integration/api-reference
+- Integration Guide: https://docs-veil-credit-scoring.netlify.app/docs/integration
+
+---
+
 ## Table of Contents
 
 - [Overview](#overview)
