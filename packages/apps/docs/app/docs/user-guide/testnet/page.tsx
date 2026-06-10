@@ -16,14 +16,14 @@ const tocItems = [
   { id: "networks", text: "Testnet Networks", depth: 2 },
   { id: "step-1-open-app", text: "1. Open the App", depth: 2 },
   { id: "step-2-midnight", text: "2. Connect Midnight Wallet", depth: 2 },
-  { id: "step-3-join", text: "3. Join the Contract", depth: 2 },
-  { id: "step-4-veil-id", text: "4. Generate Veil ID", depth: 2 },
-  { id: "step-5-score", text: "5. Create Score Entry", depth: 2 },
+  { id: "step-3-initialize", text: "3. Create Veil ID", depth: 2 },
+  { id: "step-4-veil-id", text: "4. View Veil Key", depth: 2 },
+  { id: "step-5-score", text: "5. Create Credit Profile", depth: 2 },
   { id: "step-6-ckb", text: "6. Connect CKB Wallet", depth: 2 },
   { id: "step-7-faucet", text: "7. Claim CKB Faucet Tokens", depth: 2 },
-  { id: "step-8-mint", text: "8. Mint Veil Identity DOB", depth: 2 },
-  { id: "step-9-decision", text: "9. Authorize Risk Decision", depth: 2 },
-  { id: "verify-with-veil-id-hash", text: "Use Veil ID Hash for Verification", depth: 2 },
+  { id: "step-8-mint", text: "8. Mint Identity Pass", depth: 2 },
+  { id: "step-9-decision", text: "9. Check Credit Status", depth: 2 },
+  { id: "verify-with-veil-did", text: "Use Veil ID for Verification", depth: 2 },
   { id: "what-to-share", text: "What To Share Back", depth: 2 },
   { id: "troubleshooting", text: "Troubleshooting", depth: 2 },
 ];
@@ -105,8 +105,8 @@ export default function TestnetGuidePage() {
         <h1>Testnet Testing Guide</h1>
         <p className="prose-lead">
           Use this guide to test the Veil app on the current preview deployment. The goal is
-          to create a private Midnight credit identity, anchor it with a CKB Spore DOB, and
-          request a test risk decision.
+          to create a private Veil credit profile, mint a CKB identity pass, and run a test
+          credit check.
         </p>
 
         <Callout variant="warning" title="Use test wallets only">
@@ -120,11 +120,11 @@ export default function TestnetGuidePage() {
         </p>
         <ul>
           <li>A connected Midnight wallet</li>
-          <li>A connected Veil contract address</li>
-          <li>A generated user public key, also called the Veil ID</li>
-          <li>A confirmed credit score entry</li>
-          <li>A minted CKB Veil Identity DOB with a Spore ID and transaction hash</li>
-          <li>An optional risk decision result after CKB authorization</li>
+          <li>A connected Veil network address</li>
+          <li>A created Veil ID</li>
+          <li>A confirmed credit profile</li>
+          <li>A minted CKB identity pass with a record ID and transaction hash</li>
+          <li>An optional credit check result after CKB wallet approval</li>
         </ul>
 
         <h2 id="before-you-start">Before You Start</h2>
@@ -146,7 +146,7 @@ export default function TestnetGuidePage() {
           </li>
           <li>
             <strong>Testnet CKB.</strong> Your CKB wallet needs enough testnet CKBytes to pay
-            for the Spore DOB mint. You can claim faucet tokens after connecting your CKB
+            for the identity pass mint. You can claim faucet tokens after connecting your CKB
             wallet in the dashboard.
           </li>
           <li>
@@ -261,82 +261,82 @@ export default function TestnetGuidePage() {
             {
               filename: "Screenshot 2026-06-09 171238.png",
               alt: "Veil dashboard after Midnight wallet connection",
-              caption: "After approval, the dashboard shows the connected Midnight wallet and current managed contract.",
+              caption: "After approval, the dashboard shows the connected Midnight wallet and current Veil network.",
             },
           ]}
         />
 
-        <h2 id="step-3-join">3. Join the Contract</h2>
+        <h2 id="step-3-initialize">3. Create Veil ID</h2>
         <ol>
-          <li>Find the <strong>Join Protocol Contract</strong> section.</li>
-          <li>Click <strong>Join Contract</strong>.</li>
-          <li>Approve any wallet prompt and wait until the connected contract is displayed.</li>
+          <li>Find the <strong>Create Veil ID</strong> section.</li>
+          <li>Click <strong>Create Veil ID</strong>.</li>
+          <li>Wait while the dashboard sets up your private browser data and selects the current Veil network.</li>
         </ol>
         <p>
-          The first load may take longer because the app fetches ZK artifacts and opens local
-          private state in the browser.
+          This step prepares the private browser data used for your Veil credit profile. It
+          does not expose your wallet seed phrase or private keys.
         </p>
         <GuideImageGrid
           images={[
             {
               filename: "Screenshot 2026-06-09 171247.png",
-              alt: "Veil dashboard join contract action",
-              caption: "Click Join Contract to connect your browser state to the deployed preview contract.",
+              alt: "Veil dashboard create ID action",
+              caption: "Click Create Veil ID to set up your private browser data.",
             },
             {
               filename: "Screenshot 2026-06-09 171313.png",
-              alt: "Veil dashboard connected contract state",
-              caption: "When the contract is joined, the progress panel advances to Generate Veil ID.",
+              alt: "Veil dashboard created ID state",
+              caption: "When the Veil network is selected, the progress panel moves to the Veil key step.",
             },
           ]}
         />
 
-        <h2 id="step-4-veil-id">4. Generate Midnight Veil ID</h2>
+        <h2 id="step-4-veil-id">4. View Veil Key</h2>
         <ol>
-          <li>Click <strong>Generate Midnight Veil ID</strong>.</li>
-          <li>Wait for the <strong>User Public Key</strong> field to appear.</li>
-          <li>Copy the value if the Veil team asks you to include it in feedback.</li>
+          <li>Click <strong>Create Veil ID</strong> if the dashboard has not already created it.</li>
+          <li>Wait for the <strong>Veil Key</strong> field to appear.</li>
+          <li>Copy the value only if the Veil team asks you to include it in feedback.</li>
         </ol>
         <p>
-          This creates your test Veil identity in the browser. It does not expose your wallet
-          seed phrase or private key.
+          The Veil key helps the scoring system find your private credit profile. It does not
+          expose your wallet seed phrase, Midnight private key, or CKB private key.
         </p>
         <GuideImageGrid
           images={[
             {
               filename: "Screenshot 2026-06-09 171327.png",
-              alt: "Veil dashboard generating a Veil ID",
-              caption: "Generate your Veil ID after the contract is connected.",
+              alt: "Veil dashboard creating a Veil key",
+              caption: "Create your Veil key after the network is selected.",
             },
             {
               filename: "Screenshot 2026-06-09 171336.png",
-              alt: "Veil dashboard showing generated user public key",
-              caption: "The dashboard displays your User Public Key after the Veil ID is generated.",
+              alt: "Veil dashboard showing generated Veil key",
+              caption: "The dashboard displays your Veil key after setup completes.",
             },
           ]}
         />
 
-        <h2 id="step-5-score">5. Create Score Entry</h2>
+        <h2 id="step-5-score">5. Create Credit Profile</h2>
         <ol>
-          <li>Click <strong>Create Score Entry + Prepare CKB DOB</strong>.</li>
+          <li>Click <strong>Create Credit Profile</strong>.</li>
           <li>Connect a CKB wallet if the app asks for one.</li>
-          <li>Wait for the score entry status to show as confirmed.</li>
+          <li>Wait for the credit profile status to show as confirmed.</li>
         </ol>
         <p>
-          This step registers your Veil ID with the Midnight contract and prepares the CKB
-          mint intent used in the next step.
+          This step creates your private score profile and prepares the CKB identity pass used
+          in the next step.
         </p>
         <GuideImageGrid
           images={[
             {
               filename: "Screenshot 2026-06-09 171353.png",
-              alt: "Veil dashboard create score entry action",
-              caption: "Create the score entry once your Veil ID is available.",
+              alt: "Veil dashboard create credit profile action",
+              caption: "Create the credit profile once your Veil ID is ready.",
             },
             {
               filename: "Screenshot 2026-06-09 171429.png",
-              alt: "Veil dashboard score entry confirmed",
-              caption: "The score entry confirmation prepares the flow for CKB wallet connection and DOB minting.",
+              alt: "Veil dashboard credit profile confirmed",
+              caption: "The credit profile confirmation prepares the flow for CKB wallet connection and identity pass minting.",
             },
           ]}
         />
@@ -357,7 +357,7 @@ export default function TestnetGuidePage() {
             {
               filename: "Screenshot 2026-06-09 171445.png",
               alt: "Veil dashboard CKB wallet connection controls",
-              caption: "Use Connect CKB from the dashboard when the score entry is ready.",
+              caption: "Use Connect CKB from the dashboard when the credit profile is ready.",
             },
             {
               filename: "Screenshot 2026-06-09 171542.png",
@@ -372,7 +372,7 @@ export default function TestnetGuidePage() {
           You can connect your preferred CKB wallet early, immediately after connecting your
           Midnight wallet, then copy the CKB address and claim faucet tokens before the app
           needs them. You can also wait until the dashboard prompts you to connect CKB during
-          score entry or DOB minting.
+          credit profile or identity pass minting.
         </p>
         <ol>
           <li>After connecting your CKB wallet, copy the connected CKB address from the dashboard.</li>
@@ -388,16 +388,15 @@ export default function TestnetGuidePage() {
           <li>Refresh the Veil dashboard so it can detect the updated CKB wallet balance.</li>
         </ol>
         <p>
-          These faucet tokens are required because the Veil Identity DOB mint is paid by the
-          connected CKB wallet. The backend prepares the mint intent, but it does not pay the
-          CKB capacity or transaction fee for the user.
+          These faucet tokens are required because the identity pass mint is paid by the
+          connected CKB wallet. The backend prepares the mint, but it does not pay the CKB
+          storage or transaction fee for the user.
         </p>
         <Callout variant="tip">
           If you claimed faucet tokens after the app had already shown a CKB balance or mint
-          error, refresh the page, reconnect or rejoin the contract if prompted, then click
-          <strong>Generate Veil ID</strong> again. The same Midnight wallet and contract
-          produce the same Veil ID, so this restores the dashboard state without creating a
-          different user identity.
+          error, refresh the page, reconnect your wallets if prompted, then click
+          <strong>Create Veil ID</strong> again. The same Midnight wallet, Veil network, and
+          browser data restore the same Veil ID.
         </Callout>
         <GuideImageGrid
           images={[
@@ -414,70 +413,71 @@ export default function TestnetGuidePage() {
           ]}
         />
 
-        <h2 id="step-8-mint">8. Mint Veil Identity DOB</h2>
+        <h2 id="step-8-mint">8. Mint Identity Pass</h2>
         <ol>
-          <li>Find the <strong>CKB Veil Identity DOB</strong> section.</li>
-          <li>Click <strong>Mint Veil Identity DOB in CKB Wallet</strong>.</li>
+          <li>Find the <strong>CKB Identity Pass</strong> section.</li>
+          <li>Click <strong>Mint Identity Pass in CKB Wallet</strong>.</li>
           <li>Review and approve the CKB transaction in your wallet.</li>
           <li>Wait while the app records the mint.</li>
-          <li>Confirm that the dashboard shows a <strong>Spore ID</strong> and CKB transaction hash.</li>
+          <li>Confirm that the dashboard shows your <strong>Veil ID</strong>, record details, and a <strong>View Transaction</strong> link.</li>
         </ol>
         <p>
-          The DOB is a public CKB Spore object that anchors your Veil ID hash. Your score
-          data remains private on Midnight.
+          The identity pass is a public CKB record that proves this Veil ID belongs to your
+          CKB wallet. Your score data remains private on Midnight.
         </p>
         <GuideImageGrid
           images={[
             {
               filename: "Screenshot 2026-06-09 171705.png",
-              alt: "Veil dashboard CKB DOB mint action",
-              caption: "Start the Veil Identity DOB mint from the CKB DOB section.",
+              alt: "Veil dashboard identity pass mint action",
+              caption: "Start the identity pass mint from the CKB Identity Pass section.",
             },
             {
               filename: "Screenshot 2026-06-09 171722.png",
-              alt: "CKB wallet DOB mint confirmation",
-              caption: "Approve the CKB wallet transaction that mints and pays for the Spore DOB.",
+              alt: "CKB wallet identity pass mint confirmation",
+              caption: "Approve the CKB wallet transaction that mints and pays for the identity pass.",
             },
           ]}
         />
 
-        <h2 id="step-9-decision">9. Authorize Risk Decision</h2>
+        <h2 id="step-9-decision">9. Check Credit Status</h2>
         <ol>
-          <li>After the DOB is minted, click <strong>Authorize Risk Decision</strong>.</li>
+          <li>After the identity pass is minted, click <strong>Check My Credit</strong>.</li>
           <li>Approve the CKB wallet signature request.</li>
-          <li>Wait for the dashboard to show the risk decision result.</li>
+          <li>Wait for the dashboard to show the credit check result.</li>
         </ol>
         <p>
-          It is normal for early test accounts to be unranked or have a limited decision
-          result if no scoring events have been submitted for that Veil ID yet.
+          It is normal for early test accounts to be unranked if no activity has been submitted
+          for that Veil ID yet.
         </p>
         <GuideImage
           filename="Screenshot 2026-06-09 171738.png"
-          alt="Veil dashboard after CKB DOB minting and risk decision authorization"
-          caption="After minting, the dashboard shows the DOB details and lets you authorize a risk decision."
+          alt="Veil dashboard after CKB identity pass minting and credit check"
+          caption="After minting, the dashboard shows the identity pass details and lets you run a credit check."
         />
 
-        <h2 id="verify-with-veil-id-hash">Use Veil ID Hash for Credit Score Verification</h2>
+        <h2 id="verify-with-veil-did">Use Veil ID for Credit Checks</h2>
         <p>
-          The <code>veilIdHash</code> is the public identifier that connects your private
-          Midnight credit identity to your CKB Veil Identity DOB. It is safe to share with a
-          protocol that wants to verify your Veil credit status, because it does not reveal
-          your Midnight seed phrase, CKB private key, or raw credit history.
+          Your Veil ID connects your private Midnight credit profile to your CKB identity pass.
+          It is safe to share with an app that wants to check your Veil credit status, because
+          it does not reveal your seed phrase, CKB private key, or raw credit history.
         </p>
         <p>
-          After the DOB is minted, copy these values from the dashboard:
+          After the identity pass is minted, use the QR card or <strong>Copy Verify Link</strong>
+          to share a verification link. The dashboard shortens long identifiers visually, but
+          copy buttons still copy the full values.
         </p>
         <ul>
-          <li><strong>Veil ID Hash</strong> — the 0x-prefixed hash shown in the DOB details.</li>
-          <li><strong>Spore ID</strong> — the CKB DOB object ID shown in the minted DOB card.</li>
-          <li><strong>CKB address</strong> — the CKB wallet address that owns the DOB.</li>
-          <li><strong>User Public Key</strong> — also called <code>userPk</code>; used by the current preview API to locate your Midnight score entry.</li>
+          <li><strong>Veil ID</strong> — the ID shown in the minted identity pass card.</li>
+          <li><strong>Record ID</strong> — the CKB record ID shown in the pass details.</li>
+          <li><strong>ID Hash</strong> — the 0x-prefixed hash stored inside the pass content.</li>
+          <li><strong>CKB address</strong> — the CKB wallet address that owns the identity pass.</li>
+          <li><strong>Veil key</strong> — also called <code>userPk</code>; used by the preview API to locate your score profile.</li>
         </ul>
         <p>
-          A lending app or other verifier should not ask for your seed phrase or private keys.
-          The verifier uses the values above to request a fresh challenge from Veil, asks your
-          CKB wallet to sign that challenge, then sends the signed request to the Veil backend
-          for a credit decision.
+          A lending app or other checker should not ask for your seed phrase or private keys.
+          It asks your CKB wallet to sign a short approval message, then sends that signed
+          request to Veil for a credit check.
         </p>
         <div
           style={{
@@ -519,16 +519,17 @@ veilIdHash:<veilIdHash>
 sporeId:<sporeId>`}</pre>
         </div>
         <p>
-          The backend checks that the signed request is fresh, the CKB DOB exists, the DOB
-          content contains the same <code>veilIdHash</code>, and the signing CKB wallet owns
-          that DOB. If those checks pass, Veil returns a minimized result such as{" "}
+          The backend checks that the signed request is fresh, the CKB identity pass exists,
+          and the signing CKB wallet owns that pass. If those checks pass, Veil returns a
+          minimized result such as{" "}
           <code>approved</code>, <code>scoreBand</code>, <code>maxLtvBps</code>, and{" "}
           <code>riskPremiumBps</code>.
         </p>
         <Callout variant="info" title="What to share with a verifier">
-          Share your <code>veilIdHash</code>, <code>sporeId</code>, CKB address, and current
-          preview <code>userPk</code> only with apps you intend to verify through. Never share
-          wallet seed phrases, private keys, or browser local-storage exports.
+          Share your Veil ID or verification link with apps you want to use. Technical
+          integrations may also ask for <code>veilIdHash</code>, <code>sporeId</code>, CKB
+          address, and preview <code>userPk</code>. Never share wallet seed phrases, private
+          keys, or browser private-state exports.
         </Callout>
 
         <h2 id="what-to-share">What To Share Back</h2>
@@ -540,7 +541,7 @@ sporeId:<sporeId>`}</pre>
           <li>Your browser and operating system</li>
           <li>Which Midnight wallet you used</li>
           <li>Which CKB wallet you used</li>
-          <li>The Spore ID and CKB transaction hash if minting succeeded</li>
+          <li>The record ID and CKB transaction hash if minting succeeded</li>
           <li>A screenshot of any error message</li>
           <li>Console errors only if the team asks for debugging details</li>
         </ul>
@@ -559,20 +560,20 @@ sporeId:<sporeId>`}</pre>
               <td>Unlock the extension, refresh the page, and try Chrome or Brave.</td>
             </tr>
             <tr>
-              <td>Join contract takes a long time</td>
-              <td>Wait for the first ZK artifact load to finish. If it fails, refresh and retry.</td>
+              <td>Create Veil ID takes a long time</td>
+              <td>Unlock the Midnight wallet, refresh, and retry.</td>
             </tr>
             <tr>
               <td>CKB wallet cannot mint</td>
               <td>Check that the wallet is on testnet and has enough testnet CKBytes.</td>
             </tr>
             <tr>
-              <td>DOB mint succeeds but app does not update</td>
+              <td>Identity pass mint succeeds but app does not update</td>
               <td>Save the transaction hash, refresh the dashboard, and reconnect both wallets.</td>
             </tr>
             <tr>
-              <td>Risk decision says unranked</td>
-              <td>This can happen when no scoring events exist yet for your Veil ID.</td>
+              <td>Credit check says unranked</td>
+              <td>This can happen when no activity exists yet for your Veil ID.</td>
             </tr>
           </tbody>
         </table>
@@ -585,7 +586,7 @@ sporeId:<sporeId>`}</pre>
 
         <PrevNext
           prev={{ title: "Dashboard Guide", href: "/docs/user-guide", description: "Using the Veil dashboard" }}
-          next={{ title: "CKB Wallet Setup", href: "/docs/user-guide/ckb-wallet", description: "Set up CKB and mint your DOB" }}
+          next={{ title: "CKB Wallet Setup", href: "/docs/user-guide/ckb-wallet", description: "Set up CKB and mint your identity pass" }}
         />
       </article>
 

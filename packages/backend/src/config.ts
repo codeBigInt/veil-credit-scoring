@@ -27,6 +27,7 @@ export type BackendConfig = {
   readonly autoDeploy: boolean;
   readonly proofServer: string;
   readonly zkConfigPath: string;
+  readonly bootstrapZkConfigPath: string;
   readonly privateStateId: 'veil_ps';
 };
 
@@ -34,6 +35,7 @@ export type EnvironmentConfig = {}
 
 export const getConfig = (): BackendConfig => {
   const contractZkPath = path.resolve(currentDir, 'contract-build', 'managed', 'veil-protocol');
+  const bootstrapContractZkPath = path.resolve(currentDir, 'contract-build', 'managed', 'veil-protocol-bootstrap');
 
   return {
     port: optionalNumber('PORT', 3001),
@@ -44,6 +46,7 @@ export const getConfig = (): BackendConfig => {
     autoDeploy: process.env.VEIL_AUTO_DEPLOY === 'true',
     proofServer: required('VEIL_PROOF_SERVER_URL'),
     zkConfigPath: process.env.VEIL_ZK_CONFIG_PATH ?? contractZkPath,
+    bootstrapZkConfigPath: process.env.VEIL_BOOTSTRAP_ZK_CONFIG_PATH ?? bootstrapContractZkPath,
     privateStateId: 'veil_ps',
   };
 };

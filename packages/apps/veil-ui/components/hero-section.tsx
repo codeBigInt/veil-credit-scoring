@@ -37,16 +37,16 @@ export default function HeroSection() {
         {/* Three-column stat strip */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-px bg-border/20 mb-14 max-w-3xl">
           <div className="flat-card px-6 py-5">
-            <p className="section-label mb-1">Privacy Layer</p>
-            <p className="font-black uppercase text-foreground text-base">Midnight ZK Proofs</p>
+            <p className="section-label mb-1">Privacy</p>
+            <p className="font-black uppercase text-foreground text-base">Kept On Midnight</p>
           </div>
           <div className="flat-card px-6 py-5">
-            <p className="section-label mb-1">Identity Anchor</p>
-            <p className="font-black uppercase text-foreground text-base">CKB Spore DOB</p>
+            <p className="section-label mb-1">Your Proof</p>
+            <p className="font-black uppercase text-foreground text-base">CKB Identity Pass</p>
           </div>
           <div className="flat-card px-6 py-5">
             <p className="section-label mb-1">Open to</p>
-            <p className="font-black uppercase text-primary text-base">Any Protocol</p>
+            <p className="font-black uppercase text-primary text-base">Any App</p>
           </div>
         </div>
 
@@ -60,7 +60,7 @@ export default function HeroSection() {
               href="/dashboard"
               className="inline-block bg-primary text-primary-foreground px-8 py-4 rounded-sm font-bold hover:opacity-90 transition-opacity uppercase tracking-widest text-sm text-center"
             >
-              Launch Protocol
+              Open Dashboard
             </a>
             <a
               href="https://docs-veil-credit-scoring.netlify.app/docs/introduction"

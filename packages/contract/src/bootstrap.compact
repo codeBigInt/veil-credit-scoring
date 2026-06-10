@@ -23,19 +23,12 @@ import "./modules/Admin" prefix Admin_;
 import "./modules/DIDRegistry" prefix DIDRegistry_;
 
 export {
-    /** Score entrypoints */
-    Scoring_submitLiquidationEvent, Scoring_submitProtocolUsageEvent, Scoring_submitRepaymentEvent, 
-    Scoring_createScoreEntry, Scoring_submitDebtStateEvent, 
-
     /** Custom struct definitions */
     CustomStructs_CreditScore, CustomStructs_Issuer, CustomStructs_ScoreAccumulators, CustomStructs_ScoreConfig,
     CustomStructs_VeilDidRecord,
 
     /** Admin entrypoints */
     Admin_addIssuer, Admin_removeIssuer, Admin_addAdmin, Admin_removeAdmin, Admin_updatedScoreConfig,
-
-    /** DID registry entrypoints */
-    DIDRegistry_register, DIDRegistry_assertActive, DIDRegistry_rotateVerificationMethod, DIDRegistry_revoke,
 
     /** Ledger states */
     LedgerStates_issuerTrustWeights, LedgerStates_processedScoreEvents,

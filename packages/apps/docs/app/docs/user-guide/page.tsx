@@ -7,19 +7,19 @@ import Toc from "../../../components/toc";
 export const metadata: Metadata = {
   title: "Dashboard Guide",
   description:
-    "Step-by-step guide to using the Veil Protocol dashboard — from wallet connection to generating your credit score and authorizing risk decisions.",
+    "Step-by-step guide to using the Veil dashboard — from wallet connection to creating your Veil ID and checking your credit status.",
 };
 
 const tocItems = [
   { id: "overview", text: "Overview", depth: 2 },
   { id: "step-1-wallet", text: "Step 1: Install Midnight Wallet", depth: 2 },
   { id: "step-2-connect", text: "Step 2: Connect Wallet", depth: 2 },
-  { id: "step-3-join", text: "Step 3: Join the Protocol", depth: 2 },
-  { id: "step-4-veil-id", text: "Step 4: Generate Your Veil ID", depth: 2 },
-  { id: "step-5-score", text: "Step 5: Create Credit Score Entry", depth: 2 },
+  { id: "step-3-join", text: "Step 3: Create Veil ID", depth: 2 },
+  { id: "step-4-veil-id", text: "Step 4: View Your Veil Key", depth: 2 },
+  { id: "step-5-score", text: "Step 5: Create Credit Profile", depth: 2 },
   { id: "step-6-ckb", text: "Step 6: Connect CKB Wallet", depth: 2 },
-  { id: "step-7-dob", text: "Step 7: Mint Your Veil DOB", depth: 2 },
-  { id: "step-8-decision", text: "Step 8: Authorize Risk Decision", depth: 2 },
+  { id: "step-7-dob", text: "Step 7: Mint Identity Pass", depth: 2 },
+  { id: "step-8-decision", text: "Step 8: Check Your Credit", depth: 2 },
   { id: "faq", text: "FAQ", depth: 2 },
 ];
 
@@ -36,14 +36,14 @@ export default function UserGuidePage() {
 
         <h1>Dashboard Guide</h1>
         <p className="prose-lead">
-          This guide walks you through the complete Veil Protocol user flow — from installing
-          a Midnight wallet to authorizing your first credit decision on the dashboard.
+          This guide walks you through the complete Veil user flow — from installing a
+          Midnight wallet to checking your credit status on the dashboard.
         </p>
 
         <Callout variant="info" title="What You Will Need">
           A Chrome or Brave browser, a Midnight-compatible wallet (1AM is recommended; Lace is
           also supported), and optionally a CKB-compatible wallet (JoyID, MetaMask with CKB
-          support) for minting your identity DOB.
+          support) for minting your identity pass.
         </Callout>
 
         <h2 id="overview">Overview</h2>
@@ -52,11 +52,11 @@ export default function UserGuidePage() {
         </p>
         <ol>
           <li>Connect your Midnight wallet (1AM or Lace)</li>
-          <li>Join the Veil smart contract on Midnight</li>
-          <li>Receive a unique <code>veilIdHash</code> that identifies you across chains</li>
-          <li>Create an on-chain credit score entry</li>
-          <li>Connect your CKB wallet and mint a Spore DOB as your identity anchor</li>
-          <li>Authorize risk decisions that lending protocols can query</li>
+          <li>Create your Veil ID</li>
+          <li>View the private Veil key used for scoring</li>
+          <li>Create your credit profile</li>
+          <li>Connect your CKB wallet and mint an identity pass</li>
+          <li>Check your credit status for supported apps</li>
         </ol>
         <p>
           Each step is a separate action on the dashboard with a visual status indicator.
@@ -135,68 +135,59 @@ export default function UserGuidePage() {
           (click the puzzle icon in your browser toolbar and pin it) and try again.
         </p>
 
-        <h2 id="step-3-join">Step 3: Join the Protocol Contract</h2>
+        <h2 id="step-3-join">Step 3: Create Veil ID</h2>
         <p>
-          Before you can receive a Veil ID, you must join the Veil smart contract on
-          Midnight. This registers your wallet as a participant and initializes your private
-          state in the contract.
+          Before you can create a credit profile, create your Veil ID in the dashboard. This
+          sets up the private browser data Veil uses for your account.
         </p>
         <ol>
           <li>
-            On the dashboard, locate the <strong>Join Protocol</strong> card and click the
-            &quot;Join Protocol&quot; button.
+            On the dashboard, locate the <strong>Create Veil ID</strong> card and click
+            <strong>Create Veil ID</strong>.
           </li>
           <li>
-            Your Midnight wallet will prompt you to sign a transaction. Review the details and
-            click <strong>Sign</strong>.
+            Wait while the dashboard sets up your private browser data.
           </li>
           <li>
-            Wait for the transaction to be included in a Midnight block. This typically
-            takes 10–30 seconds on preprod. A green checkmark will appear when complete.
+            When complete, the progress tracker moves to your Veil key.
           </li>
         </ol>
 
         <Callout variant="tip">
-          You only need to join the protocol once. Rejoining after the first transaction
-          will be a no-op — the contract recognizes your wallet and returns your existing state.
+          Your private browser data stays on your device. Veil does not ask you to share wallet
+          seed phrases or private keys.
         </Callout>
 
-        <h2 id="step-4-veil-id">Step 4: Generate Your Veil ID</h2>
+        <h2 id="step-4-veil-id">Step 4: View Your Veil Key</h2>
         <p>
-          Your Veil ID is a deterministic hash of your Midnight public key. It is the
-          pseudonymous identifier used across all protocol interactions — behavioral data
-          submitted by DeFi protocols is keyed to this hash.
+          The dashboard creates a Veil key that the scoring system uses to find your credit
+          profile. It is shown in shortened form unless you copy it.
         </p>
         <ol>
           <li>
-            Click <strong>Generate Veil ID</strong> on the dashboard. This is a pure
-            client-side operation — no transaction is sent.
+            Click <strong>Create Veil ID</strong> if the dashboard has not already created it.
           </li>
           <li>
-            Your <code>veilIdHash</code> will be displayed: a 0x-prefixed 32-byte hex
-            string. Copy and save this value.
+            Your Veil key, also called <code>userPk</code> in the API, will be displayed.
           </li>
           <li>
-            Share this hash with any DeFi protocols you want to include in your credit
-            history so they can submit behavioral events against your ID.
+            After your identity pass is minted, share the Veil ID or verify link with apps
+            that need to check your credit status.
           </li>
         </ol>
         <p>
-          The Veil ID is derived in your browser using your wallet&apos;s public key. It cannot
-          be used to recover your private key, and it reveals nothing about your wallet
-          address on any other chain.
+          This key cannot be used to recover your wallet private key, and it does not reveal
+          your wallet address on other chains.
         </p>
 
-        <h2 id="step-5-score">Step 5: Create a Credit Score Entry</h2>
+        <h2 id="step-5-score">Step 5: Create a Credit Profile</h2>
         <p>
-          Creating a credit score entry initializes your private score record on the
-          Midnight contract. Until this step is complete, no credit decision can be
-          issued for your Veil ID.
+          Creating a credit profile lets Veil start tracking your private score. Until this
+          step is complete, apps cannot check your credit status.
         </p>
         <ol>
           <li>
-            Click <strong>Create Credit Score</strong>. This sends a transaction to the
-            Midnight contract that initializes an empty score entry for your Veil ID.
+            Click <strong>Create Credit Profile</strong>.
           </li>
           <li>
             Sign the transaction in your Midnight wallet when prompted.
@@ -206,16 +197,13 @@ export default function UserGuidePage() {
           </li>
         </ol>
         <p>
-          At this point your score is 0 (Unranked). As DeFi protocols submit behavioral
-          data for your <code>veilIdHash</code>, your score will increase over time. You
-          can request a credit decision at any time, though the decision will show
-          &quot;no score yet&quot; until sufficient behavioral data has been submitted.
+          At this point your score may be unranked. As supported apps submit repayment and
+          usage history, your score can improve over time.
         </p>
 
         <h2 id="step-6-ckb">Step 6: Connect Your CKB Wallet</h2>
         <p>
-          The CKB wallet connection enables you to mint your Veil Identity DOB —
-          an immutable on-chain identity object on the Nervos CKB blockchain.
+          The CKB wallet connection lets you mint your identity pass on Nervos CKB.
         </p>
         <ol>
           <li>
@@ -239,26 +227,25 @@ export default function UserGuidePage() {
 
         <Callout variant="info">
           Your CKB wallet address and your Midnight wallet are completely separate. The
-          CKB wallet is only used to pay for the DOB mint transaction on the CKB blockchain.
+          CKB wallet is only used to pay for the identity pass mint on the CKB blockchain.
           It does not have access to your Midnight funds.
         </Callout>
 
-        <h2 id="step-7-dob">Step 7: Mint Your Veil Identity DOB</h2>
+        <h2 id="step-7-dob">Step 7: Mint Your Identity Pass</h2>
         <p>
-          The Digital Object (DOB) is your permanent on-chain identity record on CKB.
-          It contains your <code>veilIdHash</code>, your CKB lock hash, and the Midnight
-          contract address — binding your Midnight credit score to your CKB identity.
+          Your identity pass is a public CKB record that proves this Veil ID belongs to
+          your CKB wallet. It does not reveal your raw score.
         </p>
         <ol>
           <li>
-            Click <strong>Mint Identity DOB</strong>. The dashboard will prepare the Spore
-            protocol transaction with the following data embedded in the DOB content:
+            Click <strong>Mint Identity Pass</strong>. The dashboard will prepare the CKB
+            transaction with the identity data shown below.
           </li>
         </ol>
         <div className="code-block-wrap" style={{ marginBottom: "16px" }}>
           <div className="code-block-header">
             <span className="code-block-lang">json</span>
-            <span className="code-block-filename">DOB content</span>
+            <span className="code-block-filename">Identity pass content</span>
           </div>
           <pre className="code-block-pre">{`{
   "protocol": "Veil",
@@ -281,42 +268,38 @@ export default function UserGuidePage() {
             (usually 30–60 seconds on testnet, 10–20 seconds on mainnet).
           </li>
           <li>
-            The dashboard will display your DOB transaction hash and a link to the CKB
-            Explorer where you can view your minted identity object.
+            The dashboard will display your transaction hash and a link to the CKB Explorer.
           </li>
         </ol>
 
         <Callout variant="tip" title="CKB for the mint">
-          The DOB mint requires a small amount of CKB for cell capacity (typically 150–250 CKB).
+          The identity pass mint requires a small amount of CKB for storage and fees.
           Ensure your CKB wallet has sufficient balance on the active Veil CKB network before proceeding.
         </Callout>
 
-        <h2 id="step-8-decision">Step 8: Authorize a Risk Decision</h2>
+        <h2 id="step-8-decision">Step 8: Check Your Credit</h2>
         <p>
-          Once your DOB is minted and behavioral data has been submitted by DeFi protocols,
-          you can authorize a credit risk decision. This verifies your DOB, consumes a fresh
-          backend challenge, and returns a policy decision without exposing your raw score.
+          Once your identity pass is minted, you can ask Veil for a credit check. Your wallet
+          signs a message, and Veil returns a simple result without exposing your raw score.
         </p>
         <ol>
           <li>
-            Click <strong>Authorize Risk Decision</strong> on the dashboard.
+            Click <strong>Check My Credit</strong> on the dashboard.
           </li>
           <li>
-            Your CKB wallet signs the canonical credit decision message. Your Midnight secret
-            key is never sent to the backend.
+            Your CKB wallet signs a short approval message. Your Midnight secret key is never
+            sent to the backend.
           </li>
           <li>
-            When complete, your current credit band and lending policy outputs will be displayed:
+            When complete, your current credit band and app limits will be displayed:
             Unranked, Bronze, Silver, Gold, or Platinum.
           </li>
           <li>
-            Any DeFi protocol integrated with Veil can request a fresh decision using your{" "}
-            <code>veilIdHash</code>, DOB Spore ID, and your CKB wallet authorization.
+            Any supported DeFi app can request a fresh check using your Veil ID and CKB wallet approval.
           </li>
         </ol>
         <p>
-          You can re-authorize at any time to refresh your decision with the latest
-          behavioral data. This is recommended before any significant loan application.
+          You can run a new check at any time to refresh your status with the latest activity.
         </p>
 
         <h2 id="faq">Frequently Asked Questions</h2>
@@ -325,36 +308,33 @@ export default function UserGuidePage() {
           Does Veil know my wallet address?
         </h3>
         <p>
-          No. The Veil backend and contract interact only with your <code>veilIdHash</code>,
-          which is a one-way hash of your Midnight public key. The system never learns your
-          wallet address on Ethereum, Polygon, or any other chain.
+          No. Veil uses private identifiers such as your Veil key and ID hash. These values do
+          not reveal your wallet address on Ethereum, Polygon, or any other chain.
         </p>
 
         <h3 style={{ textTransform: "none", letterSpacing: "0.02em", fontSize: "14px", fontWeight: 600, color: "var(--fg)", marginTop: "24px", marginBottom: "8px" }}>
           Can I lose my credit score?
         </h3>
         <p>
-          Your score is persistent on Midnight&apos;s private ledger. As long as you retain your
-          Midnight wallet seed phrase, your score remains accessible through the same Veil ID.
+          Your score is stored on Midnight. As long as you keep your Midnight wallet and local
+          browser data, your score remains tied to the same Veil ID.
         </p>
 
         <h3 style={{ textTransform: "none", letterSpacing: "0.02em", fontSize: "14px", fontWeight: 600, color: "var(--fg)", marginTop: "24px", marginBottom: "8px" }}>
           What happens if I lose access to my CKB wallet?
         </h3>
         <p>
-          The DOB on CKB is permanent and immutable. If you lose your CKB wallet, you
-          cannot update or authorize decisions for that DOB owner lock. Your Midnight score
-          entry still exists, but credit decisions that require that DOB will fail until a new
-          identity-anchor or recovery flow is supported.
+          The identity pass on CKB is permanent. If you lose your CKB wallet, you cannot sign
+          new checks for that pass. Your Midnight score still exists, but you may need a new
+          identity pass or recovery flow.
         </p>
 
         <h3 style={{ textTransform: "none", letterSpacing: "0.02em", fontSize: "14px", fontWeight: 600, color: "var(--fg)", marginTop: "24px", marginBottom: "8px" }}>
           Which DeFi protocols currently submit behavioral data to Veil?
         </h3>
         <p>
-          Veil is currently in beta. Integration partners can submit behavioral data via
-          the API. The ecosystem of data-submitting protocols is growing — check the
-          protocol&apos;s GitHub or community channels for the current list.
+          Veil is currently in beta. Partner apps can submit activity data through the API.
+          Check the project GitHub or community channels for the current list.
         </p>
 
         <PrevNext

@@ -49,4 +49,10 @@ module GlobalLedgerStates {
    export ledger issuerTrustWeights: Map<Bytes<32>, Uint<16>>;
 
    export ledger scoreConfig: CustomStructs_ScoreConfig;
+
+   /**
+      @description Canonical DID registry keyed by veilIdHash. The DID string is deterministically
+      derived off-chain as did:veil:<veilIdHash>; this registry stores only consensus-critical state.
+   */
+   export ledger didRecords: Map<Bytes<32>, CustomStructs_VeilDidRecord>;
 }

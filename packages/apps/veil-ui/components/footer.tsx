@@ -46,7 +46,7 @@ export default function Footer() {
             </div>
 
             <p className="text-muted-foreground text-sm leading-relaxed max-w-xs">
-              Cross-chain credit scoring. Privacy enforced by Midnight ZK proofs. Identity anchored as a Spore DOB on CKB.
+              Private credit checks for DeFi. Your score stays hidden, and your CKB identity pass proves the result is yours.
             </p>
 
             {/* Chain badges */}
