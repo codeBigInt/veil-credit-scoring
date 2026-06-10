@@ -79,12 +79,12 @@ export default function EcosystemSection() {
             <span className="section-label block mb-4">Cap. 05 · Integrations</span>
             <h2 className="font-black uppercase leading-none tracking-tight" style={{ fontSize: 'clamp(2rem, 4.5vw, 3.5rem)' }}>
               Plug Veil Into{" "}
-              <span style={{ WebkitTextStroke: '2px var(--color-primary)', color: 'transparent' }}>Your Protocol</span>
+              <span style={{ WebkitTextStroke: '2px var(--color-primary)', color: 'transparent' }}>Your App</span>
             </h2>
           </div>
           <div className="col-span-12 md:col-span-5 space-y-4">
             <p className="text-muted-foreground text-base leading-relaxed">
-              Veil exposes a REST API any DeFi protocol can call to request verified credit decisions — no contract composability needed.
+              Veil gives any DeFi app a simple API for private credit checks — no custom contract integration needed.
             </p>
             <div className="flex gap-3">
               <a href="https://docs-veil-credit-scoring.netlify.app/docs/integration" target="_blank" className="inline-block bg-primary text-primary-foreground px-5 py-2.5 rounded-sm font-bold hover:opacity-90 transition-opacity uppercase tracking-wide text-xs no-underline">
@@ -102,7 +102,7 @@ export default function EcosystemSection() {
           {/* Table header */}
           <div className="grid grid-cols-12 px-6 py-3 border-b border-border/20 bg-card/20">
             <div className="col-span-1"><span className="section-label">#</span></div>
-            <div className="col-span-5 md:col-span-4"><span className="section-label">Integration Type</span></div>
+            <div className="col-span-5 md:col-span-4"><span className="section-label">App Type</span></div>
             <div className="col-span-3 md:col-span-4 hidden md:block"><span className="section-label">Use Case</span></div>
             <div className="col-span-6 md:col-span-3"><span className="section-label">Status</span></div>
           </div>

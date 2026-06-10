@@ -13,6 +13,7 @@ import {
   CustomStructs_CreditScore,
   CustomStructs_ScoreAccumulators,
   CustomStructs_ScoreConfig,
+  CustomStructs_VeilDidRecord,
   Ledger,
   ledger,
   Witnesses,
@@ -237,6 +238,73 @@ export class VeilScoreSimulator {
       eventId
     );
     this.updateStateAndGetResult(result);
+  }
+
+  registerDid(
+    userPk: Uint8Array,
+    veilIdHash: Uint8Array,
+    sporeIdHash: Uint8Array,
+    ckbOwnerLockHash: Uint8Array,
+    recoveryCommitment: Uint8Array,
+    currentEpoch = 1n
+  ): void {
+    const result = this.contract.impureCircuits.DIDRegistry_register(
+      this.circuitContext,
+      userPk,
+      veilIdHash,
+      sporeIdHash,
+      ckbOwnerLockHash,
+      recoveryCommitment,
+      currentEpoch
+    );
+    this.updateStateAndGetResult(result);
+  }
+
+  assertDidActive(
+    veilIdHash: Uint8Array,
+    sporeIdHash: Uint8Array,
+    ckbOwnerLockHash: Uint8Array
+  ): boolean {
+    const result = this.contract.impureCircuits.DIDRegistry_assertActive(
+      this.circuitContext,
+      veilIdHash,
+      sporeIdHash,
+      ckbOwnerLockHash
+    );
+    return this.updateStateAndGetResult(result);
+  }
+
+  rotateDidVerificationMethod(
+    veilIdHash: Uint8Array,
+    previousCkbOwnerLockHash: Uint8Array,
+    newSporeIdHash: Uint8Array,
+    newCkbOwnerLockHash: Uint8Array,
+    recoveryProofCommitment: Uint8Array,
+    currentEpoch = 2n
+  ): void {
+    const result = this.contract.impureCircuits.DIDRegistry_rotateVerificationMethod(
+      this.circuitContext,
+      veilIdHash,
+      previousCkbOwnerLockHash,
+      newSporeIdHash,
+      newCkbOwnerLockHash,
+      recoveryProofCommitment,
+      currentEpoch
+    );
+    this.updateStateAndGetResult(result);
+  }
+
+  revokeDid(veilIdHash: Uint8Array, currentEpoch = 3n): void {
+    const result = this.contract.impureCircuits.DIDRegistry_revoke(
+      this.circuitContext,
+      veilIdHash,
+      currentEpoch
+    );
+    this.updateStateAndGetResult(result);
+  }
+
+  getDidRecord(veilIdHash: Uint8Array): CustomStructs_VeilDidRecord {
+    return this.getLedgerState().LedgerStates_didRecords.lookup(veilIdHash);
   }
 
 

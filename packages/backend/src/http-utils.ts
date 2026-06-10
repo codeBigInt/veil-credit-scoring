@@ -1,6 +1,12 @@
 import { randomBytes } from 'node:crypto';
 import { fromHex, toHex } from '@midnight-ntwrk/compact-runtime';
 
+const stripHexPrefix = (value: string): string => value.startsWith('0x') || value.startsWith('0X')
+  ? value.slice(2)
+  : value;
+
+export const compactBytesFromHex = (value: string): Uint8Array => fromHex(stripHexPrefix(value));
+
 export const toJsonSafe = (value: unknown): unknown => {
   if (typeof value === 'bigint') return value.toString();
   if (value instanceof Uint8Array) return toHex(value);
@@ -30,7 +36,7 @@ export const optionalString = (body: Record<string, unknown>, field: string): st
 };
 
 export const requiredBytes = (body: Record<string, unknown>, field: string): Uint8Array =>
-  fromHex(requiredString(body, field));
+  compactBytesFromHex(requiredString(body, field));
 
 export const optionalBytes = (body: Record<string, unknown>, field: string, fallback?: Uint8Array): Uint8Array => {
   const value = optionalString(body, field);
@@ -38,7 +44,7 @@ export const optionalBytes = (body: Record<string, unknown>, field: string, fall
     if (fallback) return fallback;
     throw new Error(`${field} is required`);
   }
-  return fromHex(value);
+  return compactBytesFromHex(value);
 };
 
 export const requiredBigInt = (body: Record<string, unknown>, field: string): bigint => {

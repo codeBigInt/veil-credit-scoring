@@ -33,29 +33,29 @@ export default function UseCasesSection() {
   const useCases = [
     {
       number: "01",
-      title: "Lending Protocols",
-      description: "Any lending protocol on Ethereum, Solana, or CKB can call Veil's API to adjust rates and LTV limits based on ZK-proven credit bands — no raw score disclosed, no identity required.",
+      title: "Lending Apps",
+      description: "Lending apps can use Veil to offer better rates and limits based on a private credit band, without seeing the user's raw score.",
       icon: <BarChartIcon />,
       tag: "Ethereum · Solana · CKB"
     },
     {
       number: "02",
       title: "Stablecoin Systems",
-      description: "Verify collateral provider trustworthiness across chains while preserving complete identity privacy via Midnight ZK verification. Accept or reject collateral without KYC.",
+      description: "Check whether a user is trusted enough to provide collateral, without asking for KYC or exposing their wallet history.",
       icon: <ShieldIcon />,
       tag: "Any EVM · Midnight"
     },
     {
       number: "03",
-      title: "DEX & Yield Protocols",
-      description: "Enable tiered fee structures and better APYs for high-credit users — without any on-chain identity linkage across Midnight, Ethereum, or Solana.",
+      title: "DEX & Yield Apps",
+      description: "Give better fees and APYs to high-credit users without linking their activity across chains.",
       icon: <ArrowSwapIcon />,
       tag: "Midnight · Ethereum"
     },
     {
       number: "04",
       title: "Cross-Chain Bridges",
-      description: "Reduce bridge fraud and high-value transfer risk by scoring user history before large transactions. Veil ZK proofs travel across chains without exposing raw wallet data.",
+      description: "Reduce fraud on large transfers by checking a user's credit band without exposing their wallet data.",
       icon: <ChainLinkIcon />,
       tag: "Multi-chain"
     },
@@ -70,11 +70,11 @@ export default function UseCasesSection() {
           <div>
             <span className="section-label mb-3 block">Cap. 02 · Use Cases</span>
             <h2 className="font-black uppercase leading-none tracking-tight" style={{ fontSize: 'clamp(2rem, 4vw, 3rem)' }}>
-              Built for Any Protocol
+              Built for Any App
             </h2>
           </div>
           <p className="text-muted-foreground text-sm max-w-xs md:text-right">
-            A single REST API. Any chain. Any DeFi protocol.
+            One API. Any supported chain. Any DeFi app.
           </p>
         </div>
 

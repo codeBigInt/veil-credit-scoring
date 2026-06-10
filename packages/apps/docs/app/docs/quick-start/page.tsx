@@ -8,15 +8,15 @@ import Toc from "../../../components/toc";
 export const metadata: Metadata = {
   title: "Quick Start",
   description:
-    "Integrate Veil Protocol in under 5 minutes — submit a behavioral event, obtain a challenge, request a ZK credit decision, and consume the result.",
+    "Integrate Veil in under 5 minutes — submit a user event, get wallet approval, request a private credit check, and use the result.",
 };
 
 const tocItems = [
   { id: "what-you-need", text: "What You Need", depth: 2 },
-  { id: "step-1", text: "1. Submit a Behavioral Event", depth: 2 },
+  { id: "step-1", text: "1. Submit a User Event", depth: 2 },
   { id: "step-2", text: "2. Obtain a Challenge", depth: 2 },
-  { id: "step-3", text: "3. Request a Credit Decision", depth: 2 },
-  { id: "step-4", text: "4. Read the Decision", depth: 2 },
+  { id: "step-3", text: "3. Request a Credit Check", depth: 2 },
+  { id: "step-4", text: "4. Read the Result", depth: 2 },
   { id: "complete-example", text: "Complete Example", depth: 2 },
   { id: "next-steps", text: "Next Steps", depth: 2 },
 ];
@@ -131,8 +131,8 @@ export default function QuickStartPage() {
 
         <h1>Quick Start</h1>
         <p className="prose-lead">
-          Get a ZK-verified credit decision from Veil Protocol in four API calls.
-          This guide covers the minimum integration path — no smart contract deployment needed on your end.
+          Get a private credit check from Veil in four API calls. This guide covers the
+          minimum integration path — no smart contract deployment needed on your end.
         </p>
 
         <Callout variant="info" title="Time to complete">
@@ -147,30 +147,29 @@ export default function QuickStartPage() {
             <strong><code>VEIL_API_URL</code></strong> — the Veil backend endpoint provided during issuer onboarding. Current preview endpoint: <code>https://api.13-61-145-21.sslip.io/api/v1</code>.
           </li>
           <li>
-            <strong><code>issuerPk</code></strong> — your protocol&apos;s issuer public key, assigned when the Veil admin
-            registers your protocol via <code>Admin_addIssuer</code>.
+            <strong><code>issuerPk</code></strong> — your app&apos;s issuer key, assigned when the Veil admin
+            approves your app.
           </li>
           <li>
-            <strong><code>userPk</code></strong> — the user&apos;s Veil ID (deterministic anonymous public key). Obtained
-            when the user joins the Veil dashboard.
+            <strong><code>userPk</code></strong> — the user&apos;s Veil key from the dashboard.
           </li>
           <li>
-            <strong>User&apos;s CKB Spore DOB</strong> — the user must have minted a Veil Identity DOB on CKB via
-            the dashboard. Required for the credit decision authorization flow.
+            <strong>User&apos;s Veil ID and CKB identity pass</strong> — the user must have minted
+            an identity pass in the dashboard. The dashboard can share a verification link,
+            while integrations may use <code>sporeId</code> and <code>veilIdHash</code>.
           </li>
         </ul>
 
         <Callout variant="tip">
           You do not need to deploy any smart contract or run a Midnight node. The Veil backend
-          handles all ZK proof generation and Midnight contract interactions.
+          handles proof generation and Midnight transactions.
         </Callout>
 
-        <h2 id="step-1">1. Submit a Behavioral Event</h2>
+        <h2 id="step-1">1. Submit a User Event</h2>
         <p>
-          Tell Veil about a user action in your protocol. In this example, a user made an
-          on-time loan repayment. Submit these events in real time as users interact with
-          your protocol. The backend queues the event, generates a ZK proof, and commits
-          it to the Midnight contract.
+          Tell Veil about a user action in your app. In this example, a user made an on-time
+          loan repayment. Submit these events in real time as users interact with your app.
+          The backend queues the event and records it on Midnight.
         </p>
         <CodeBlock code={step1} language="bash" filename="POST /scoring-events/repayments" />
         <p>
@@ -188,11 +187,11 @@ export default function QuickStartPage() {
         </p>
         <CodeBlock code={step2} language="bash" filename="POST /challenges" />
 
-        <h2 id="step-3">3. Request a Credit Decision</h2>
+        <h2 id="step-3">3. Request a Credit Check</h2>
         <p>
-          Present the challenge to the user and have their CKB wallet sign the decision message.
-          Then submit the signed authorization with the credit decision request. The backend verifies
-          the user&apos;s Veil Identity DOB on CKB and returns a trust decision.
+          Present the challenge to the user and have their CKB wallet sign the approval message.
+          Then submit the signed approval with the credit check request. The backend verifies
+          the user&apos;s CKB identity pass and returns a trust result.
         </p>
         <div
           style={{
@@ -207,16 +206,16 @@ export default function QuickStartPage() {
           }}
         >
           <div style={{ color: "var(--primary)", fontSize: "10px", letterSpacing: "0.12em", textTransform: "uppercase", marginBottom: "8px" }}>
-            Decision message to sign
+            Message to sign
           </div>
           {`Veil credit decision authorization\nchallenge:{challengeHex}\nuserPk:{userPkHex}\nveilIdHash:{veilIdHash}\nsporeId:{sporeId}`}
         </div>
         <CodeBlock code={step3} language="bash" filename="POST /credit-decisions" />
 
-        <h2 id="step-4">4. Read the Decision</h2>
+        <h2 id="step-4">4. Read the Result</h2>
         <p>
-          The credit decision response tells you the user&apos;s trust tier and whether they are
-          approved for privileged access. <code>credit-decisions</code> is synchronous — no
+          The response tells you the user&apos;s trust tier and whether they are approved for
+          the action in your app. <code>credit-decisions</code> is synchronous — no
           polling needed.
         </p>
         <CodeBlock code={step4} language="json" filename="Decision response" />
@@ -230,7 +229,7 @@ export default function QuickStartPage() {
           }}
         >
           {[
-            { field: "approved", desc: "true if the user has a valid Veil Identity DOB and meets the current decision policy." },
+            { field: "approved", desc: "true if the user has a valid identity pass and meets the current policy." },
             { field: "scoreBand", desc: "Trust tier: unranked · bronze · silver · gold · platinum" },
             { field: "validAt", desc: "ISO 8601 timestamp. The decision reflects the user's state at this moment." },
           ].map((item) => (
@@ -285,7 +284,7 @@ export default function QuickStartPage() {
           </li>
           <li>
             <a href="/docs/user-guide">Dashboard Guide</a> — walk users through creating their
-            Veil ID and minting their identity DOB.
+            Veil ID and minting their identity pass.
           </li>
         </ul>
 

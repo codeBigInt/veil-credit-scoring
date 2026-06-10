@@ -26,19 +26,19 @@ export default function TradeYieldSection() {
 
         {/* Section label + heading — full width at top */}
         <div className="mb-12">
-          <span className="section-label block mb-4">Cap. 01 · ZK Verification</span>
+          <span className="section-label block mb-4">Cap. 01 · Private Credit</span>
           <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
             <h2 className="font-black uppercase leading-none tracking-tight" style={{ fontSize: 'clamp(2.5rem, 5vw, 4rem)' }}>
-              ZK-Proven
+              Private
               <br />
               <span style={{ WebkitTextStroke: '2px var(--color-primary)', color: 'transparent' }}>Credit Scores</span>
             </h2>
             <div className="max-w-sm space-y-4">
               <p className="text-muted-foreground text-base leading-relaxed">
-                Veil computes credit scores from on-chain history across Ethereum, Solana, CKB, and more — then proves them using Midnight ZK circuits. No raw score is ever disclosed.
+                Veil turns your on-chain history into a credit score that apps can trust, without showing your raw score or wallet history.
               </p>
               <a href="https://docs-veil-credit-scoring.netlify.app/docs/concepts" target="_blank" className="inline-block bg-primary text-primary-foreground px-5 py-2.5 rounded-sm font-bold hover:opacity-90 transition-opacity uppercase tracking-wide text-xs no-underline">
-                View Smart Contract
+                Learn How It Works
               </a>
             </div>
           </div>
@@ -48,7 +48,7 @@ export default function TradeYieldSection() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-px bg-border/20">
           {/* Credit Score central card */}
           <div className="flat-card p-8 flex flex-col items-center justify-center gap-4 text-center md:col-span-1">
-            <p className="section-label">ZK Credit Score</p>
+            <p className="section-label">Veil Credit Score</p>
             <p className="font-black text-foreground" style={{ fontSize: 'clamp(4rem, 8vw, 6rem)', lineHeight: 1 }}>750</p>
             <div className="w-full h-1 bg-border/30 rounded-full overflow-hidden">
               <div className="h-full bg-primary rounded-full" style={{ width: '75%' }} />

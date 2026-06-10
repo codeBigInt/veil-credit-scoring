@@ -37,14 +37,14 @@ export default function EarnMoreSection() {
 
           {/* Left: heading + copy (5 cols) */}
           <div className="col-span-12 md:col-span-5 space-y-6 md:sticky md:top-24">
-            <span className="section-label">Cap. 04 · Protocol Benefits</span>
+            <span className="section-label">Cap. 04 · User Benefits</span>
             <h2 className="font-black uppercase leading-none tracking-tight" style={{ fontSize: 'clamp(2.2rem, 4.5vw, 3.5rem)' }}>
               Unlock{" "}
               <span style={{ WebkitTextStroke: '2px var(--color-primary)', color: 'transparent' }}>Better Terms</span>
               {" "}With Higher Credit
             </h2>
             <p className="text-base text-muted-foreground leading-relaxed">
-              High Veil credit scores unlock exclusive benefits across any integrated DeFi protocol — while your identity and raw score stay completely private.
+              A strong Veil score can unlock better rates and access across DeFi, while your identity and raw score stay private.
             </p>
 
             {/* Identity card mockup */}
@@ -54,8 +54,8 @@ export default function EarnMoreSection() {
                   <UserIcon />
                 </div>
                 <div>
-                  <p className="section-label">Anonymous User</p>
-                  <p className="text-xs font-bold text-foreground">ID: 0x742d...35cc</p>
+                  <p className="section-label">Private User</p>
+                  <p className="text-xs font-bold text-foreground">Veil ID: did:veil:0x742d...35cc</p>
                 </div>
               </div>
               <div className="bg-primary/10 border border-primary/30 rounded-sm p-3">
@@ -71,12 +71,12 @@ export default function EarnMoreSection() {
                 <div className="w-6 h-6 rounded-sm bg-primary/10 border border-primary/30 flex items-center justify-center text-primary">
                   <DiamondIcon />
                 </div>
-                <p className="section-label text-primary">Spore DOB Anchored · CKB</p>
+                <p className="section-label text-primary">Identity Pass · CKB</p>
               </div>
             </div>
 
             <a href="https://github.com/codeBigInt/veil-credit-scoring/tree/dev/packages/contract" target="_blank" className="inline-block bg-primary text-primary-foreground px-6 py-3 rounded-sm font-bold hover:opacity-90 transition-opacity uppercase tracking-wide text-sm no-underline">
-              Build Credit Score
+              Open Dashboard
             </a>
           </div>
 

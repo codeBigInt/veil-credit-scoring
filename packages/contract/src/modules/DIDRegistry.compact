@@ -1,0 +1,103 @@
+module DIDRegistry {
+    import CompactStandardLibrary;
+    import CustomStructs prefix CustomStructs_;
+    import GlobalLedgerStates prefix LedgerStates_;
+    import Utils prefix Utils_;
+
+    export circuit register(
+        _userPk: Bytes<32>,
+        _veilIdHash: Bytes<32>,
+        _sporeIdHash: Bytes<32>,
+        _ckbOwnerLockHash: Bytes<32>,
+        _recoveryCommitment: Bytes<32>,
+        _currentEpoch: Uint<64>
+    ): [] {
+        const userPk = disclose(_userPk);
+        const veilIdHash = disclose(_veilIdHash);
+        const sporeIdHash = disclose(_sporeIdHash);
+        const ckbOwnerLockHash = disclose(_ckbOwnerLockHash);
+
+        const existingCreditScore = Utils_getCreditScoreByPk(userPk);
+        assert (existingCreditScore.is_some, "User score entry not found");
+        assert (!LedgerStates_didRecords.member(veilIdHash), "DID already registered");
+        assert (veilIdHash != default<Bytes<32>>, "Invalid Veil DID hash");
+        assert (sporeIdHash != default<Bytes<32>>, "Invalid Spore ID hash");
+        assert (ckbOwnerLockHash != default<Bytes<32>>, "Invalid CKB owner lock hash");
+
+        const didRecord = CustomStructs_VeilDidRecord {
+            userPk,
+            veilIdHash,
+            activeSporeIdHash: sporeIdHash,
+            activeCkbOwnerLockHash: ckbOwnerLockHash,
+            recoveryCommitment: disclose(_recoveryCommitment),
+            version: 1,
+            status: 1,
+            createdAtEpoch: disclose(_currentEpoch),
+            updatedAtEpoch: disclose(_currentEpoch)
+        };
+
+        LedgerStates_didRecords.insert(veilIdHash, didRecord);
+    }
+
+    export circuit assertActive(
+        _veilIdHash: Bytes<32>,
+        _sporeIdHash: Bytes<32>,
+        _ckbOwnerLockHash: Bytes<32>
+    ): Boolean {
+        const veilIdHash = disclose(_veilIdHash);
+        assert (LedgerStates_didRecords.member(veilIdHash), "DID not registered");
+
+        const didRecord = LedgerStates_didRecords.lookup(veilIdHash);
+        const matches = didRecord.status == 1
+            && didRecord.activeSporeIdHash == disclose(_sporeIdHash)
+            && didRecord.activeCkbOwnerLockHash == disclose(_ckbOwnerLockHash);
+
+        return matches;
+    }
+
+    export circuit rotateVerificationMethod(
+        _veilIdHash: Bytes<32>,
+        _previousCkbOwnerLockHash: Bytes<32>,
+        _newSporeIdHash: Bytes<32>,
+        _newCkbOwnerLockHash: Bytes<32>,
+        _recoveryProofCommitment: Bytes<32>,
+        _currentEpoch: Uint<64>
+    ): [] {
+        const veilIdHash = disclose(_veilIdHash);
+        assert (LedgerStates_didRecords.member(veilIdHash), "DID not registered");
+
+        const didRecord = LedgerStates_didRecords.lookup(veilIdHash);
+        assert (didRecord.status == 1, "DID is not active");
+        assert (didRecord.activeCkbOwnerLockHash == disclose(_previousCkbOwnerLockHash), "Previous CKB owner lock mismatch");
+        assert (didRecord.recoveryCommitment == disclose(_recoveryProofCommitment), "Invalid recovery proof");
+        assert (disclose(_newSporeIdHash) != default<Bytes<32>>, "Invalid new Spore ID hash");
+        assert (disclose(_newCkbOwnerLockHash) != default<Bytes<32>>, "Invalid new CKB owner lock hash");
+
+        LedgerStates_didRecords.insert(veilIdHash, CustomStructs_VeilDidRecord {
+            ...didRecord,
+            activeSporeIdHash: disclose(_newSporeIdHash),
+            activeCkbOwnerLockHash: disclose(_newCkbOwnerLockHash),
+            version: (didRecord.version + 1) as Uint<64>,
+            updatedAtEpoch: disclose(_currentEpoch)
+        });
+    }
+
+    export circuit revoke(
+        _veilIdHash: Bytes<32>,
+        _currentEpoch: Uint<64>
+    ): [] {
+        Utils_assertAuthorization(disclose(Utils_getLocalSecreteKey()));
+
+        const veilIdHash = disclose(_veilIdHash);
+        assert (LedgerStates_didRecords.member(veilIdHash), "DID not registered");
+
+        const didRecord = LedgerStates_didRecords.lookup(veilIdHash);
+        assert (didRecord.status == 1, "DID is not active");
+
+        LedgerStates_didRecords.insert(veilIdHash, CustomStructs_VeilDidRecord {
+            ...didRecord,
+            status: 2,
+            updatedAtEpoch: disclose(_currentEpoch)
+        });
+    }
+}

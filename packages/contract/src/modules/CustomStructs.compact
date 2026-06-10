@@ -67,4 +67,16 @@ module CustomStructs {
         activeDebtPenalty: Uint<32>;
         riskBandWeight: Uint<32>;
     };
+
+    export struct VeilDidRecord {
+        userPk: Bytes<32>;
+        veilIdHash: Bytes<32>;
+        activeSporeIdHash: Bytes<32>;
+        activeCkbOwnerLockHash: Bytes<32>;
+        recoveryCommitment: Bytes<32>;
+        version: Uint<64>;
+        status: Uint<8>; // 1 = active, 2 = revoked
+        createdAtEpoch: Uint<64>;
+        updatedAtEpoch: Uint<64>;
+    };
 }
