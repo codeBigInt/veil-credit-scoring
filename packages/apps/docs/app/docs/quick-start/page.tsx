@@ -8,7 +8,7 @@ import Toc from "../../../components/toc";
 export const metadata: Metadata = {
   title: "Quick Start",
   description:
-    "Integrate Veil in under 5 minutes — submit a user event, get wallet approval, request a private credit check, and use the result.",
+    "Integrate Veil in under 5 minutes — submit a user event, get a challenge, request a private credit check using the user's Veil DID, and act on the result.",
 };
 
 const tocItems = [
@@ -25,7 +25,7 @@ const step1 = `# Submit a repayment event for a user
 curl -X POST "$VEIL_API_URL/scoring-events/repayments" \\
   -H "Content-Type: application/json" \\
   -d '{
-    "userPk": "<user-veil-id-hex>",
+    "userPk": "<user-veil-key-hex>",
     "issuerPk": "<your-issuer-pk-hex>",
     "paidOnTimeFlag": 1,
     "amountWeight": 1000,
@@ -38,19 +38,29 @@ const step2 = `# Obtain a one-time challenge (expires in 60 seconds)
 curl -X POST "$VEIL_API_URL/challenges"
 # → { "challenge": "0x1a2b3c4d...", "challengeExpiresAt": 1749294060000 }`;
 
-const step3 = `# After the user signs the decision message with their CKB wallet:
+const step3 = `# The user's Veil DID — they share it with you or you resolve it
+VEIL_DID="did:veil:0x..."
+CHALLENGE="0x1a2b3c4d..."
+
+# Build the message for the user's CKB wallet to sign:
+# Veil credit decision authorization
+# did:<VEIL_DID>
+# challenge:<CHALLENGE>
+# verificationMethod:<VEIL_DID>#ckb-owner-1
+# registryVersion:1
+# purpose:credit-decision
+
+# After the user signs the message with their CKB wallet:
 curl -X POST "$VEIL_API_URL/credit-decisions" \\
   -H "Content-Type: application/json" \\
   -d '{
-    "userPk": "<user-veil-id-hex>",
-    "veilIdHash": "<user-veil-id-hash>",
-    "sporeId": "<user-ckb-spore-id>",
-    "userCkbAddress": "ckb1qyq...",
-    "challenge": "0x1a2b3c4d...",
+    "did": "'"$VEIL_DID"'",
+    "challenge": "'"$CHALLENGE"'",
     "authorization": {
       "signature": "0x...",
       "identity": "<signing-key-hex>",
-      "signType": "ckbSecp256k1"
+      "signType": "ckbSecp256k1",
+      "verificationMethod": "'"$VEIL_DID"'#ckb-owner-1"
     }
   }'`;
 
@@ -59,18 +69,22 @@ const step4 = `# Successful credit decision response:
   "success": true,
   "approved": true,
   "scoreBand": "gold",
+  "maxLtvBps": 6500,
+  "riskPremiumBps": 150,
   "validAt": "2025-06-07T12:00:10.000Z"
 }`;
 
 const fullExample = `const VEIL = process.env.VEIL_API_URL ?? 'https://api.13-61-145-21.sslip.io/api/v1';
 
+interface CkbSigner {
+  signMessage(message: string): Promise<{ signature: string; identity: string; signType: string }>;
+}
+
 async function quickIntegration(
-  userPk: string,
-  veilIdHash: string,
-  sporeId: string,
-  userCkbAddress: string,
+  userPk: string,      // user's Veil public key — for submitting behavioral events
+  veilDid: string,     // user's Veil DID (did:veil:0x...) — for credit decisions
   issuerPk: string,
-  authorization: { signature: string; identity: string; signType: string },
+  ckbSigner: CkbSigner,
 ) {
   // 1. Submit a repayment event
   const { job } = await fetch(\`\${VEIL}/scoring-events/repayments\`, {
@@ -85,24 +99,39 @@ async function quickIntegration(
     }),
   }).then((r) => r.json());
 
-  // Optionally poll the event job
+  // Optionally poll the event job (not required before requesting a decision)
   await pollJob(job.id);
 
   // 2. Obtain a fresh challenge
-  const { challenge } = await fetch(\`\${VEIL}/challenges\`, { method: 'POST' }).then((r) => r.json());
+  const { challenge } = await fetch(\`\${VEIL}/challenges\`, { method: 'POST' })
+    .then((r) => r.json());
 
-  // 3. Request a credit decision (user must sign decision message first)
-  //    Decision message format:
-  //    "Veil credit decision authorization\\nchallenge:<c>\\nuserPk:<pk>\\nveilIdHash:<h>\\nsporeId:<s>"
+  // 3. Build the DID authorization message and have the user sign it
+  const verificationMethod = \`\${veilDid}#ckb-owner-1\`;
+  const message = [
+    'Veil credit decision authorization',
+    \`did:\${veilDid}\`,
+    \`challenge:\${challenge}\`,
+    \`verificationMethod:\${verificationMethod}\`,
+    'registryVersion:1',
+    'purpose:credit-decision',
+  ].join('\\n');
+  const authorization = await ckbSigner.signMessage(message);
+
+  // 4. Request the credit decision
   const decision = await fetch(\`\${VEIL}/credit-decisions\`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ userPk, veilIdHash, sporeId, userCkbAddress, challenge, authorization }),
+    body: JSON.stringify({
+      did: veilDid,
+      challenge,
+      authorization: { ...authorization, verificationMethod },
+    }),
   }).then((r) => r.json());
 
-  // 4. Act on the result
+  // 5. Act on the result
   if (decision.approved) {
-    console.log(\`Tier: \${decision.scoreBand}\`);
+    console.log(\`Tier: \${decision.scoreBand}, Max LTV: \${decision.maxLtvBps / 100}%\`);
     grantPrivilegedAccess(decision.scoreBand);
   }
 
@@ -116,7 +145,9 @@ async function pollJob(jobId: string): Promise<void> {
     if (job.status === 'failed') throw new Error(job.error ?? 'Job failed');
     await new Promise((r) => setTimeout(r, 3000));
   }
-}`;
+}
+
+declare function grantPrivilegedAccess(band: string): void;`;
 
 export default function QuickStartPage() {
   return (
@@ -131,8 +162,9 @@ export default function QuickStartPage() {
 
         <h1>Quick Start</h1>
         <p className="prose-lead">
-          Get a private credit check from Veil in four API calls. This guide covers the
-          minimum integration path — no smart contract deployment needed on your end.
+          Get a private credit check from Veil in four API calls. Submit a behavioral event,
+          get a challenge, have the user sign with their CKB wallet, and read the result. No
+          smart contract deployment needed on your end.
         </p>
 
         <Callout variant="info" title="Time to complete">
@@ -144,54 +176,58 @@ export default function QuickStartPage() {
         <h2 id="what-you-need">What You Need</h2>
         <ul>
           <li>
-            <strong><code>VEIL_API_URL</code></strong> — the Veil backend endpoint provided during issuer onboarding. Current preview endpoint: <code>https://api.13-61-145-21.sslip.io/api/v1</code>.
+            <strong><code>VEIL_API_URL</code></strong> — the Veil backend endpoint provided
+            during issuer onboarding. Current preview endpoint:{" "}
+            <code>https://api.13-61-145-21.sslip.io/api/v1</code>.
           </li>
           <li>
-            <strong><code>issuerPk</code></strong> — your app&apos;s issuer key, assigned when the Veil admin
-            approves your app.
+            <strong><code>issuerPk</code></strong> — your app&apos;s issuer key, assigned when
+            the Veil admin approves your registration.
           </li>
           <li>
-            <strong><code>userPk</code></strong> — the user&apos;s Veil key from the dashboard.
+            <strong><code>userPk</code></strong> — the user&apos;s Veil Key from the dashboard.
+            Protocols use this to submit behavioral events keyed to that user.
           </li>
           <li>
-            <strong>User&apos;s Veil ID and CKB identity pass</strong> — the user must have minted
-            an identity pass in the dashboard. The dashboard can share a verification link,
-            while integrations may use <code>sporeId</code> and <code>veilIdHash</code>.
+            <strong>User&apos;s Veil DID (<code>did:veil:0x…</code>)</strong> — the user obtains
+            this from the dashboard after minting their identity pass. This is the only
+            identifier you need to request a credit decision. Users can share it freely.
           </li>
         </ul>
 
         <Callout variant="tip">
           You do not need to deploy any smart contract or run a Midnight node. The Veil backend
-          handles proof generation and Midnight transactions.
+          handles proof generation and Midnight transactions entirely on your behalf.
         </Callout>
 
         <h2 id="step-1">1. Submit a User Event</h2>
         <p>
-          Tell Veil about a user action in your app. In this example, a user made an on-time
-          loan repayment. Submit these events in real time as users interact with your app.
-          The backend queues the event and records it on Midnight.
+          Tell Veil about something the user did in your app. In this example, a user made an
+          on-time loan repayment. Submit events in real time using the user&apos;s Veil Key. The
+          backend queues the event and processes it on Midnight.
         </p>
         <CodeBlock code={step1} language="bash" filename="POST /scoring-events/repayments" />
         <p>
           All four event types follow the same pattern: <code>POST /scoring-events/repayments</code>,{" "}
           <code>/liquidations</code>, <code>/protocol-usage</code>, and <code>/debt-states</code>.
-          See the <a href="/docs/scoring-model#scoring-events">Scoring Model</a> for field details.
-          Each event returns a job ID — use <code>GET /jobs/:id</code> to poll for completion.
+          See the <a href="/docs/scoring-model#scoring-events">Scoring Model</a> for field
+          details. Each event returns a job ID — use <code>GET /jobs/:id</code> to poll until
+          the event settles on-chain.
         </p>
 
         <h2 id="step-2">2. Obtain a Challenge</h2>
         <p>
           Before requesting a credit decision, obtain a one-time challenge from the backend.
           Challenges expire in 60 seconds and prevent replay attacks. Request a fresh challenge
-          each time — do not cache or reuse them.
+          each time — never cache or reuse one.
         </p>
         <CodeBlock code={step2} language="bash" filename="POST /challenges" />
 
         <h2 id="step-3">3. Request a Credit Check</h2>
         <p>
-          Present the challenge to the user and have their CKB wallet sign the approval message.
-          Then submit the signed approval with the credit check request. The backend verifies
-          the user&apos;s CKB identity pass and returns a trust result.
+          Build a short authorization message using the user&apos;s Veil DID and the challenge,
+          have their CKB wallet sign it, then submit the signed request. The backend verifies
+          the user&apos;s identity pass and returns a credit decision.
         </p>
         <div
           style={{
@@ -206,16 +242,16 @@ export default function QuickStartPage() {
           }}
         >
           <div style={{ color: "var(--primary)", fontSize: "10px", letterSpacing: "0.12em", textTransform: "uppercase", marginBottom: "8px" }}>
-            Message to sign
+            Message to sign (DID flow)
           </div>
-          {`Veil credit decision authorization\nchallenge:{challengeHex}\nuserPk:{userPkHex}\nveilIdHash:{veilIdHash}\nsporeId:{sporeId}`}
+          {`Veil credit decision authorization\ndid:{veilDid}\nchallenge:{challengeHex}\nverificationMethod:{veilDid}#ckb-owner-1\nregistryVersion:1\npurpose:credit-decision`}
         </div>
         <CodeBlock code={step3} language="bash" filename="POST /credit-decisions" />
 
         <h2 id="step-4">4. Read the Result</h2>
         <p>
           The response tells you the user&apos;s trust tier and whether they are approved for
-          the action in your app. <code>credit-decisions</code> is synchronous — no
+          the action you are gating. <code>/credit-decisions</code> is synchronous — no
           polling needed.
         </p>
         <CodeBlock code={step4} language="json" filename="Decision response" />
@@ -229,9 +265,10 @@ export default function QuickStartPage() {
           }}
         >
           {[
-            { field: "approved", desc: "true if the user has a valid identity pass and meets the current policy." },
+            { field: "approved", desc: "true if the user has a valid identity pass, a registered DID, and meets the current policy." },
             { field: "scoreBand", desc: "Trust tier: unranked · bronze · silver · gold · platinum" },
-            { field: "validAt", desc: "ISO 8601 timestamp. The decision reflects the user's state at this moment." },
+            { field: "maxLtvBps", desc: "Maximum loan-to-value in basis points. 6500 = 65% LTV. Use this directly in your lending logic." },
+            { field: "validAt", desc: "ISO 8601 timestamp. The decision reflects the user's state at this exact moment." },
           ].map((item) => (
             <div
               key={item.field}
@@ -264,7 +301,7 @@ export default function QuickStartPage() {
 
         <h2 id="complete-example">Complete Example</h2>
         <p>
-          All four steps in a single TypeScript function:
+          All four steps in a single TypeScript function using the DID flow:
         </p>
         <CodeBlock code={fullExample} language="typescript" filename="quick-start.ts" />
 
@@ -276,7 +313,7 @@ export default function QuickStartPage() {
           </li>
           <li>
             <a href="/docs/integration/api-reference">API Reference</a> — complete reference
-            for all endpoints, request schemas, and response types.
+            for all endpoints, including DID resolution, request schemas, and response types.
           </li>
           <li>
             <a href="/docs/scoring-model">Scoring Model</a> — understand the scoring formula
@@ -284,7 +321,7 @@ export default function QuickStartPage() {
           </li>
           <li>
             <a href="/docs/user-guide">Dashboard Guide</a> — walk users through creating their
-            Veil ID and minting their identity pass.
+            Veil ID, minting their identity pass, and sharing their Veil DID.
           </li>
         </ul>
 

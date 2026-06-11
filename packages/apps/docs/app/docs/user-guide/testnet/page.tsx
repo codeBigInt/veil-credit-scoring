@@ -169,22 +169,7 @@ export default function TestnetGuidePage() {
             {
               filename: "Screenshot 2026-06-09 165904.png",
               alt: "1AM Wallet new wallet setup screen",
-              caption: "Create a new 1AM wallet or restore an existing test wallet.",
-            },
-            {
-              filename: "Screenshot 2026-06-09 165947.png",
-              alt: "1AM Wallet faster sync prompt",
-              caption: "Complete the 1AM wallet setup prompts before returning to Veil.",
-            },
-            {
-              filename: "Screenshot 2026-06-09 170012.png",
-              alt: "1AM Wallet network environment settings",
-              caption: "Set the wallet network environment to Preview for the current Veil testnet.",
-            },
-            {
-              filename: "Screenshot 2026-06-09 170639.png",
-              alt: "1AM Wallet syncing on preview network",
-              caption: "Wait for 1AM Wallet to sync on Preview before connecting it to the dashboard.",
+              caption: "Create a new 1AM wallet or restore an existing test wallet. Set the network environment to Preview before connecting.",
             },
           ]}
         />
@@ -236,9 +221,9 @@ export default function TestnetGuidePage() {
           <li>Keep the browser console closed unless you are collecting an error report.</li>
         </ol>
         <GuideImage
-          filename="Screenshot 2026-06-09 171207.png"
-          alt="Veil dashboard wallet connection screen"
-          caption="Open the dashboard and choose the Midnight wallet you want to connect."
+          filename="Screenshot 2026-06-10 220315.png"
+          alt="Veil app connect screen showing 1AM Wallet option"
+          caption="Open the dashboard to see the wallet connection screen. Select 1AM Wallet for the best Midnight experience."
         />
 
         <h2 id="step-2-midnight">2. Connect Midnight Wallet</h2>
@@ -254,14 +239,14 @@ export default function TestnetGuidePage() {
         <GuideImageGrid
           images={[
             {
-              filename: "Screenshot 2026-06-09 171226.png",
-              alt: "1AM Wallet connection approval prompt",
-              caption: "Approve the 1AM connection request for the Veil dashboard.",
+              filename: "Screenshot 2026-06-10 221913.png",
+              alt: "1AM Wallet connection request for Veil dashboard",
+              caption: "Approve the connection request in your 1AM wallet when prompted.",
             },
             {
-              filename: "Screenshot 2026-06-09 171238.png",
-              alt: "Veil dashboard after Midnight wallet connection",
-              caption: "After approval, the dashboard shows the connected Midnight wallet and current Veil network.",
+              filename: "Screenshot 2026-06-10 221934.png",
+              alt: "Veil Dashboard after 1AM wallet is connected",
+              caption: "After approval, your Midnight wallet address appears in the session bar and the Create Veil ID step becomes active.",
             },
           ]}
         />
@@ -279,14 +264,14 @@ export default function TestnetGuidePage() {
         <GuideImageGrid
           images={[
             {
-              filename: "Screenshot 2026-06-09 171247.png",
-              alt: "Veil dashboard create ID action",
-              caption: "Click Create Veil ID to set up your private browser data.",
+              filename: "Screenshot 2026-06-10 221951.png",
+              alt: "Dashboard showing Veil ID creation in progress",
+              caption: "Click Create Veil ID and wait while the dashboard sets up your private browser data.",
             },
             {
-              filename: "Screenshot 2026-06-09 171313.png",
-              alt: "Veil dashboard created ID state",
-              caption: "When the Veil network is selected, the progress panel moves to the Veil key step.",
+              filename: "Screenshot 2026-06-10 222023.png",
+              alt: "Dashboard after Veil ID is created showing Veil Key in stats bar",
+              caption: "When setup completes, your Veil Key appears in the stats bar and the progress panel advances to the next step.",
             },
           ]}
         />
@@ -301,19 +286,10 @@ export default function TestnetGuidePage() {
           The Veil key helps the scoring system find your private credit profile. It does not
           expose your wallet seed phrase, Midnight private key, or CKB private key.
         </p>
-        <GuideImageGrid
-          images={[
-            {
-              filename: "Screenshot 2026-06-09 171327.png",
-              alt: "Veil dashboard creating a Veil key",
-              caption: "Create your Veil key after the network is selected.",
-            },
-            {
-              filename: "Screenshot 2026-06-09 171336.png",
-              alt: "Veil dashboard showing generated Veil key",
-              caption: "The dashboard displays your Veil key after setup completes.",
-            },
-          ]}
+        <GuideImage
+          filename="Screenshot 2026-06-10 222037.png"
+          alt="Veil Key section on dashboard with Export Keys and Connect CKB Wallet"
+          caption="Your Veil Key is shown in its own section after Veil ID is created. Copy it only if the Veil team specifically asks for it. The Credit Profile section below prompts you to connect a CKB wallet next."
         />
 
         <h2 id="step-5-score">5. Create Credit Profile</h2>
@@ -329,14 +305,14 @@ export default function TestnetGuidePage() {
         <GuideImageGrid
           images={[
             {
-              filename: "Screenshot 2026-06-09 171353.png",
-              alt: "Veil dashboard create credit profile action",
-              caption: "Create the credit profile once your Veil ID is ready.",
+              filename: "Screenshot 2026-06-10 222124.png",
+              alt: "Dashboard after CKB wallet connected showing Create Credit Profile button",
+              caption: "After connecting your CKB wallet, the Create Credit Profile button becomes active.",
             },
             {
-              filename: "Screenshot 2026-06-09 171429.png",
-              alt: "Veil dashboard credit profile confirmed",
-              caption: "The credit profile confirmation prepares the flow for CKB wallet connection and identity pass minting.",
+              filename: "Screenshot 2026-06-10 222144.png",
+              alt: "Dashboard showing creating credit profile in progress",
+              caption: "The dashboard shows a creating status while it processes your credit profile on Midnight. Wait for confirmation before proceeding.",
             },
           ]}
         />
@@ -355,14 +331,14 @@ export default function TestnetGuidePage() {
         <GuideImageGrid
           images={[
             {
-              filename: "Screenshot 2026-06-09 171445.png",
-              alt: "Veil dashboard CKB wallet connection controls",
-              caption: "Use Connect CKB from the dashboard when the credit profile is ready.",
+              filename: "Screenshot 2026-06-10 222052.png",
+              alt: "CKB wallet picker showing JoyID, MetaMask, EVM, OKX, UniSat, and UTXO Global options",
+              caption: "Select your CKB wallet from the picker. MetaMask is the easiest option for most testers.",
             },
             {
-              filename: "Screenshot 2026-06-09 171542.png",
-              alt: "Veil dashboard with connected CKB wallet address",
-              caption: "After connecting, copy the displayed CKB address for the faucet claim.",
+              filename: "Screenshot 2026-06-10 222106.png",
+              alt: "MetaMask CKB connection approval popup",
+              caption: "Approve the connection in your CKB wallet. After approval, your CKB address appears in the dashboard header.",
             },
           ]}
         />
@@ -418,24 +394,32 @@ export default function TestnetGuidePage() {
           <li>Find the <strong>CKB Identity Pass</strong> section.</li>
           <li>Click <strong>Mint Identity Pass in CKB Wallet</strong>.</li>
           <li>Review and approve the CKB transaction in your wallet.</li>
-          <li>Wait while the app records the mint.</li>
-          <li>Confirm that the dashboard shows your <strong>Veil ID</strong>, record details, and a <strong>View Transaction</strong> link.</li>
+          <li>Wait while the app records the mint and registers your DID on Midnight.</li>
+          <li>
+            Confirm that the dashboard shows:
+            <ul>
+              <li>Your <strong>Veil ID</strong> — a <code>did:veil:0x…</code> identifier in the identity pass card</li>
+              <li>A <strong>Record ID</strong> and <strong>View Transaction</strong> link</li>
+              <li>A <strong>QR code panel</strong> on the left for sharing your DID verification link</li>
+            </ul>
+          </li>
         </ol>
         <p>
-          The identity pass is a public CKB record that proves this Veil ID belongs to your
-          CKB wallet. Your score data remains private on Midnight.
+          The identity pass is a permanent public record on CKB that proves your Veil DID belongs
+          to your CKB wallet. Your score data remains private on Midnight. The backend also
+          registers your DID on Midnight during this step, making it resolvable by any protocol.
         </p>
         <GuideImageGrid
           images={[
             {
-              filename: "Screenshot 2026-06-09 171705.png",
-              alt: "Veil dashboard identity pass mint action",
-              caption: "Start the identity pass mint from the CKB Identity Pass section.",
+              filename: "Screenshot 2026-06-10 222412.png",
+              alt: "MetaMask signature request for CKB identity pass mint transaction",
+              caption: "Approve the CKB transaction in your wallet to mint and pay for the identity pass.",
             },
             {
-              filename: "Screenshot 2026-06-09 171722.png",
-              alt: "CKB wallet identity pass mint confirmation",
-              caption: "Approve the CKB wallet transaction that mints and pays for the identity pass.",
+              filename: "Screenshot 2026-06-10 222510.png",
+              alt: "Dashboard complete state showing QR code and ID Minted card with Veil ID",
+              caption: "After minting completes, the dashboard shows your Veil ID in the identity pass card and a QR code for sharing.",
             },
           ]}
         />
@@ -443,41 +427,64 @@ export default function TestnetGuidePage() {
         <h2 id="step-9-decision">9. Check Credit Status</h2>
         <ol>
           <li>After the identity pass is minted, click <strong>Check My Credit</strong>.</li>
-          <li>Approve the CKB wallet signature request.</li>
+          <li>
+            Your CKB wallet will ask you to sign a short message tied to your Veil DID. This
+            proves you control the identity pass without revealing any private keys.
+          </li>
           <li>Wait for the dashboard to show the credit check result.</li>
+          <li>
+            The result shows your current credit band (Unranked, Bronze, Silver, Gold, or
+            Platinum) and the LTV limit associated with that band.
+          </li>
         </ol>
         <p>
           It is normal for early test accounts to be unranked if no activity has been submitted
-          for that Veil ID yet.
+          for that Veil ID yet. Your score improves as partner protocols submit behavioral data.
         </p>
-        <GuideImage
-          filename="Screenshot 2026-06-09 171738.png"
-          alt="Veil dashboard after CKB identity pass minting and credit check"
-          caption="After minting, the dashboard shows the identity pass details and lets you run a credit check."
+        <GuideImageGrid
+          images={[
+            {
+              filename: "Screenshot 2026-06-10 222522.png",
+              alt: "MetaMask showing the Veil DID credit decision authorization message to sign",
+              caption: "Click Check My Credit to prompt your CKB wallet to sign a short message tied to your Veil DID.",
+            },
+            {
+              filename: "Screenshot 2026-06-10 222546.png",
+              alt: "Final dashboard state showing Veil ID, View Transaction link, and Check My Credit button",
+              caption: "After signing, the dashboard shows your identity pass details, a View Transaction link, and your current credit status.",
+            },
+          ]}
         />
 
         <h2 id="verify-with-veil-did">Use Veil ID for Credit Checks</h2>
         <p>
-          Your Veil ID connects your private Midnight credit profile to your CKB identity pass.
-          It is safe to share with an app that wants to check your Veil credit status, because
-          it does not reveal your seed phrase, CKB private key, or raw credit history.
+          After minting your identity pass, the dashboard shows your <strong>Veil ID</strong> — a
+          globally unique identifier in the format <code>did:veil:0x…</code>. This is a
+          Decentralized Identifier (DID) that connects your private Midnight credit profile to
+          your CKB identity pass.
         </p>
         <p>
-          After the identity pass is minted, use the QR card or <strong>Copy Verify Link</strong>
-          to share a verification link. The dashboard shortens long identifiers visually, but
-          copy buttons still copy the full values.
+          Your Veil DID is safe to share with any app that wants to check your credit status.
+          It does not reveal your seed phrase, Midnight private key, CKB private key, or raw
+          credit history.
+        </p>
+        <p>
+          After the identity pass is minted, use the <strong>Copy ID</strong> button, the QR card,
+          or <strong>Copy Verify Link</strong> to share your identity with apps. The dashboard
+          shortens long identifiers visually, but the copy buttons always copy the full values.
         </p>
         <ul>
-          <li><strong>Veil ID</strong> — the ID shown in the minted identity pass card.</li>
-          <li><strong>Record ID</strong> — the CKB record ID shown in the pass details.</li>
-          <li><strong>ID Hash</strong> — the 0x-prefixed hash stored inside the pass content.</li>
-          <li><strong>CKB address</strong> — the CKB wallet address that owns the identity pass.</li>
-          <li><strong>Veil key</strong> — also called <code>userPk</code>; used by the preview API to locate your score profile.</li>
+          <li><strong>Veil ID</strong> — your <code>did:veil:0x…</code> DID shown in the identity pass card. This is the main identifier to share.</li>
+          <li><strong>Verify Link</strong> — a URL pointing to the DID resolution endpoint for your DID. Apps can follow this link to verify your identity.</li>
+          <li><strong>QR Code</strong> — encodes the same verify link. Apps can scan it to initiate a credit check without you typing anything.</li>
+          <li><strong>Record ID</strong> — the CKB Spore record ID shown in the pass details. Used internally by the backend.</li>
+          <li><strong>ID Hash</strong> — the 0x-prefixed hash stored inside the pass content. Technical integrations may ask for this.</li>
+          <li><strong>Veil key</strong> — also called <code>userPk</code>; used by protocols to submit behavioral events for your profile.</li>
         </ul>
         <p>
           A lending app or other checker should not ask for your seed phrase or private keys.
-          It asks your CKB wallet to sign a short approval message, then sends that signed
-          request to Veil for a credit check.
+          It asks your CKB wallet to sign a short authorization message tied to your Veil DID,
+          then sends that signed request to Veil for a credit decision.
         </p>
         <div
           style={{
@@ -499,7 +506,7 @@ export default function TestnetGuidePage() {
               textTransform: "uppercase",
             }}
           >
-            CKB wallet message to sign
+            CKB wallet message to sign (DID flow)
           </div>
           <pre
             style={{
@@ -513,23 +520,24 @@ export default function TestnetGuidePage() {
               whiteSpace: "pre",
             }}
           >{`Veil credit decision authorization
+did:<your-veil-did>
 challenge:<challengeHex>
-userPk:<userPkHex>
-veilIdHash:<veilIdHash>
-sporeId:<sporeId>`}</pre>
+verificationMethod:<your-veil-did>#ckb-owner-1
+registryVersion:1
+purpose:credit-decision`}</pre>
         </div>
         <p>
-          The backend checks that the signed request is fresh, the CKB identity pass exists,
-          and the signing CKB wallet owns that pass. If those checks pass, Veil returns a
-          minimized result such as{" "}
+          The backend checks that the signed request is fresh, the Veil DID is registered on
+          Midnight, and the signing CKB wallet owns the associated identity pass. If those checks
+          pass, Veil returns a minimized result:{" "}
           <code>approved</code>, <code>scoreBand</code>, <code>maxLtvBps</code>, and{" "}
           <code>riskPremiumBps</code>.
         </p>
         <Callout variant="info" title="What to share with a verifier">
-          Share your Veil ID or verification link with apps you want to use. Technical
-          integrations may also ask for <code>veilIdHash</code>, <code>sporeId</code>, CKB
-          address, and preview <code>userPk</code>. Never share wallet seed phrases, private
-          keys, or browser private-state exports.
+          Share your Veil DID (<code>did:veil:0x…</code>) or verification link with apps you
+          want to use. The DID is safe to share publicly — it does not expose your score,
+          private keys, or wallet addresses on other chains. Never share wallet seed phrases,
+          private keys, or browser private-state exports.
         </Callout>
 
         <h2 id="what-to-share">What To Share Back</h2>
@@ -590,7 +598,19 @@ sporeId:<sporeId>`}</pre>
         />
       </article>
 
-      <Toc items={tocItems} />
+      <aside
+        className="docs-toc-col"
+        style={{
+          position: "sticky",
+          top: "var(--header-h)",
+          height: "calc(100vh - var(--header-h))",
+          overflowY: "auto",
+          padding: "32px 0 40px",
+          flexShrink: 0,
+        }}
+      >
+        <Toc items={tocItems} />
+      </aside>
     </div>
   );
 }
