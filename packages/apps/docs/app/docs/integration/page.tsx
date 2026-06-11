@@ -17,20 +17,22 @@ const tocItems = [
   { id: "step-2-submit", text: "Step 2: Submit Behavioral Events", depth: 2 },
   { id: "step-3-challenge", text: "Step 3: Obtain a Challenge", depth: 2 },
   { id: "step-4-decision", text: "Step 4: Request a Credit Decision", depth: 2 },
+  { id: "did-flow", text: "Using the DID Flow (Recommended)", depth: 3 },
+  { id: "legacy-flow", text: "Legacy Field-Based Flow", depth: 3 },
   { id: "step-5-jobs", text: "Step 5: Poll Job Status", depth: 2 },
   { id: "typescript-example", text: "TypeScript Example", depth: 2 },
   { id: "policy-examples", text: "Policy Examples", depth: 2 },
   { id: "error-handling", text: "Error Handling", depth: 2 },
 ];
 
-const step2Submit = `const VEIL_API = process.env.VEIL_API_URL; // e.g. https://api.veil.protocol/v1
+const step2Submit = `const VEIL_API = process.env.VEIL_API_URL ?? 'https://api.13-61-145-21.sslip.io/api/v1';
 
 // Submit a repayment event
 const res = await fetch(\`\${VEIL_API}/scoring-events/repayments\`, {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify({
-    userPk: '0xabc123...',        // user's Veil ID (32 bytes hex)
+    userPk: '0xabc123...',        // user's Veil public key (32 bytes hex)
     issuerPk: '0xdef456...',      // your registered issuer public key
     paidOnTimeFlag: 1,            // 1 = on time, 0 = late
     amountWeight: 1000,           // normalized loan size
@@ -45,20 +47,40 @@ const res = await fetch(\`\${VEIL_API}/challenges\`, { method: 'POST' });
 const { challenge, challengeExpiresAt } = await res.json();
 // Use challenge in POST /credit-decisions within 60s`;
 
-const step4Decision = `// After obtaining a challenge and the user's CKB signature:
+const step4DidDecision = `// The recommended flow uses the user's Veil DID (did:veil:0x...)
+// No need to pass userPk, veilIdHash, sporeId, or userCkbAddress separately.
+
+// 1. Get the user's Veil DID — they share it or you resolve it from their sporeId.
+const veilDid = 'did:veil:0x...';                // e.g. from the user's dashboard
+
+// 2. Obtain a fresh challenge
+const { challenge } = await fetch(\`\${VEIL_API}/challenges\`, { method: 'POST' })
+  .then((r) => r.json());
+
+// 3. Build the message the user's CKB wallet must sign
+const verificationMethod = \`\${veilDid}#ckb-owner-1\`;
+const message = [
+  'Veil credit decision authorization',
+  \`did:\${veilDid}\`,
+  \`challenge:\${challenge}\`,
+  \`verificationMethod:\${verificationMethod}\`,
+  'registryVersion:1',
+  'purpose:credit-decision',
+].join('\\n');
+
+// 4. Have the user's CKB wallet sign the message (e.g. via CCC connector)
+const authorization = await ckbSigner.signMessage(message);
+
+// 5. Submit the credit decision request
 const res = await fetch(\`\${VEIL_API}/credit-decisions\`, {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify({
-    userPk: '0xabc123...',           // user's Veil ID
-    veilIdHash: '0x...',             // hash of the Veil ID
-    sporeId: '0x...',                // user's CKB Spore DOB ID
-    userCkbAddress: 'ckb1...',       // user's CKB wallet address
-    challenge: '0x...',              // from POST /challenges
+    did: veilDid,                  // ← the Veil DID
+    challenge,
     authorization: {
-      signature: '0x...',            // CKB wallet signature over the decision message
-      identity: '0x...',            // signing key (public key hex)
-      signType: 'ckbSecp256k1',     // CKB signing scheme
+      ...authorization,
+      verificationMethod,          // the verification method used
     },
   }),
 });
@@ -76,7 +98,7 @@ const decisionResponse = `{
   "validAt": "2025-06-07T12:00:00.000Z"
 }`;
 
-const tsExample = `const VEIL_API = process.env.VEIL_API_URL;
+const tsExample = `const VEIL_API = process.env.VEIL_API_URL ?? 'https://api.13-61-145-21.sslip.io/api/v1';
 
 // Submit any scoring event
 async function submitRepayment(params: {
@@ -108,22 +130,33 @@ async function waitForJob(jobId: string, timeoutMs = 60_000): Promise<void> {
   throw new Error('Timed out waiting for job');
 }
 
-// Verify user trust before granting privileged access
-async function verifyUserTrust(
-  userPk: string,
-  veilIdHash: string,
-  sporeId: string,
-  userCkbAddress: string,
-  authorization: { signature: string; identity: string; signType: string },
+// Verify user trust using their Veil DID (recommended)
+async function verifyWithDid(
+  veilDid: string,
+  ckbSigner: CkbSigner,  // your CCC-compatible signer
 ): Promise<{ approved: boolean; scoreBand: string }> {
   // 1. Obtain fresh challenge
   const { challenge } = await fetch(\`\${VEIL_API}/challenges\`, { method: 'POST' }).then((r) => r.json());
 
-  // 2. Request credit decision (user must sign the decision message)
+  // 2. Build the DID authorization message
+  const verificationMethod = \`\${veilDid}#ckb-owner-1\`;
+  const message = [
+    'Veil credit decision authorization',
+    \`did:\${veilDid}\`,
+    \`challenge:\${challenge}\`,
+    \`verificationMethod:\${verificationMethod}\`,
+    'registryVersion:1',
+    'purpose:credit-decision',
+  ].join('\\n');
+
+  // 3. Have the user sign with their CKB wallet
+  const authorization = await ckbSigner.signMessage(message);
+
+  // 4. Request the credit decision
   const res = await fetch(\`\${VEIL_API}/credit-decisions\`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ userPk, veilIdHash, sporeId, userCkbAddress, challenge, authorization }),
+    body: JSON.stringify({ did: veilDid, challenge, authorization: { ...authorization, verificationMethod } }),
   });
   if (!res.ok) throw new Error(\`Decision failed: \${res.status}\`);
   return res.json();
@@ -144,36 +177,38 @@ export default function IntegrationPage() {
         <p className="prose-lead">
           Integrate Veil into your DeFi protocol in five steps: register as an issuer,
           submit behavioral events as users interact with your protocol, obtain a challenge,
-          request a credit decision tied to the user&apos;s on-chain identity, and act on the result.
+          request a credit decision using the user&apos;s Veil DID, and act on the result.
         </p>
 
         <h2 id="prerequisites">Prerequisites</h2>
         <ul>
           <li>
-            <strong>Issuer registration:</strong> Your protocol must be registered by the Veil
-            admin before you can submit events. Contact the Veil team to initiate registration.
+            <strong>Issuer registration:</strong> Your protocol must be approved by the Veil
+            admin before you can submit events. Contact the Veil team to begin registration.
             You will receive an <code>issuerPk</code> — keep this secure.
           </li>
           <li>
             <strong>Veil API access:</strong> Set <code>VEIL_API_URL</code> to the Veil backend
-            URL provided during onboarding.
+            URL provided during onboarding. Current preview endpoint:{" "}
+            <code>https://api.13-61-145-21.sslip.io/api/v1</code>.
           </li>
           <li>
-            <strong>User Veil IDs:</strong> Users must have joined the Veil protocol via the
-            dashboard to have a <code>userPk</code> (Veil ID). Events submitted before a user
-            registers are queued and applied when they do.
+            <strong>User Veil public key (<code>userPk</code>):</strong> Users derive their Veil
+            public key in the dashboard. Behavioral events are keyed to this value. Events
+            submitted before a user creates their score profile are queued until they do.
           </li>
           <li>
-            <strong>User Veil Identity DOB:</strong> For credit decisions, the user must have
-            minted a Veil Identity DOB on CKB. This serves as their on-chain identity anchor
-            and is required for the authorization flow.
+            <strong>User Veil DID and Identity Pass:</strong> For credit decisions, the user
+            must have minted a Veil Identity Pass on CKB. This generates their{" "}
+            <code>did:veil:…</code> identifier and registers it on Midnight. The DID is the
+            only piece of information you need to request a credit decision.
           </li>
         </ul>
 
-        <Callout variant="info" title="No direct blockchain access required">
+        <Callout variant="info" title="No blockchain access required on your end">
           Your protocol does not need a Midnight wallet or any blockchain SDK. The Veil backend
-          abstracts all ZK proof generation, private state management, and transaction submission.
-          You interact via standard REST.
+          handles all ZK proof generation, private state management, and transaction submission.
+          You interact via standard REST over HTTPS.
         </Callout>
 
         <h2 id="step-1-register">Step 1: Register as an Issuer</h2>
@@ -183,7 +218,10 @@ export default function IntegrationPage() {
           Upon registration you receive:
         </p>
         <ul>
-          <li><code>issuerPk</code> — your protocol&apos;s identity key within Veil. Include this in every event submission.</li>
+          <li>
+            <code>issuerPk</code> — your protocol&apos;s identity key within Veil. Include this
+            in every event submission.
+          </li>
         </ul>
         <p>
           Registered issuers are listed in the contract&apos;s public ledger state. Any event
@@ -192,14 +230,16 @@ export default function IntegrationPage() {
 
         <Callout variant="warning" title="Issuer key security">
           Your <code>issuerPk</code> is a public key derived from your protocol&apos;s registration.
-          While it is not secret, it is your identity in the Veil system — treat it as a stable
-          identifier and store it securely in your backend configuration.
+          While it is not a secret, it is your stable identity in the Veil system — store it
+          securely in your backend configuration and do not rotate it without coordinating with
+          the Veil admin.
         </Callout>
 
         <h2 id="step-2-submit">Step 2: Submit Behavioral Events</h2>
         <p>
           As users interact with your protocol, submit behavioral events in real time. Four event
-          types are available — see the <a href="/docs/scoring-model#scoring-events">Scoring Model</a>{" "}
+          types are available — see the{" "}
+          <a href="/docs/scoring-model#scoring-events">Scoring Model</a>{" "}
           for the full field reference.
         </p>
 
@@ -239,8 +279,9 @@ export default function IntegrationPage() {
         </p>
 
         <Callout variant="tip">
-          Submit events only after the user has created a Veil score entry. The Midnight circuit
-          rejects events for unknown users because there is no private score accumulator to update.
+          Submit events only after the user has created a Veil score profile. The Midnight
+          circuit rejects events for unknown users because there is no private score accumulator
+          to update yet.
         </Callout>
 
         <h2 id="step-3-challenge">Step 3: Obtain a Challenge</h2>
@@ -249,65 +290,136 @@ export default function IntegrationPage() {
           Challenges expire in 60 seconds and cannot be reused — they prevent replay attacks
           on the authorization flow.
         </p>
-        <CodeBlock code={step3Challenge} language="typescript" filename="GET a challenge" />
+        <CodeBlock code={step3Challenge} language="typescript" filename="POST /challenges" />
         <p>
-          Present the <code>challenge</code> to the user so they can sign the decision message
-          with their CKB wallet (step 4).
+          Present the <code>challenge</code> to the user so their CKB wallet can sign the
+          decision authorization message (step 4).
         </p>
 
         <h2 id="step-4-decision">Step 4: Request a Credit Decision</h2>
         <p>
-          A credit decision verifies that the user holds a valid Veil Identity DOB on CKB and
-          is authorized to claim the associated Veil score. The user must sign a specific
-          message with their CKB wallet to prove ownership.
+          A credit decision verifies that the user holds a valid Veil Identity Pass on CKB,
+          that their DID is registered on Midnight, and that they have authorized this specific
+          request. The user signs a short message with their CKB wallet to prove they control
+          their identity.
         </p>
-        <CodeBlock code={step4Decision} language="typescript" filename="POST /credit-decisions" />
-        <CodeBlock code={decisionResponse} language="json" filename="Decision response" />
         <p>
-          The decision message that the user&apos;s CKB wallet must sign is:
+          There are two ways to send a credit decision request — the DID flow is strongly
+          recommended for all new integrations.
+        </p>
+
+        <h3 id="did-flow">Using the DID Flow (Recommended)</h3>
+        <p>
+          The DID flow only requires the user&apos;s <code>did:veil:…</code> identifier. The
+          backend resolves the DID internally to look up the user&apos;s identity pass, Midnight
+          score, and CKB wallet — you do not need to pass <code>userPk</code>,{" "}
+          <code>veilIdHash</code>, <code>sporeId</code>, or <code>userCkbAddress</code> separately.
+        </p>
+        <CodeBlock code={step4DidDecision} language="typescript" filename="POST /credit-decisions (DID flow)" />
+
+        <p>
+          The message the user&apos;s CKB wallet signs in the DID flow:
         </p>
         <div className="code-block-wrap" style={{ marginBottom: "16px" }}>
-          <div className="code-block-header"><span className="code-block-lang">text</span><span className="code-block-filename">Message format</span></div>
+          <div className="code-block-header">
+            <span className="code-block-lang">text</span>
+            <span className="code-block-filename">DID authorization message</span>
+          </div>
+          <pre className="code-block-pre">{`Veil credit decision authorization
+did:<did:veil:0x...>
+challenge:<challengeHex>
+verificationMethod:<did:veil:0x...#ckb-owner-1>
+registryVersion:1
+purpose:credit-decision`}</pre>
+        </div>
+
+        <h3 id="legacy-flow">Legacy Field-Based Flow</h3>
+        <p>
+          If the user has not yet registered their DID on Midnight (older accounts), you can
+          fall back to passing the individual identity fields. This flow requires{" "}
+          <code>userPk</code>, <code>veilIdHash</code>, <code>sporeId</code>, and{" "}
+          <code>userCkbAddress</code> explicitly, and uses an older message format.
+        </p>
+        <div className="code-block-wrap" style={{ marginBottom: "16px" }}>
+          <div className="code-block-header">
+            <span className="code-block-lang">text</span>
+            <span className="code-block-filename">Legacy authorization message</span>
+          </div>
           <pre className="code-block-pre">{`Veil credit decision authorization
 challenge:<challengeHex>
 userPk:<userPkHex>
 veilIdHash:<veilIdHash>
 sporeId:<sporeId>`}</pre>
         </div>
+
+        <Callout variant="info" title="DID registration happens automatically">
+          When a user mints their identity pass in the current Veil dashboard, the backend
+          automatically registers their DID on Midnight. All new users will have a registered
+          DID — you only need the legacy flow for accounts created before the DID integration.
+        </Callout>
+
+        <CodeBlock code={decisionResponse} language="json" filename="Credit decision response" />
         <p>
           The decision response contains:
         </p>
         <ul>
-          <li><code>approved</code> — <code>true</code> if the user has a valid DOB and meets the current decision policy</li>
-          <li><code>scoreBand</code> — the trust tier: <code>unranked</code> · <code>bronze</code> · <code>silver</code> · <code>gold</code> · <code>platinum</code></li>
-          <li><code>maxLtvBps</code> and <code>riskPremiumBps</code> — lending policy outputs derived from the band</li>
-          <li><code>validAt</code> — ISO 8601 timestamp of when the decision was issued</li>
+          <li>
+            <code>approved</code> — <code>true</code> if the user has a valid identity pass
+            and meets the current decision policy
+          </li>
+          <li>
+            <code>scoreBand</code> — the trust tier:{" "}
+            <code>unranked</code> · <code>bronze</code> · <code>silver</code> · <code>gold</code> · <code>platinum</code>
+          </li>
+          <li>
+            <code>maxLtvBps</code> and <code>riskPremiumBps</code> — lending policy outputs
+            derived from the band (LTV in basis points, e.g. 6500 = 65%)
+          </li>
+          <li>
+            <code>validAt</code> — ISO 8601 timestamp of when the decision was issued
+          </li>
         </ul>
 
         <Callout variant="warning" title="Decision freshness">
-          Always issue a fresh challenge for each decision request. Reusing a challenge or a
-          stale decision without a new authorization signature is rejected by the backend.
+          Always issue a fresh challenge for each decision request. Challenges expire after
+          60 seconds and cannot be reused. Submitting a stale or already-used challenge
+          returns a <code>401</code> error.
         </Callout>
 
         <h2 id="step-5-jobs">Step 5: Poll Job Status</h2>
         <p>
           Scoring events are queued as jobs. ZK proof generation on Midnight takes seconds to
-          minutes. Poll the job endpoint until the status is <code>succeeded</code> or{" "}
-          <code>failed</code>.
+          minutes depending on network load. Poll the job endpoint until the status is{" "}
+          <code>succeeded</code> or <code>failed</code>.
         </p>
         <table>
           <thead>
             <tr><th>Status</th><th>Meaning</th><th>Action</th></tr>
           </thead>
           <tbody>
-            <tr><td><code>pending</code></td><td>Queued or proof in progress</td><td>Continue polling every 3–5s</td></tr>
-            <tr><td><code>succeeded</code></td><td>Event committed on-chain</td><td>Done — move on</td></tr>
-            <tr><td><code>failed</code></td><td>Error during processing</td><td>Check <code>error</code> field; retry with backoff</td></tr>
+            <tr>
+              <td><code>pending</code></td>
+              <td>Queued or proof in progress</td>
+              <td>Continue polling every 3–5 s</td>
+            </tr>
+            <tr>
+              <td><code>succeeded</code></td>
+              <td>Event committed on-chain</td>
+              <td>Done — move on</td>
+            </tr>
+            <tr>
+              <td><code>failed</code></td>
+              <td>Error during processing</td>
+              <td>Check <code>error</code> field; retry with backoff</td>
+            </tr>
           </tbody>
         </table>
 
         <h2 id="typescript-example">TypeScript Example</h2>
-        <p>A complete integration showing event submission, polling, and trust verification:</p>
+        <p>
+          A complete integration showing event submission, job polling, and credit decision
+          using the DID flow:
+        </p>
         <CodeBlock code={tsExample} language="typescript" filename="veil-integration.ts" />
 
         <h2 id="policy-examples">Policy Examples</h2>
@@ -334,10 +446,31 @@ sporeId:<sporeId>`}</pre>
             <tr><th>Status</th><th>Meaning</th><th>Action</th></tr>
           </thead>
           <tbody>
-            <tr><td><code>400</code></td><td>Missing or invalid request fields</td><td>Check request schema</td></tr>
-            <tr><td><code>401</code></td><td>Invalid challenge, expired, or bad signature</td><td>Re-obtain challenge and re-sign</td></tr>
-            <tr><td><code>404</code></td><td>Job or user not found</td><td>Verify the userPk; user may not be registered</td></tr>
-            <tr><td><code>500</code></td><td>Backend or Midnight node error</td><td>Retry with exponential backoff</td></tr>
+            <tr>
+              <td><code>400</code></td>
+              <td>Missing or invalid request fields</td>
+              <td>Check request schema and required fields</td>
+            </tr>
+            <tr>
+              <td><code>401</code></td>
+              <td>Invalid challenge, expired, or bad signature</td>
+              <td>Re-obtain a fresh challenge and re-sign</td>
+            </tr>
+            <tr>
+              <td><code>404</code></td>
+              <td>Job, user, or DID not found</td>
+              <td>Verify the DID or <code>userPk</code>; user may not be registered</td>
+            </tr>
+            <tr>
+              <td><code>409</code></td>
+              <td>DID found but not yet registered on Midnight</td>
+              <td>User should complete the dashboard flow; DID registry is pending</td>
+            </tr>
+            <tr>
+              <td><code>500</code></td>
+              <td>Backend or Midnight node error</td>
+              <td>Retry with exponential backoff</td>
+            </tr>
           </tbody>
         </table>
 

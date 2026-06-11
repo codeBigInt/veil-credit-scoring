@@ -40,6 +40,7 @@ import {
 } from "@midnight-ntwrk/testkit-js";
 import type { Logger } from "pino";
 import * as Rx from "rxjs";
+import { toLoggableError } from "../logging.js";
 
 const getInitialShieldedState = async (
   wallet: ShieldedWalletAPI,
@@ -88,7 +89,7 @@ const readWalletStateCache = (
     return cache;
   } catch (error) {
     logger.warn(
-      { error },
+      { err: toLoggableError(error) },
       "Failed to load backend wallet state cache; starting from seed",
     );
     return undefined;
@@ -146,7 +147,7 @@ export class BackendWalletProvider implements MidnightProvider, WalletProvider {
     this.cacheTimer = setInterval(() => {
       this.saveWalletStateCache().catch((error) => {
         this.logger.warn(
-          { error },
+          { err: toLoggableError(error) },
           "Failed to save backend wallet state cache",
         );
       });
@@ -206,7 +207,7 @@ export class BackendWalletProvider implements MidnightProvider, WalletProvider {
     if (this.cacheTimer) clearInterval(this.cacheTimer);
     await this.saveWalletStateCache().catch((error) => {
       this.logger.warn(
-        { error },
+        { err: toLoggableError(error) },
         "Failed to save backend wallet state cache during shutdown",
       );
     });
@@ -384,7 +385,12 @@ export class BackendWalletProvider implements MidnightProvider, WalletProvider {
         );
 
     logger.info(
-      `Creating dust wallet with params: ${JSON.stringify(dustConfig)}`,
+      {
+        networkId: env.walletNetworkId,
+        feeBlocksMargin: dustOptions.feeBlocksMargin,
+        additionalFeeOverhead: dustOptions.additionalFeeOverhead.toString(),
+      },
+      "Creating dust wallet",
     );
 
     const dustWallet = cache

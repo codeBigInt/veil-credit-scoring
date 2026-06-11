@@ -5,10 +5,12 @@ import type { Script } from '@ckb-lumos/base';
 
 import { getCkbConfig, type CkbConfig } from './ckb.config.js';
 import { SporeService } from './spore.service.js';
+import { createVeilDid, hashHex32 } from '../../did-utils.js';
 
 export type VeilIdentityContent = {
   readonly protocol: 'Veil';
   readonly objectType: 'VeilIdentity';
+  readonly did: string;
   readonly veilIdHash: string;
   readonly ownerCkbLockHash: string;
   readonly midnightNetwork: string;
@@ -34,23 +36,42 @@ export type RecordVeilIdentityDOBMintParams = {
   readonly sporeId: string;
   readonly txHash: string;
   readonly veilIdHash: string;
+  readonly userPk?: string;
   readonly userCkbAddress: string;
   readonly midnightContractAddress: string;
+  readonly didRegistration?: {
+    readonly txHash?: string;
+    readonly contractAddress: string;
+  };
 };
 
 export type VeilIdentityDOBRecord = {
+  readonly did: string;
   readonly veilIdHash: string;
+  readonly userPk?: string;
   readonly ckbSporeId: string;
+  readonly ckbSporeIdHash: string;
   readonly ckbTxHash: string;
+  readonly userCkbAddress?: string;
+  readonly ckbOwnerLockHash: string;
   readonly midnightContractAddress: string;
+  readonly didRegistryTxHash?: string;
+  readonly didRegistryContractAddress?: string;
   readonly createdAt: Date;
 };
 
 export type ExistingVeilIdentityDOB = {
+  readonly did: string;
   readonly veilIdHash: string;
+  readonly userPk?: string;
   readonly sporeId: string;
+  readonly sporeIdHash: string;
   readonly txHash: string;
+  readonly userCkbAddress?: string;
+  readonly ckbOwnerLockHash: string;
   readonly midnightContractAddress: string;
+  readonly didRegistryTxHash?: string;
+  readonly didRegistryContractAddress?: string;
   readonly createdAt: Date;
 };
 
@@ -88,6 +109,7 @@ export class VeilDobService {
     const content: VeilIdentityContent = {
       protocol: 'Veil',
       objectType: 'VeilIdentity',
+      did: createVeilDid(params.veilIdHash),
       veilIdHash: normalizeHexHash(params.veilIdHash, 'veilIdHash'),
       ownerCkbLockHash,
       midnightNetwork: params.midnightNetwork,
@@ -107,12 +129,34 @@ export class VeilDobService {
     const veilIdHash = normalizeHexHash(params.veilIdHash, 'veilIdHash');
     const existing = await this.getVeilIdentityDOBRecord(veilIdHash);
     if (existing) {
-      return {
+      const updated = {
+        did: existing.did,
         veilIdHash: existing.veilIdHash,
+        userPk: params.userPk ?? existing.userPk,
         ckbSporeId: existing.sporeId,
+        ckbSporeIdHash: existing.sporeIdHash,
         ckbTxHash: existing.txHash,
+        userCkbAddress: params.userCkbAddress ?? existing.userCkbAddress,
+        ckbOwnerLockHash: existing.ckbOwnerLockHash,
         midnightContractAddress: existing.midnightContractAddress,
+        didRegistryTxHash: params.didRegistration?.txHash ?? existing.didRegistryTxHash,
+        didRegistryContractAddress: params.didRegistration?.contractAddress ?? existing.didRegistryContractAddress,
         createdAt: existing.createdAt,
+      };
+      await this.saveMapping(updated);
+      return {
+        did: updated.did,
+        veilIdHash: updated.veilIdHash,
+        userPk: updated.userPk,
+        ckbSporeId: updated.ckbSporeId,
+        ckbSporeIdHash: updated.ckbSporeIdHash,
+        ckbTxHash: updated.ckbTxHash,
+        userCkbAddress: updated.userCkbAddress,
+        ckbOwnerLockHash: updated.ckbOwnerLockHash,
+        midnightContractAddress: updated.midnightContractAddress,
+        didRegistryTxHash: updated.didRegistryTxHash,
+        didRegistryContractAddress: updated.didRegistryContractAddress,
+        createdAt: updated.createdAt,
       };
     }
 
@@ -131,10 +175,17 @@ export class VeilDobService {
     }
 
     const record = {
+      did: createVeilDid(veilIdHash),
       veilIdHash,
+      userPk: params.userPk,
       ckbSporeId: dob.sporeId,
+      ckbSporeIdHash: this.hashSporeId(dob.sporeId),
       ckbTxHash: normalizeHexHash(params.txHash, 'txHash'),
+      userCkbAddress: params.userCkbAddress,
+      ckbOwnerLockHash: ownerCkbLockHash,
       midnightContractAddress: params.midnightContractAddress,
+      didRegistryTxHash: params.didRegistration?.txHash,
+      didRegistryContractAddress: params.didRegistration?.contractAddress,
       createdAt: new Date(),
     };
 
@@ -148,10 +199,17 @@ export class VeilDobService {
     if (!record) return null;
 
     return {
+      did: record.did ?? createVeilDid(record.veilIdHash),
       veilIdHash: record.veilIdHash,
+      userPk: record.userPk,
       sporeId: record.ckbSporeId,
+      sporeIdHash: record.ckbSporeIdHash ?? this.hashSporeId(record.ckbSporeId),
       txHash: record.ckbTxHash,
+      userCkbAddress: record.userCkbAddress,
+      ckbOwnerLockHash: record.ckbOwnerLockHash,
       midnightContractAddress: record.midnightContractAddress,
+      didRegistryTxHash: record.didRegistryTxHash,
+      didRegistryContractAddress: record.didRegistryContractAddress,
       createdAt: record.createdAt,
     };
   }
@@ -195,6 +253,14 @@ export class VeilDobService {
   ): Promise<{ valid: boolean; details: Record<string, unknown> }> {
     const expectedVeilIdHash = normalizeHexHash(veilIdHash, 'veilIdHash');
     const dob = await this.getVeilIdentityDOB(sporeId);
+    return this.verifyLoadedVeilIdentityDOB(dob, expectedVeilIdHash);
+  }
+
+  verifyLoadedVeilIdentityDOB(
+    dob: LoadedVeilIdentityDOB,
+    veilIdHash: string,
+  ): { valid: boolean; details: Record<string, unknown> } {
+    const expectedVeilIdHash = normalizeHexHash(veilIdHash, 'veilIdHash');
     const ownerCkbLockHash = typeof dob.content.ownerCkbLockHash === 'string' ? dob.content.ownerCkbLockHash : '';
     const expectedLock = ownerCkbLockHash ? this.veilIdentityLock(expectedVeilIdHash, ownerCkbLockHash) : undefined;
     const details = {
@@ -225,6 +291,10 @@ export class VeilDobService {
     return `0x${createHash('sha256').update(bytes).digest('hex')}`;
   }
 
+  hashSporeId(sporeId: string): string {
+    return hashHex32(sporeId, 'sporeId');
+  }
+
   defaultMidnightContractAddress(): string {
     return this.config().midnightContractAddress;
   }
@@ -247,13 +317,20 @@ export class VeilDobService {
       { veilIdHash: record.veilIdHash },
       {
         $setOnInsert: {
+          did: record.did,
           veilIdHash: record.veilIdHash,
           createdAt: record.createdAt,
         },
         $set: {
+          userPk: record.userPk,
           ckbSporeId: record.ckbSporeId,
+          ckbSporeIdHash: record.ckbSporeIdHash,
           ckbTxHash: record.ckbTxHash,
+          userCkbAddress: record.userCkbAddress,
+          ckbOwnerLockHash: record.ckbOwnerLockHash,
           midnightContractAddress: record.midnightContractAddress,
+          didRegistryTxHash: record.didRegistryTxHash,
+          didRegistryContractAddress: record.didRegistryContractAddress,
         },
       },
       { upsert: true },

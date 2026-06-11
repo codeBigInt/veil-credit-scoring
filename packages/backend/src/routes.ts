@@ -7,12 +7,15 @@ import { formatJob, type TxQueue } from './services/tx-queue.js';
 import type { VeilDobService } from './modules/ckb/index.js';
 import {
   optionalBytes,
+  optionalString,
   randomBytes32,
   requiredBigInt,
   requiredBytes,
   requiredString,
   toJsonSafe,
 } from './http-utils.js';
+import { publicErrorMessage } from './logging.js';
+import { createVeilDid, parseVeilDid, type VeilDidDocument } from './did-utils.js';
 
 /* ── Single-use challenge store ── */
 const issuedChallenges = new Map<string, number>(); // hex → expiresAtMs
@@ -32,7 +35,7 @@ const consumeChallenge = (challengeHex: string): boolean => {
   return exp >= Date.now();
 };
 
-const errorMessage = (error: unknown): string => (error instanceof Error ? error.message : String(error));
+const errorMessage = (error: unknown): string => publicErrorMessage(error);
 
 const sendError = (res: Response, status: number, message: string): void => {
   res.status(status).json({ success: false, message });
@@ -42,6 +45,7 @@ type CreditDecisionAuthorization = {
   readonly signature: string;
   readonly identity: string;
   readonly signType: string;
+  readonly verificationMethod?: string;
 };
 
 const requiredAuthorization = (body: Record<string, unknown>): CreditDecisionAuthorization => {
@@ -54,6 +58,7 @@ const requiredAuthorization = (body: Record<string, unknown>): CreditDecisionAut
     signature: requiredString(record, 'signature'),
     identity: requiredString(record, 'identity'),
     signType: requiredString(record, 'signType'),
+    verificationMethod: optionalString(record, 'verificationMethod'),
   };
 };
 
@@ -68,6 +73,20 @@ const buildCreditDecisionMessage = (input: {
   `userPk:${input.userPk}`,
   `veilIdHash:${input.veilIdHash}`,
   `sporeId:${input.sporeId}`,
+].join('\n');
+
+const buildDidCreditDecisionMessage = (input: {
+  readonly did: string;
+  readonly challenge: string;
+  readonly verificationMethod: string;
+  readonly registryVersion: number;
+}): string => [
+  'Veil credit decision authorization',
+  `did:${input.did}`,
+  `challenge:${input.challenge}`,
+  `verificationMethod:${input.verificationMethod}`,
+  `registryVersion:${input.registryVersion}`,
+  'purpose:credit-decision',
 ].join('\n');
 
 const verifyCreditDecisionAuthorization = async (
@@ -98,6 +117,61 @@ const sendQueued = async (res: Response, txQueue: TxQueue, name: string, run: Tx
 const optionalQueryString = (value: unknown): string | undefined =>
   typeof value === 'string' && value.trim() !== '' ? value : undefined;
 
+const absoluteApiUrl = (req: Request): string => {
+  const forwardedProto = req.get('x-forwarded-proto')?.split(',')[0]?.trim();
+  const forwardedHost = req.get('x-forwarded-host')?.split(',')[0]?.trim();
+  const protocol = forwardedProto || req.protocol;
+  const host = forwardedHost || req.get('host') || 'localhost';
+  return `${protocol}://${host}${req.baseUrl}`;
+};
+
+const buildDidDocument = (
+  req: Request,
+  dob: NonNullable<Awaited<ReturnType<VeilDobService['getVeilIdentityDOBRecord']>>>,
+): VeilDidDocument => {
+  const verificationMethodId = `${dob.did}#ckb-owner-1`;
+  const apiBase = absoluteApiUrl(req);
+  return {
+    '@context': [
+      'https://www.w3.org/ns/did/v1',
+      'https://veil.id/contexts/veil-did/v1',
+    ],
+    id: dob.did,
+    controller: dob.did,
+    verificationMethod: [{
+      id: verificationMethodId,
+      type: 'CkbSecp256k1VerificationKey2026',
+      controller: dob.did,
+      blockchainAccountId: dob.userCkbAddress ? `ckb:${dob.userCkbAddress}` : undefined,
+      publicKeyHash: dob.ckbOwnerLockHash,
+    }],
+    authentication: [verificationMethodId],
+    assertionMethod: [verificationMethodId],
+    service: [
+      {
+        id: `${dob.did}#credit-decision`,
+        type: 'VeilCreditDecisionService',
+        serviceEndpoint: `${apiBase}/credit-decisions`,
+      },
+      {
+        id: `${dob.did}#identity-dob`,
+        type: 'CkbSporeDobService',
+        serviceEndpoint: `ckb:spore:${dob.sporeId}`,
+      },
+    ],
+    veil: {
+      veilIdHash: dob.veilIdHash,
+      status: 'active',
+      version: 1,
+      sporeId: dob.sporeId,
+      sporeIdHash: dob.sporeIdHash,
+      ckbOwnerLockHash: dob.ckbOwnerLockHash,
+      midnightRegistry: dob.didRegistryContractAddress ?? dob.midnightContractAddress,
+      createdAt: dob.createdAt instanceof Date ? dob.createdAt.toISOString() : String(dob.createdAt),
+    },
+  };
+};
+
 export const buildRouter = (contract: ContractService, txQueue: TxQueue, veilDob: VeilDobService): Router => {
   const router = express.Router();
 
@@ -111,6 +185,53 @@ export const buildRouter = (contract: ContractService, txQueue: TxQueue, veilDob
       contractAddress: contract.contractAddress(),
       superAdminSource: 'VEIL_BACKEND_WALLET_SEED',
     });
+  });
+
+  router.get('/dids/resolve', async (req: Request, res: Response) => {
+    try {
+      const did = optionalQueryString(req.query.did);
+      if (!did) {
+        sendError(res, 400, 'did query parameter is required');
+        return;
+      }
+
+      const { veilIdHash } = parseVeilDid(did);
+      const dob = await veilDob.getVeilIdentityDOBRecord(veilIdHash);
+      if (!dob || dob.did !== did) {
+        sendError(res, 404, 'Veil DID not found');
+        return;
+      }
+      if (!dob.didRegistryTxHash) {
+        sendError(res, 409, 'Veil DID has not been registered on Midnight yet');
+        return;
+      }
+
+      try {
+        const loadedDob = await veilDob.getVeilIdentityDOB(dob.sporeId);
+        const verification = veilDob.verifyLoadedVeilIdentityDOB(loadedDob, veilIdHash);
+        if (!verification.valid) {
+          sendError(res, 409, 'Veil DID DOB anchor is invalid');
+          return;
+        }
+      } catch (error) {
+        if (
+          dob.veilIdHash !== veilIdHash ||
+          !dob.didRegistryTxHash ||
+          !dob.sporeIdHash ||
+          !dob.ckbOwnerLockHash
+        ) {
+          throw error;
+        }
+      }
+
+      res.status(200).json(toJsonSafe({
+        success: true,
+        didDocument: buildDidDocument(req, dob),
+      }));
+    } catch (error) {
+      const msg = errorMessage(error);
+      sendError(res, msg.includes('Invalid did:veil') ? 400 : 500, msg);
+    }
   });
 
   router.get('/score-entries/:userPk', async (req: Request, res: Response) => {
@@ -153,6 +274,7 @@ export const buildRouter = (contract: ContractService, txQueue: TxQueue, veilDob
       const body = req.body as Record<string, unknown>;
       const userPk = requiredBytes(body, 'userPk');
       const veilIdHash = typeof body.veilIdHash === 'string' ? requiredString(body, 'veilIdHash') : veilDob.hashVeilId(userPk);
+      const did = createVeilDid(veilIdHash);
       const userCkbAddress = requiredString(body, 'userCkbAddress');
       const existingDob = await veilDob.getVeilIdentityDOBRecord(veilIdHash);
       const existing = await contract.getScoreEntryStatus(userPk);
@@ -166,6 +288,7 @@ export const buildRouter = (contract: ContractService, txQueue: TxQueue, veilDob
         res.status(200).json(toJsonSafe({
           success: true,
           created: false,
+          did,
           scoreEntry: existing,
           ckbDob: existingDob,
           ckbMintIntent,
@@ -185,6 +308,7 @@ export const buildRouter = (contract: ContractService, txQueue: TxQueue, veilDob
             });
           return {
             created: false,
+            did,
             scoreEntry: queuedExisting,
             ckbDob: queuedExistingDob,
             ckbMintIntent,
@@ -200,6 +324,7 @@ export const buildRouter = (contract: ContractService, txQueue: TxQueue, veilDob
         });
         return {
           created: true,
+          did,
           scoreEntry: await contract.getScoreEntryStatus(userPk),
           midnight,
           ckbMintIntent,
@@ -242,18 +367,49 @@ export const buildRouter = (contract: ContractService, txQueue: TxQueue, veilDob
   router.post('/ckb/veil-identity/record', async (req: Request, res: Response) => {
     try {
       const body = req.body as Record<string, unknown>;
-      const record = await veilDob.recordVeilIdentityDOBMint({
-        veilIdHash: requiredString(body, 'veilIdHash'),
-        userCkbAddress: requiredString(body, 'userCkbAddress'),
+      const veilIdHash = requiredString(body, 'veilIdHash');
+      const userPk = optionalString(body, 'userPk');
+      const userCkbAddress = requiredString(body, 'userCkbAddress');
+      let record = await veilDob.recordVeilIdentityDOBMint({
+        veilIdHash,
+        userPk,
+        userCkbAddress,
         sporeId: requiredString(body, 'sporeId'),
         txHash: requiredString(body, 'txHash'),
         midnightContractAddress: veilDob.defaultMidnightContractAddress(),
       });
+
+      let didRegistration: Awaited<ReturnType<ContractService['registerDid']>> | undefined;
+      if (userPk && !record.didRegistryTxHash) {
+        didRegistration = await contract.registerDid({
+          userPk: requiredBytes({ userPk }, 'userPk'),
+          veilIdHash: record.veilIdHash,
+          sporeIdHash: record.ckbSporeIdHash,
+          ckbOwnerLockHash: record.ckbOwnerLockHash,
+        });
+        record = await veilDob.recordVeilIdentityDOBMint({
+          veilIdHash: record.veilIdHash,
+          userPk,
+          userCkbAddress,
+          sporeId: record.ckbSporeId,
+          txHash: record.ckbTxHash,
+          midnightContractAddress: veilDob.defaultMidnightContractAddress(),
+          didRegistration: {
+            txHash: didRegistration.txHash,
+            contractAddress: contract.contractAddress(),
+          },
+        });
+      }
       res.status(201).json({
         success: true,
+        did: record.did,
         sporeId: record.ckbSporeId,
+        sporeIdHash: record.ckbSporeIdHash,
         txHash: record.ckbTxHash,
         veilIdHash: record.veilIdHash,
+        ckbOwnerLockHash: record.ckbOwnerLockHash,
+        didRegistryTxHash: record.didRegistryTxHash,
+        didRegistration,
       });
     } catch (error) {
       sendError(res, 500, errorMessage(error));
@@ -376,11 +532,6 @@ export const buildRouter = (contract: ContractService, txQueue: TxQueue, veilDob
   router.post('/credit-decisions', async (req: Request, res: Response) => {
     try {
       const body = req.body as Record<string, unknown>;
-      const userPk = requiredBytes(body, 'userPk');
-      const userPkHex = toHex(userPk);
-      const veilIdHash = requiredString(body, 'veilIdHash').toLowerCase();
-      const sporeId = requiredString(body, 'sporeId').toLowerCase();
-      const userCkbAddress = requiredString(body, 'userCkbAddress');
       const challengeHex = requiredString(body, 'challenge');
       const authorization = requiredAuthorization(body);
 
@@ -389,30 +540,89 @@ export const buildRouter = (contract: ContractService, txQueue: TxQueue, veilDob
         return;
       }
 
-      const dob = await veilDob.getVeilIdentityDOB(sporeId);
-      if (dob.content.veilIdHash !== veilIdHash) {
-        sendError(res, 401, 'Spore DOB does not match requested veilIdHash');
-        return;
+      let userPk: Uint8Array;
+      let userPkHex: string;
+      let veilIdHash: string;
+      let sporeId: string;
+      let ownerCkbLockHash: string;
+      let message: string;
+      let resolvedDobRecord: NonNullable<Awaited<ReturnType<VeilDobService['getVeilIdentityDOBRecord']>>> | undefined;
+
+      const didInput = optionalString(body, 'did');
+      if (didInput) {
+        const { veilIdHash: didVeilIdHash } = parseVeilDid(didInput);
+        const dobRecord = await veilDob.getVeilIdentityDOBRecord(didVeilIdHash);
+        if (!dobRecord || dobRecord.did !== didInput) {
+          sendError(res, 404, 'Veil DID not found');
+          return;
+        }
+        if (!dobRecord.didRegistryTxHash) {
+          sendError(res, 409, 'Veil DID has not been registered on Midnight yet');
+          return;
+        }
+        if (!dobRecord.userPk) {
+          sendError(res, 409, 'Veil DID record does not contain the user public key required for score lookup');
+          return;
+        }
+        resolvedDobRecord = dobRecord;
+
+        userPk = requiredBytes({ userPk: dobRecord.userPk }, 'userPk');
+        userPkHex = toHex(userPk);
+        veilIdHash = dobRecord.veilIdHash;
+        sporeId = dobRecord.sporeId;
+        ownerCkbLockHash = dobRecord.ckbOwnerLockHash;
+
+        message = buildDidCreditDecisionMessage({
+          did: didInput,
+          challenge: challengeHex,
+          verificationMethod: authorization.verificationMethod ?? `${didInput}#ckb-owner-1`,
+          registryVersion: 1,
+        });
+      } else {
+        userPk = requiredBytes(body, 'userPk');
+        userPkHex = toHex(userPk);
+        veilIdHash = requiredString(body, 'veilIdHash').toLowerCase();
+        sporeId = requiredString(body, 'sporeId').toLowerCase();
+        const userCkbAddress = requiredString(body, 'userCkbAddress');
+        ownerCkbLockHash = await veilDob.getOwnerCkbLockHash(userCkbAddress);
+
+        message = buildCreditDecisionMessage({
+          challenge: challengeHex,
+          userPk: userPkHex,
+          veilIdHash,
+          sporeId,
+        });
       }
 
-      const ownerCkbLockHash = await veilDob.getOwnerCkbLockHash(userCkbAddress);
-      if (dob.content.ownerCkbLockHash !== ownerCkbLockHash) {
-        sendError(res, 401, 'CKB address does not match the DOB owner lock hash');
-        return;
+      try {
+        const dob = await veilDob.getVeilIdentityDOB(sporeId);
+        if (dob.content.veilIdHash !== veilIdHash) {
+          sendError(res, 401, 'Spore DOB does not match requested veilIdHash');
+          return;
+        }
+
+        if (dob.content.ownerCkbLockHash !== ownerCkbLockHash) {
+          sendError(res, 401, 'CKB address does not match the DOB owner lock hash');
+          return;
+        }
+
+        const verification = veilDob.verifyLoadedVeilIdentityDOB(dob, veilIdHash);
+        if (!verification.valid) {
+          sendError(res, 401, 'Invalid Veil Identity DOB');
+          return;
+        }
+      } catch (error) {
+        if (
+          !resolvedDobRecord ||
+          !resolvedDobRecord.didRegistryTxHash ||
+          resolvedDobRecord.veilIdHash !== veilIdHash ||
+          resolvedDobRecord.sporeId.toLowerCase() !== sporeId.toLowerCase() ||
+          resolvedDobRecord.ckbOwnerLockHash !== ownerCkbLockHash
+        ) {
+          throw error;
+        }
       }
 
-      const verification = await veilDob.verifyVeilIdentityDOB(sporeId, veilIdHash);
-      if (!verification.valid) {
-        sendError(res, 401, 'Invalid Veil Identity DOB');
-        return;
-      }
-
-      const message = buildCreditDecisionMessage({
-        challenge: challengeHex,
-        userPk: userPkHex,
-        veilIdHash,
-        sporeId,
-      });
       const authorized = await verifyCreditDecisionAuthorization(message, authorization);
       if (!authorized) {
         sendError(res, 401, 'Invalid credit decision authorization signature');

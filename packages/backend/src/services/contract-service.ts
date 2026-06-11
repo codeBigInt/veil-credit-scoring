@@ -5,6 +5,7 @@ import {
   type Contract as CompactContract,
 } from "@midnight-ntwrk/compact-js";
 import { fromHex, toHex } from "@midnight-ntwrk/compact-runtime";
+import { createCircuitMaintenanceTxInterface } from "@midnight-ntwrk/midnight-js-contracts";
 import { indexerPublicDataProvider } from "@midnight-ntwrk/midnight-js-indexer-public-data-provider";
 import { NodeZkConfigProvider } from "@midnight-ntwrk/midnight-js-node-zk-config-provider";
 import { httpClientProofProvider } from "@midnight-ntwrk/midnight-js-http-client-proof-provider";
@@ -19,16 +20,34 @@ import {
   type Witnesses as VeilWitnesses,
   type VeilPrivateState,
 } from "../contract-build/index.js";
+import {
+  Contract as VeilBootstrapContractClass,
+  type Witnesses as VeilBootstrapWitnesses,
+} from "../contract-build/managed/veil-protocol-bootstrap/contract/index.js";
 
 import type { BackendConfig } from "../config.js";
 import { BackendWalletProvider } from "./wallet-service.js";
 import { MongoPrivateStateProvider } from "./mongo-private-state-provider.js";
+import { bytesFrom0xHex32 } from "../did-utils.js";
 
 type VeilContract = VeilContractClass<
   VeilPrivateState,
   VeilWitnesses<VeilPrivateState>
 >;
 type VeilAPI = DynamicContractAPI<VeilContract, "veil_ps">;
+type VeilBootstrapContract = VeilBootstrapContractClass<
+  VeilPrivateState,
+  VeilBootstrapWitnesses<VeilPrivateState>
+>;
+
+const BOOTSTRAP_CONTRACT_CIRCUITS = [
+  "Utils_generateUserPk",
+  "Admin_addIssuer",
+  "Admin_removeIssuer",
+  "Admin_addAdmin",
+  "Admin_removeAdmin",
+  "Admin_updatedScoreConfig"
+] as const;
 
 const FULL_CONTRACT_CIRCUITS = [
   "Utils_generateUserPk",
@@ -42,7 +61,17 @@ const FULL_CONTRACT_CIRCUITS = [
   "Admin_addAdmin",
   "Admin_removeAdmin",
   "Admin_updatedScoreConfig",
+  "DIDRegistry_register",
+  "DIDRegistry_assertActive",
+  "DIDRegistry_rotateVerificationMethod",
+  "DIDRegistry_revoke",
 ] as const;
+
+const BOOTSTRAP_CONTRACT_CIRCUIT_SET = new Set<string>(BOOTSTRAP_CONTRACT_CIRCUITS);
+
+const POST_BOOTSTRAP_CONTRACT_CIRCUITS = FULL_CONTRACT_CIRCUITS.filter(
+  (circuitId) => !BOOTSTRAP_CONTRACT_CIRCUIT_SET.has(circuitId),
+);
 
 const DEFAULT_SCORE_CONFIG = {
   baseScore: 350n,
@@ -55,6 +84,11 @@ const DEFAULT_SCORE_CONFIG = {
   activeDebtPenalty: 5n,
   riskBandWeight: 5n,
 };
+
+const stripHexPrefix = (value: string): string => value.startsWith("0x") || value.startsWith("0X")
+  ? value.slice(2)
+  : value;
+const bytesFromHex = (value: string): Uint8Array => fromHex(stripHexPrefix(value));
 
 export type ContractCallResult = {
   readonly circuit: string;
@@ -135,6 +169,38 @@ export class ContractService {
 
   async createScoreEntry(userPk: Uint8Array): Promise<ContractCallResult> {
     return this.call("Scoring_createScoreEntry", userPk);
+  }
+
+  async registerDid(input: {
+    readonly userPk: Uint8Array;
+    readonly veilIdHash: string;
+    readonly sporeIdHash: string;
+    readonly ckbOwnerLockHash: string;
+    readonly recoveryCommitment?: string;
+    readonly currentEpoch?: bigint;
+  }): Promise<ContractCallResult> {
+    return this.call(
+      "DIDRegistry_register",
+      input.userPk,
+      bytesFrom0xHex32(input.veilIdHash, "veilIdHash"),
+      bytesFrom0xHex32(input.sporeIdHash, "sporeIdHash"),
+      bytesFrom0xHex32(input.ckbOwnerLockHash, "ckbOwnerLockHash"),
+      bytesFrom0xHex32(input.recoveryCommitment ?? ZERO_BYTES32, "recoveryCommitment"),
+      input.currentEpoch ?? BigInt(Date.now()),
+    );
+  }
+
+  async assertDidActive(input: {
+    readonly veilIdHash: string;
+    readonly sporeIdHash: string;
+    readonly ckbOwnerLockHash: string;
+  }): Promise<ContractCallResult> {
+    return this.call(
+      "DIDRegistry_assertActive",
+      bytesFrom0xHex32(input.veilIdHash, "veilIdHash"),
+      bytesFrom0xHex32(input.sporeIdHash, "sporeIdHash"),
+      bytesFrom0xHex32(input.ckbOwnerLockHash, "ckbOwnerLockHash"),
+    );
   }
 
   async submitRepaymentEvent(input: {
@@ -268,7 +334,7 @@ export class ContractService {
       contractAddress,
       privateStateId: this.config.privateStateId,
       initialPrivateState: createVeilPrivateState(
-        fromHex(this.config.walletSeed),
+        bytesFromHex(this.config.walletSeed),
       ),
       logger: this.logger,
     });
@@ -296,28 +362,99 @@ export class ContractService {
       );
     }
 
-    await assertZkArtifacts(this.config.zkConfigPath, FULL_CONTRACT_CIRCUITS);
-    const api = await this.deployWithBackendSuperAdmin(providers, compiledContract);
+    await assertZkArtifacts(
+      this.config.bootstrapZkConfigPath,
+      BOOTSTRAP_CONTRACT_CIRCUITS,
+      "bootstrap contract",
+    );
+    await assertZkArtifacts(
+      this.config.zkConfigPath,
+      FULL_CONTRACT_CIRCUITS,
+      "full contract",
+    );
+    const api = await this.deployBootstrapThenInstallFullContract(
+      providers,
+      compiledContract,
+    );
     await this.saveDeployment(api.deployedContractAddress);
     return api.deployedContractAddress;
   }
 
-  private async deployWithBackendSuperAdmin(
+  private async deployBootstrapWithBackendSuperAdmin(
     providers: DynamicProviders<VeilContract, "veil_ps">,
     compiledContract: CompiledContract.CompiledContract<any, any>,
-  ): Promise<VeilAPI> {
-    // assertNoDeprecatedPotCircuits();
-    this.logger.info("Deploying Veil contract from backend wallet. Backend wallet seed will derive the contract super admin.");
-    const api = await DynamicContractAPI.deploy<VeilContract, "veil_ps">({
-      providers,
+  ): Promise<{ readonly deployedContractAddress: string }> {
+    this.logger.info("Deploying bootstrap Veil contract from backend wallet. Backend wallet seed will derive the contract super admin.");
+    const api = await DynamicContractAPI.deploy<VeilBootstrapContract, "veil_ps">({
+      providers: providers as any,
       compiledContract,
       privateStateId: this.config.privateStateId,
-      initialPrivateState: createVeilPrivateState(fromHex(this.config.walletSeed)),
+      initialPrivateState: createVeilPrivateState(bytesFromHex(this.config.walletSeed)),
       args: [DEFAULT_SCORE_CONFIG],
       logger: this.logger,
     });
-    this.logger.info(`Deployed Veil contract at ${api.deployedContractAddress}`);
+    this.logger.info(`Deployed bootstrap Veil contract at ${api.deployedContractAddress}`);
     return api;
+  }
+
+  private async deployBootstrapThenInstallFullContract(
+    providers: DynamicProviders<VeilContract, "veil_ps">,
+    fullCompiledContract: CompiledContract.CompiledContract<any, any>,
+  ): Promise<VeilAPI> {
+    const bootstrapProviders = this.withZkConfigPath(
+      providers,
+      this.config.bootstrapZkConfigPath,
+    );
+    const bootstrapApi = await this.deployBootstrapWithBackendSuperAdmin(
+      bootstrapProviders,
+      this.compiledBootstrapContract(),
+    );
+
+    await this.installPostBootstrapVerifierKeys(
+      providers,
+      fullCompiledContract,
+      bootstrapApi.deployedContractAddress,
+    );
+
+    return DynamicContractAPI.join<VeilContract, "veil_ps">({
+      providers,
+      compiledContract: fullCompiledContract,
+      contractAddress: bootstrapApi.deployedContractAddress,
+      privateStateId: this.config.privateStateId,
+      initialPrivateState: createVeilPrivateState(
+        bytesFromHex(this.config.walletSeed),
+      ),
+      logger: this.logger,
+    });
+  }
+
+  private async installPostBootstrapVerifierKeys(
+    providers: DynamicProviders<VeilContract, "veil_ps">,
+    fullCompiledContract: CompiledContract.CompiledContract<any, any>,
+    contractAddress: string,
+  ): Promise<void> {
+    for (const circuitId of POST_BOOTSTRAP_CONTRACT_CIRCUITS) {
+      const [[, verifierKey]] = await providers.zkConfigProvider.getVerifierKeys([
+        circuitId,
+      ]);
+      const contractState = await providers.publicDataProvider.queryContractState(
+        contractAddress,
+      );
+      const maintenanceTx = createCircuitMaintenanceTxInterface(
+        providers as any,
+        circuitId as any,
+        fullCompiledContract,
+        contractAddress,
+      );
+
+      if (contractState?.operation(circuitId) != null) {
+        this.logger.info({ circuitId }, "Replacing existing verifier key");
+        await maintenanceTx.removeVerifierKey();
+      }
+
+      this.logger.info({ circuitId }, "Installing verifier key with contract maintenance authority");
+      await maintenanceTx.insertVerifierKey(verifierKey);
+    }
   }
 
   private async saveDeployment(contractAddress: string): Promise<void> {
@@ -375,12 +512,39 @@ export class ContractService {
     };
   }
 
+  private withZkConfigPath(
+    providers: DynamicProviders<VeilContract, "veil_ps">,
+    zkConfigPath: string,
+  ): DynamicProviders<VeilContract, "veil_ps"> {
+    const zkConfigProvider = new NodeZkConfigProvider<
+      CompactContract.ProvableCircuitId<VeilContract>
+    >(zkConfigPath);
+
+    return {
+      ...providers,
+      zkConfigProvider,
+      proofProvider: httpClientProofProvider(
+        this.env.proofServer,
+        zkConfigProvider,
+      ),
+    };
+  }
+
   private compiledContract(): CompiledContract.CompiledContract<any, any> {
     return utils.createCompiledContract<VeilContract>(
       "veil-protocol",
       VeilContractClass,
       witness as any,
       this.config.zkConfigPath,
+    ) as CompiledContract.CompiledContract<any, any>;
+  }
+
+  private compiledBootstrapContract(): CompiledContract.CompiledContract<any, any> {
+    return utils.createCompiledContract<VeilBootstrapContract>(
+      "veil-protocol-bootstrap",
+      VeilBootstrapContractClass as any,
+      witness as any,
+      this.config.bootstrapZkConfigPath,
     ) as CompiledContract.CompiledContract<any, any>;
   }
 
@@ -418,6 +582,8 @@ const extractTxHash = (raw: unknown): string | undefined => {
   return undefined;
 };
 
+const ZERO_BYTES32 = "0x0000000000000000000000000000000000000000000000000000000000000000";
+
 const assertNoDeprecatedPotCircuits = (): void => {
   const contract = new VeilContractClass(witness as any);
   const circuits = contract.impureCircuits as Record<string, unknown>;
@@ -442,6 +608,7 @@ const assertNoDeprecatedPotCircuits = (): void => {
 const assertZkArtifacts = async (
   zkConfigPath: string,
   circuitIds: readonly string[],
+  label = "contract",
 ): Promise<void> => {
   const missing: string[] = [];
 
@@ -464,7 +631,7 @@ const assertZkArtifacts = async (
   if (missing.length > 0) {
     throw new Error(
       [
-        "Missing ZK artifacts required for backend contract deployment.",
+        `Missing ${label} ZK artifacts required for backend contract deployment.`,
         "Run `bun --filter @veil/veil-contract compile` before deploying from the backend.",
         "Do not use `test:compile` for deployable artifacts because it uses `--skip-zk`.",
         `Missing files:\n${missing.map((file) => `- ${file}`).join("\n")}`,

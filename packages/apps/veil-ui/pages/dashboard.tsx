@@ -4,20 +4,21 @@ import MidnightWalletSelector from '@/components/midnight-wallet-selector';
 import { useWallet } from '@/context/WalletContext';
 import { syncNetworkId } from '@/utils/network-id';
 import { PRIVATE_STATE_ID, makeFullCompiledContract } from '@/contract-api-utils';
-import { createCircuitContext, toHex } from '@midnight-ntwrk/compact-runtime';
 import { DynamicContractAPI } from 'nite-api';
-import { Contract, VeilPrivateState, witness, Witnesses } from '@veil/veil-contract';
-import { ProvableCircuitId } from '@midnight-ntwrk/compact-js';
+import { createVeilPrivateState } from '@veil/veil-contract';
+import { CompactTypeBytes, CompactTypeVector, persistentHash, toHex } from '@midnight-ntwrk/compact-runtime';
+import type { Contract, VeilPrivateState, Witnesses } from '@veil/veil-contract';
+import type { ProvableCircuitId } from '@midnight-ntwrk/compact-js';
 import { FetchZkConfigProvider } from '@midnight-ntwrk/midnight-js-fetch-zk-config-provider';
 import { httpClientProofProvider } from '@midnight-ntwrk/midnight-js-http-client-proof-provider';
 import { Transaction } from '@midnight-ntwrk/ledger-v8';
 import { indexerPublicDataProvider } from '@midnight-ntwrk/midnight-js-indexer-public-data-provider';
 import { levelPrivateStateProvider } from '@midnight-ntwrk/midnight-js-level-private-state-provider';
 import { parseCoinPublicKeyToHex } from '@midnight-ntwrk/midnight-js-utils';
-import { filter, firstValueFrom } from 'rxjs';
 import { ccc as cccConnector } from '@ckb-ccc/connector-react';
 import { spore } from '@ckb-ccc/spore';
-import { Check, Copy, ExternalLink, ShieldCheck, Wallet } from 'lucide-react';
+import { Check, Copy, ExternalLink, Loader2, ShieldCheck, Wallet } from 'lucide-react';
+import QRCode from 'qrcode';
 import toast from 'react-hot-toast';
 
 const NETWORK_ID = process.env.NEXT_PUBLIC_NETWORK_ID!;
@@ -172,10 +173,6 @@ function serializeError(err: unknown, depth = 0): string {
   }
   return String(err);
 }
-type StoredUserSecrets = {
-  readonly secreteKey: string;
-};
-
 type CompletedDashboardFlowCache = {
   readonly version: 1;
   readonly accountId: string;
@@ -188,11 +185,11 @@ type CompletedDashboardFlowCache = {
   readonly completedAt: string;
 };
 
-const userSecretsStorageKey = (accountId: string, contractAddress: string): string =>
-  `veil-user-secrets:v1:${accountId.toUpperCase()}:${contractAddress.toLowerCase()}`;
-
 const completedFlowStorageKey = (accountId: string, contractAddress: string): string =>
   `veil-dashboard-completed-flow:v1:${accountId.toUpperCase()}:${contractAddress.toLowerCase()}`;
+
+const legacyUserSecretsStorageKey = (accountId: string, contractAddress: string): string =>
+  `veil-user-secrets:v1:${accountId.toUpperCase()}:${contractAddress.toLowerCase()}`;
 
 function readCompletedFlowCache(accountId: string, contractAddress: string): CompletedDashboardFlowCache | null {
   const raw = localStorage.getItem(completedFlowStorageKey(accountId, contractAddress));
@@ -220,38 +217,66 @@ function writeCompletedFlowCache(cache: CompletedDashboardFlowCache): void {
   localStorage.setItem(completedFlowStorageKey(cache.accountId, cache.contractAddress), JSON.stringify(cache));
 }
 
-function getOrCreateUserSecrets(accountId: string, contractAddress: string): StoredUserSecrets {
-  const key = userSecretsStorageKey(accountId, contractAddress);
-  const existing = localStorage.getItem(key);
-  if (existing) {
-    const parsed = JSON.parse(existing) as Partial<StoredUserSecrets>;
-    if (typeof parsed.secreteKey === 'string') {
-      return {
-        secreteKey: parsed.secreteKey,
-      };
-    }
+const userPkCacheKey = (accountId: string, contractAddress: string): string =>
+  `veil-user-pk:v1:${accountId.toUpperCase()}:${contractAddress.toLowerCase()}`;
+
+function readCachedUserPk(accountId: string, contractAddress: string): string | null {
+  try {
+    return localStorage.getItem(userPkCacheKey(accountId, contractAddress));
+  } catch {
+    return null;
   }
-
-  const secrets = {
-    secreteKey: bytesToHex(browserRandomBytes(32)),
-  };
-  localStorage.setItem(key, JSON.stringify(secrets));
-  return secrets;
 }
 
-function createInitialPrivateStateFromSecrets(secrets: StoredUserSecrets) {
-  return {
-    secreteKey: hexToBytes(secrets.secreteKey),
-    scoreAmmulations: {},
-    creditScores: {},
-  };
+function writeCachedUserPk(accountId: string, contractAddress: string, pk: string): void {
+  try {
+    localStorage.setItem(userPkCacheKey(accountId, contractAddress), pk);
+  } catch { /* best-effort */ }
 }
+
+const userPkHashDescriptor = new CompactTypeVector(3, new CompactTypeBytes(32));
+const userPkDomain = new Uint8Array(32);
+new TextEncoder().encodeInto('veil:user', userPkDomain);
+
+function deriveUserPkDirect(input: {
+  secreteKeyHex: string;
+  contractAddress: string;
+}): string {
+  // Mirrors Utils.generateUserPk(sk) in Compact without loading the generated circuit:
+  // persistentHash([pad(32, "veil:user"), sk, kernel.self().bytes]).
+  return toHex(persistentHash(userPkHashDescriptor, [
+    userPkDomain,
+    hexToBytes(input.secreteKeyHex),
+    hexToBytes(input.contractAddress),
+  ]));
+}
+
 function shortAddr(addr: string) {
   return `${addr.slice(0, 8)}…${addr.slice(-6)}`;
 }
 
+function compactId(value: string, head = 18, tail = 12): string {
+  if (value.length <= head + tail + 1) return value;
+  return `${value.slice(0, head)}…${value.slice(-tail)}`;
+}
+
+const resolveCkbExplorerBase = (): string => {
+  const configured = CKB_EXPLORER_URL.trim().replace(/\/+$/, '');
+  // Wallet/RPC URLs such as https://testnet.ckb.dev/rpc are not browser explorers.
+  if (!configured || configured.endsWith('/rpc') || configured.includes('ckb.dev/rpc')) {
+    return 'https://testnet.explorer.nervos.org';
+  }
+  return configured;
+};
+
 const explorerUrl = (path: string): string =>
-  `${CKB_EXPLORER_URL.replace(/\/+$/, '')}/${path.replace(/^\/+/, '')}`;
+  `${resolveCkbExplorerBase()}/${path.replace(/^\/+/, '')}`;
+
+const createVeilDid = (veilIdHash: string): string => `did:veil:${veilIdHash.toLowerCase()}`;
+
+const createVeilVerificationUrl = (did: string): string => {
+  return backendApiUrl(`/dids/resolve?did=${encodeURIComponent(did)}`);
+};
 
 function CopyButton({ value, label = 'Copy' }: { value: string; label?: string }) {
   const [copied, setCopied] = useState(false);
@@ -278,11 +303,13 @@ function CopyButton({ value, label = 'Copy' }: { value: string; label?: string }
 function DetailRow({
   label,
   value,
+  displayValue,
   muted = false,
   copy = true,
 }: {
   label: string;
   value: string;
+  displayValue?: string;
   muted?: boolean;
   copy?: boolean;
 }) {
@@ -292,7 +319,9 @@ function DetailRow({
         <p className="section-label">{label}</p>
         {copy && <CopyButton value={value} label={`Copy ${label}`} />}
       </div>
-      <p className={`break-all text-xs leading-relaxed ${muted ? 'text-foreground/60' : 'text-primary'}`}>{value}</p>
+      <p className={`truncate text-xs leading-relaxed ${muted ? 'text-foreground/60' : 'text-primary'}`} title={value}>
+        {displayValue ?? compactId(value)}
+      </p>
     </div>
   );
 }
@@ -308,6 +337,8 @@ function VeilDobNftCard({
   veilIdHash?: string | null;
   ckbAddress?: string | null;
 }) {
+  const [didCopied, setDidCopied] = useState(false);
+  const veilDid = veilIdHash ? createVeilDid(veilIdHash) : null;
   const seed = (veilIdHash ?? sporeId).replace(/^0x/, '').padEnd(64, '0');
   const hueA = parseInt(seed.slice(0, 6), 16) % 360;
   const hueB = parseInt(seed.slice(6, 12), 16) % 360;
@@ -322,9 +353,9 @@ function VeilDobNftCard({
 
   return (
     <div className="overflow-hidden rounded-sm border border-primary/40 bg-card">
-      <div className="grid gap-0 md:grid-cols-[minmax(220px,0.85fr)_1fr]">
+      <div className="grid gap-0 md:grid-cols-[minmax(250px,0.85fr)_1fr]">
         <div
-          className="relative min-h-72 border-b border-border/20 p-5 md:border-b-0 md:border-r"
+          className="relative h-[34rem] max-h-[70vh] min-h-72 border-b border-border/20 p-5 md:border-b-0 md:border-r"
           style={{
             borderColor: 'color-mix(in oklch, var(--color-primary) 35%, var(--color-border))',
             background: `linear-gradient(135deg, hsl(${hueA} 78% 14%), oklch(0.1 0 0) 52%, hsl(${hueB} 78% 16%))`,
@@ -332,9 +363,9 @@ function VeilDobNftCard({
         >
           <div className="absolute left-5 top-5 z-10 flex items-center gap-2 rounded-sm border border-white/15 bg-black/30 px-2.5 py-1.5 text-[10px] font-black uppercase tracking-widest text-white">
             <ShieldCheck size={13} aria-hidden="true" />
-            Minted DOB
+            ID Minted
           </div>
-          <div className="grid h-full grid-cols-4 gap-2 pt-14">
+          <div className="grid h-full grid-cols-4 gap-2 pb-20 pt-14">
             {cells.map((cell, index) => (
               <div
                 key={index}
@@ -348,52 +379,137 @@ function VeilDobNftCard({
             ))}
           </div>
           <div className="absolute inset-x-5 bottom-5">
-            <p className="text-[10px] font-black uppercase tracking-[0.28em] text-white/50">Veil Identity</p>
-            <p className="mt-1 text-2xl font-black uppercase tracking-tight text-white">Spore DOB</p>
+            <p className="text-[10px] font-black uppercase tracking-[0.28em] text-white/80">Veil ID</p>
+            <p className="mt-.5 text-2xl font-black uppercase tracking-tight text-white">Identity Pass</p>
           </div>
         </div>
 
         <div className="space-y-4 p-5">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
-              <p className="section-label mb-1">Public Identity Anchor</p>
-              <h3 className="text-xl font-black uppercase tracking-tight text-foreground">Veil Identity DOB</h3>
+              <p className="section-label mb-1">Your Identity</p>
+              <h3 className="text-xl font-black uppercase tracking-tight text-foreground">Veil ID</h3>
             </div>
-            <span className="w-fit rounded-sm px-2.5 py-1 text-xs font-black uppercase tracking-wide" style={{ background: 'color-mix(in oklch, var(--color-primary) 18%, transparent)', color: 'var(--color-primary)' }}>
-              Soulbound
-            </span>
-          </div>
-
-          <div className="grid gap-3">
-            <DetailRow label="Spore ID" value={sporeId} />
-            {veilIdHash && <DetailRow label="Veil ID Hash" value={veilIdHash} muted />}
-            {ckbAddress && <DetailRow label="Owner CKB Address" value={ckbAddress} muted />}
-          </div>
-
-          <div className="flex flex-col gap-2 sm:flex-row">
-            {txHash && (
+            {txHash ? (
               <a
                 href={explorerUrl(`/transaction/${txHash}`)}
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex flex-1 items-center justify-center gap-2 rounded-sm border border-border/30 px-3 py-2.5 text-xs font-black uppercase tracking-wide text-foreground transition-colors hover:border-primary/50 hover:text-primary"
+                className="inline-flex w-fit items-center gap-1.5 rounded-sm px-2.5 py-1 text-xs font-black uppercase tracking-wide transition-opacity hover:opacity-90"
+                style={{ background: 'color-mix(in oklch, var(--color-primary) 18%, transparent)', color: 'var(--color-primary)' }}
               >
                 View Transaction
-                <ExternalLink size={14} aria-hidden="true" />
+                <ExternalLink size={13} aria-hidden="true" />
               </a>
+            ) : (
+              <span className="w-fit rounded-sm px-2.5 py-1 text-xs font-black uppercase tracking-wide" style={{ background: 'color-mix(in oklch, var(--color-primary) 18%, transparent)', color: 'var(--color-primary)' }}>
+                Minted
+              </span>
             )}
-            <button
-              type="button"
-              onClick={() => void navigator.clipboard.writeText(sporeId)}
-              className="inline-flex flex-1 items-center justify-center gap-2 rounded-sm px-3 py-2.5 text-xs font-black uppercase tracking-wide transition-opacity hover:opacity-90"
-              style={{ background: 'var(--color-primary)', color: 'var(--color-primary-foreground)' }}
-            >
-              Copy Spore ID
-              <Copy size={14} aria-hidden="true" />
-            </button>
+          </div>
+
+          {veilDid && (
+            <div className="rounded-sm border border-primary/30 bg-primary/5 p-4">
+              <p className="section-label mb-2">Your Veil DID</p>
+              <div className="rounded-sm border border-border/20 bg-background/70 px-3 py-3">
+                <p className="truncate text-sm font-black leading-relaxed text-primary" title={veilDid}>
+                  {compactId(veilDid, 24, 16)}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  void navigator.clipboard.writeText(veilDid);
+                  setDidCopied(true);
+                  window.setTimeout(() => setDidCopied(false), 1400);
+                }}
+                className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-sm border border-border/30 px-3 py-2.5 text-xs font-black uppercase tracking-wide text-foreground transition-colors hover:border-primary/50 hover:text-primary"
+              >
+                {didCopied ? 'DID Copied' : 'Copy DID'}
+                {didCopied ? <Check size={14} aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}
+              </button>
+            </div>
+          )}
+
+          <div className="grid gap-3">
+            <DetailRow label="Spore ID" value={sporeId} displayValue={compactId(sporeId, 18, 14)} />
+            {veilIdHash && <DetailRow label="ID Hash" value={veilIdHash} displayValue={compactId(veilIdHash, 18, 14)} muted />}
+            {/*    */}
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function VeilDidQrPanel({ veilIdHash }: { veilIdHash?: string | null }) {
+  const [linkCopied, setLinkCopied] = useState(false);
+  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
+  const veilDid = veilIdHash ? createVeilDid(veilIdHash) : null;
+  const verificationUrl = veilDid ? createVeilVerificationUrl(veilDid) : null;
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!verificationUrl) {
+      setQrDataUrl(null);
+      return;
+    }
+
+    QRCode.toDataURL(verificationUrl, {
+      width: 180,
+      margin: 1,
+      color: {
+        dark: '#050505',
+        light: '#ffffff',
+      },
+    })
+      .then((dataUrl) => {
+        if (!cancelled) setQrDataUrl(dataUrl);
+      })
+      .catch((error) => {
+        console.warn('Could not generate Veil DID QR code:', error);
+        if (!cancelled) setQrDataUrl(null);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [verificationUrl]);
+
+  if (!verificationUrl) return null;
+
+  return (
+    <div className="flat-card rounded-sm p-5">
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <div>
+          <p className="section-label mb-1">ID Verification</p>
+          <p className="text-sm font-black uppercase tracking-wide text-foreground">Scan to Resolve</p>
+        </div>
+        <span className="rounded-sm border border-border/20 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
+          QR
+        </span>
+      </div>
+      <div className="mx-auto flex h-44 w-44 items-center justify-center rounded-sm border border-border/20 bg-white p-2">
+        {qrDataUrl ? (
+          <img src={qrDataUrl} alt="Veil DID verification QR code" className="h-full w-full object-contain" />
+        ) : (
+          <Loader2 size={20} className="animate-spin text-black" aria-hidden="true" />
+        )}
+      </div>
+      <button
+        type="button"
+        onClick={() => {
+          void navigator.clipboard.writeText(verificationUrl);
+          setLinkCopied(true);
+          window.setTimeout(() => setLinkCopied(false), 1400);
+        }}
+        className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-sm px-3 py-2.5 text-xs font-black uppercase tracking-wide transition-opacity hover:opacity-90"
+        style={{ background: 'var(--color-primary)', color: 'var(--color-primary-foreground)' }}
+      >
+        {linkCopied ? 'Verify Link Copied' : 'Copy Verify Link'}
+        {linkCopied ? <Check size={14} aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}
+      </button>
     </div>
   );
 }
@@ -425,14 +541,14 @@ function StatCard({ label, value, sub, shimmer }: { label: string; value?: strin
 }
 
 /* ── Step row ── */
-function StepRow({ n, label, done, active }: { n: string; label: string; done?: boolean; active?: boolean }) {
+function StepRow({ n, label, done, active, loading }: { n: string; label: string; done?: boolean; active?: boolean; loading?: boolean }) {
   return (
     <div className="flex items-center gap-3">
       <span
         className="w-6 h-6 rounded-sm flex items-center justify-center text-xs font-bold shrink-0"
         style={done ? { background: 'var(--color-primary)', color: 'var(--color-primary-foreground)' } : active ? { background: 'transparent', border: '1px solid var(--color-primary)', color: 'var(--color-primary)' } : { background: 'oklch(0.18 0 0)', color: 'oklch(0.5 0 0)' }}
       >
-        {done ? '✓' : n}
+        {done ? '✓' : loading ? <Loader2 size={13} className="animate-spin" aria-hidden="true" /> : n}
       </span>
       <span className={`text-sm font-medium ${done ? 'text-primary' : active ? 'text-foreground' : 'text-muted-foreground'}`}>{label}</span>
     </div>
@@ -484,7 +600,7 @@ export default function DashboardPage() {
         setCkbMintStatus('done');
         setCkbMintIntent(null);
         setIsMidnightJoined(false);
-        toast.success('Restored completed Veil DOB flow.');
+        toast.success('Restored completed identity pass.');
       })
       .catch((error: unknown) => {
         console.warn('Completed flow cache restore failed:', error);
@@ -516,25 +632,71 @@ export default function DashboardPage() {
     };
   }, [ckbSigner]);
 
+  const privateStoragePasswordProvider = (accountId: string) => () => {
+    const accountKey = accountId.toUpperCase();
+    const k = `veil-private-state-password:${accountKey}`;
+    const legacyKey = `veil-user-pw:${accountKey}`;
+    const ex = localStorage.getItem(k) ?? localStorage.getItem(legacyKey);
+    if (ex) {
+      localStorage.setItem(k, ex);
+      return ex;
+    }
+    const g = `${bytesToHex(browserRandomBytes(32))}!VeIl`;
+    localStorage.setItem(k, g);
+    return g;
+  };
+
+  const privateStateProviderFor = (accountId: string, contractAddress: string) => {
+    const provider = levelPrivateStateProvider<typeof PRIVATE_STATE_ID, VeilPrivateState>({
+      privateStateStoreName: PRIVATE_STATE_STORE_NAME,
+      accountId,
+      privateStoragePasswordProvider: privateStoragePasswordProvider(accountId),
+    });
+    (provider as any).setContractAddress(contractAddress);
+    return provider;
+  };
+
+  const getOrCreatePrivateState = async (accountId: string, contractAddress: string): Promise<VeilPrivateState> => {
+    const provider = privateStateProviderFor(accountId, contractAddress);
+    const legacyKey = legacyUserSecretsStorageKey(accountId, contractAddress);
+    const legacy = localStorage.getItem(legacyKey);
+    let existing: VeilPrivateState | null = null;
+    try {
+      existing = await provider.get(PRIVATE_STATE_ID);
+    } catch (error) {
+      if (!legacy) throw error;
+      console.warn('Could not read encrypted private state; attempting legacy localStorage migration:', error);
+    }
+    if (existing?.secreteKey) {
+      localStorage.removeItem(legacyKey);
+      return existing;
+    }
+
+    if (legacy) {
+      try {
+        const parsed = JSON.parse(legacy) as { secreteKey?: unknown };
+        if (typeof parsed.secreteKey === 'string') {
+          const migrated = createVeilPrivateState(hexToBytes(parsed.secreteKey));
+          await provider.set(PRIVATE_STATE_ID, migrated);
+          localStorage.removeItem(legacyKey);
+          return migrated;
+        }
+      } catch {
+        localStorage.removeItem(legacyKey);
+      }
+    }
+
+    const created = createVeilPrivateState(browserRandomBytes(32));
+    await provider.set(PRIVATE_STATE_ID, created);
+    return created;
+  };
+
   const buildProviders = async (walletApi: any, zkBasePath: string) => {
      if (!process.env.NEXT_PUBLIC_PROVE_SERVER_URI) throw new Error('NEXT_PUBLIC_PROVE_SERVER_URI not set');
     const shielded = await walletApi.getShieldedAddresses();
     const account = await walletApi.getUnshieldedAddress();
     const accountId: string = account.unshieldedAddress;
     const zkConfigProvider = new FetchZkConfigProvider<CircuitKeys>(zkBasePath, fetch.bind(window));
-    const passwordProvider = () => {
-      const accountKey = accountId.toUpperCase();
-      const k = `veil-private-state-password:${accountKey}`;
-      const legacyKey = `veil-user-pw:${accountKey}`;
-      const ex = localStorage.getItem(k) ?? localStorage.getItem(legacyKey);
-      if (ex) {
-        localStorage.setItem(k, ex);
-        return ex;
-      }
-      const g = `${bytesToHex(browserRandomBytes(32))}!VeIl`;
-      localStorage.setItem(k, g);
-      return g;
-    };
     return {
       providers: {
         proofProvider: httpClientProofProvider(process.env.NEXT_PUBLIC_PROVE_SERVER_URI, zkConfigProvider),
@@ -553,7 +715,7 @@ export default function DashboardPage() {
           },
         },
         publicDataProvider: indexerPublicDataProvider(process.env.NEXT_PUBLIC_INDEXER_URL as string, process.env.NEXT_PUBLIC_INDEXER_WS_URL as string),
-        privateStateProvider: levelPrivateStateProvider({ privateStateStoreName: PRIVATE_STATE_STORE_NAME, accountId, privateStoragePasswordProvider: passwordProvider }),
+        privateStateProvider: levelPrivateStateProvider({ privateStateStoreName: PRIVATE_STATE_STORE_NAME, accountId, privateStoragePasswordProvider: privateStoragePasswordProvider(accountId) }),
         zkConfigProvider,
       },
       coinPublicKey: parseCoinPublicKeyToHex(shielded.shieldedCoinPublicKey as string, NETWORK_ID),
@@ -561,28 +723,25 @@ export default function DashboardPage() {
     };
   };
 
-  const buildCreditDecisionMessage = (input: {
+  const buildDidCreditDecisionMessage = (input: {
     readonly challenge: string;
-    readonly userPk: string;
-    readonly veilIdHash: string;
-    readonly sporeId: string;
+    readonly did: string;
+    readonly verificationMethod: string;
+    readonly registryVersion: number;
   }) => [
     'Veil credit decision authorization',
+    `did:${input.did}`,
     `challenge:${input.challenge}`,
-    `userPk:${input.userPk}`,
-    `veilIdHash:${input.veilIdHash}`,
-    `sporeId:${input.sporeId}`,
+    `verificationMethod:${input.verificationMethod}`,
+    `registryVersion:${input.registryVersion}`,
+    'purpose:credit-decision',
   ].join('\n');
 
   const requestCreditDecision = async (input?: {
-    readonly userPk: string;
     readonly veilIdHash: string;
-    readonly sporeId: string;
   }): Promise<void> => {
-    const targetUserPk = input?.userPk ?? userPk;
     const targetVeilIdHash = input?.veilIdHash ?? veilIdHash;
-    const targetSporeId = input?.sporeId ?? ckbSporeId;
-    if (!targetUserPk || !targetVeilIdHash || !targetSporeId) return;
+    if (!targetVeilIdHash) return;
     if (!ckbSigner) {
       ckb.open();
       const msg = 'Connect a CKB wallet to authorize a credit decision request.';
@@ -592,31 +751,32 @@ export default function DashboardPage() {
     }
 
     setIsRequestingDecision(true);
-    const loadingToast = toast.loading('Authorizing risk decision…');
+    const loadingToast = toast.loading('Checking credit…');
     try {
       const chalRes = await fetch(backendApiUrl('/challenges'), { method: 'POST' });
       const challengeData = await readJsonResponse(chalRes) as { challenge: string; message?: string };
       if (!chalRes.ok) throw new Error(challengeData.message ?? `Challenge request failed with HTTP ${chalRes.status}`);
       const { challenge } = challengeData;
-      const message = buildCreditDecisionMessage({
+      const did = createVeilDid(targetVeilIdHash);
+      const verificationMethod = `${did}#ckb-owner-1`;
+      const message = buildDidCreditDecisionMessage({
         challenge,
-        userPk: targetUserPk,
-        veilIdHash: targetVeilIdHash,
-        sporeId: targetSporeId,
+        did,
+        verificationMethod,
+        registryVersion: 1,
       });
       const authorization = await ckbSigner.signMessage(message);
-      const userCkbAddress = await ckbSigner.getRecommendedAddress();
 
       const queryRes = await fetch(backendApiUrl('/credit-decisions'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          userPk: targetUserPk,
-          veilIdHash: targetVeilIdHash,
-          sporeId: targetSporeId,
-          userCkbAddress,
+          did,
           challenge,
-          authorization,
+          authorization: {
+            ...authorization,
+            verificationMethod,
+          },
         }),
       });
 
@@ -646,9 +806,7 @@ export default function DashboardPage() {
   };
 
   const requestCreditDecisionInBackground = (input: {
-    readonly userPk: string;
     readonly veilIdHash: string;
-    readonly sporeId: string;
   }): void => {
     void requestCreditDecision(input).catch((err) => {
       console.debug('Credit decision unavailable:', serializeError(err));
@@ -656,9 +814,10 @@ export default function DashboardPage() {
   };
 
   const getLocalScoreEntry = async (targetUserPk: string): Promise<{ exists: boolean; hasScore: boolean }> => {
-    const provider = joinedRef.current?.providers?.privateStateProvider;
-    if (!provider) return { exists: false, hasScore: false };
+    if (!walletApi || !CONTRACT_ADDRESS) return { exists: false, hasScore: false };
 
+    const account = await walletApi.getUnshieldedAddress();
+    const provider = privateStateProviderFor(account.unshieldedAddress, CONTRACT_ADDRESS);
     const privateState = await provider.get(PRIVATE_STATE_ID);
     const accumulator = privateState?.scoreAmmulations?.[targetUserPk];
     const score = privateState?.creditScores?.[targetUserPk];
@@ -781,13 +940,13 @@ export default function DashboardPage() {
     if (!local.exists) return false;
 
     setScoreStatus('done');
-    toast.success('Existing score entry found in browser private state.');
+      toast.success('Existing credit profile found.');
 
     try {
       await prepareCkbMintIntent(targetUserPk);
     } catch (error) {
       console.warn('Could not prepare CKB mint intent for existing score entry:', error);
-      toast.error(`Could not prepare CKB DOB mint: ${serializeError(error)}`);
+      toast.error(`Could not prepare identity pass mint: ${serializeError(error)}`);
     }
 
     return true;
@@ -798,7 +957,7 @@ export default function DashboardPage() {
       const lookup = await fetchBackendScoreEntry(targetUserPk);
       const exists = applyExistingBackendScoreEntry(targetUserPk, lookup);
       if (exists) {
-        toast.success('Existing score entry found on backend.');
+        toast.success('Existing credit profile found.');
       }
       return exists;
     } catch (error) {
@@ -807,58 +966,73 @@ export default function DashboardPage() {
     }
   };
 
-  const deriveAndCheck = async (api: any, coinPublicKey: string, contractAddress: string) => {
+  const deriveAndCheck = async () => {
+    const contractAddress = CONTRACT_ADDRESS.trim();
+    if (!contractAddress) {
+      setError('NEXT_PUBLIC_CONTRACT_ADDRESS is not set');
+      return;
+    }
+    if (!walletApi) {
+      await connect();
+      return;
+    }
+
     setIsDeriving(true);
     setError(null);
-    console.log('Deriving Veil ID…');
+    console.log('Creating Veil ID…');
     try {
-      const [contractState, privateState] = await firstValueFrom(
-        (api.contractState as any).pipe(
-          filter(([, ps]: [any, any]) => ps != null && ps.secreteKey != null)
-        )
-      ) as [any, any];
+      syncNetworkId(NETWORK_ID);
+      const [account, shielded] = await Promise.all([
+        walletApi.getUnshieldedAddress(),
+        walletApi.getShieldedAddresses(),
+      ]);
+      const accountId: string = account.unshieldedAddress;
+      const coinPublicKey = parseCoinPublicKeyToHex(shielded.shieldedCoinPublicKey as string, NETWORK_ID);
+      const privateStateProvider = privateStateProviderFor(accountId, contractAddress);
 
-      const ctx = createCircuitContext(api.deployedContractAddress, coinPublicKey, contractState.data, privateState);
-      const contract = new Contract(witness as any);
-      const { result: pkBytes } = contract.impureCircuits.Utils_generateUserPk(ctx, privateState.secreteKey);
-      const pk = toHex(pkBytes);
+      // Fast path: skip the ZK circuit entirely if we've derived this key before.
+      const cachedPk = readCachedUserPk(accountId, contractAddress);
+      let pk: string;
+      if (cachedPk) {
+        console.log('Veil public key restored from cache.');
+        pk = cachedPk;
+      } else {
+        const privateState = await getOrCreatePrivateState(accountId, contractAddress);
+        pk = deriveUserPkDirect({
+          secreteKeyHex: bytesToHex(privateState.secreteKey),
+          contractAddress,
+        });
+        writeCachedUserPk(accountId, contractAddress, pk);
+      }
+      joinedRef.current = {
+        api: { deployedContractAddress: contractAddress },
+        coinPublicKey,
+        providers: { privateStateProvider },
+        accountId,
+      };
+      setJoinedAddress(contractAddress);
+      setIsMidnightJoined(false);
       setUserPk(pk);
-      console.log('Veil ID derived:', pk);
-      toast.success('Veil ID generated.');
+      console.log('Veil public key ready:', pk);
+      toast.success('Veil public key ready.');
       const foundLocal = await hydrateExistingScoreEntry(pk);
       if (!foundLocal) await hydrateBackendScoreEntry(pk);
     } catch (err) {
       const msg = serializeError(err);
-      // SuperJSON can't deserialize Buffer (stored by the old fromHex call). Clear the stale
-      // IndexedDB state, re-join with a fresh plain-Uint8Array private state, and retry once.
       if (msg.includes('unknown typed array')) {
-        console.log('Stale private state (Buffer serialization issue) — clearing and re-joining…');
+        console.log('Stale private state (Buffer serialization issue) — clearing and retrying local derivation…');
         try {
           await clearPrivateStore();
-          await doJoin(contractAddress);
-          const j = joinedRef.current!;
-          const [cs, ps] = await firstValueFrom(
-            (j.api.contractState as any).pipe(
-              filter(([, p]: [any, any]) => p != null && p.secreteKey != null)
-            )
-          ) as [any, any];
-          const ctx2 = createCircuitContext(j.api.deployedContractAddress, j.coinPublicKey, cs.data, ps);
-          const { result: pkBytes2 } = new Contract(witness as any).impureCircuits.Utils_generateUserPk(ctx2, ps.secreteKey);
-          const pk2 = toHex(pkBytes2);
-          setUserPk(pk2);
-          console.log('Veil ID derived after state reset:', pk2);
-          toast.success('Veil ID generated.');
-          const foundLocal = await hydrateExistingScoreEntry(pk2);
-          if (!foundLocal) await hydrateBackendScoreEntry(pk2);
+          await deriveAndCheck();
         } catch (retryErr) {
-          console.error('Veil ID derivation failed after state reset:', retryErr);
-          setError(`Could not derive Veil ID: ${serializeError(retryErr)}`);
-          toast.error(`Could not derive Veil ID: ${serializeError(retryErr)}`);
+          console.error('Midnight user public key derivation failed after state reset:', retryErr);
+          setError(`Could not create Veil ID: ${serializeError(retryErr)}`);
+          toast.error(`Could not create Veil ID: ${serializeError(retryErr)}`);
         }
       } else {
-        console.error('Veil ID derivation error:', err);
-        setError(`Could not derive Veil ID: ${msg}`);
-        toast.error(`Could not derive Veil ID: ${msg}`);
+        console.error('Midnight user public key derivation error:', err);
+        setError(`Could not create Veil ID: ${msg}`);
+        toast.error(`Could not create Veil ID: ${msg}`);
       }
     } finally {
       setIsDeriving(false);
@@ -872,6 +1046,10 @@ export default function DashboardPage() {
       const account = await walletApi.getUnshieldedAddress();
       const pwKey = `veil-user-pw:${(account.unshieldedAddress as string).toUpperCase()}`;
       localStorage.removeItem(pwKey);
+      if (CONTRACT_ADDRESS) {
+        localStorage.removeItem(legacyUserSecretsStorageKey(account.unshieldedAddress, CONTRACT_ADDRESS));
+        localStorage.removeItem(userPkCacheKey(account.unshieldedAddress, CONTRACT_ADDRESS));
+      }
     } catch { /* best-effort */ }
     await new Promise<void>((resolve) => {
       const req = indexedDB.deleteDatabase(PRIVATE_STATE_STORE_NAME);
@@ -883,7 +1061,10 @@ export default function DashboardPage() {
 
   const doJoin = async (addr: string) => {
     syncNetworkId(NETWORK_ID);
-    const fullZkPath = new URL('/zk/full', window.location.origin).toString();
+    const configuredZkBase = process.env.NEXT_PUBLIC_ZK_CONFIG_BASE_URL?.trim();
+    const fullZkPath = configuredZkBase
+      ? configuredZkBase.replace(/\/$/, '')
+      : new URL('/zk/full', window.location.origin).toString();
     const { providers, coinPublicKey, accountId } = await buildProviders(walletApi!, fullZkPath);
     console.log('Joining contract…');
     const api = await DynamicContractAPI.join({
@@ -891,7 +1072,7 @@ export default function DashboardPage() {
       compiledContract: makeFullCompiledContract(fullZkPath),
       contractAddress: addr,
       privateStateId: PRIVATE_STATE_ID,
-      initialPrivateState: createInitialPrivateStateFromSecrets(getOrCreateUserSecrets(accountId, addr)),
+      initialPrivateState: await getOrCreatePrivateState(accountId, addr),
     });
     joinedRef.current = { api, coinPublicKey, providers, accountId };
     setJoinedAddress(api.deployedContractAddress);
@@ -905,7 +1086,7 @@ export default function DashboardPage() {
       setScoreStatus('done');
       setCkbMintStatus('done');
       setCkbMintIntent(null);
-      toast.success('Restored completed Veil DOB flow.');
+      toast.success('Restored completed identity pass.');
     }
     console.log('Connected to', api.deployedContractAddress);
   };
@@ -961,18 +1142,21 @@ export default function DashboardPage() {
   };
 
   const handleExportPrivateState = async () => {
-    if (!joinedRef.current) return;
+    if (!walletApi || !CONTRACT_ADDRESS) return;
     try {
-      const { firstValueFrom } = await import('rxjs');
       const { toHex: _toHex } = await import('@midnight-ntwrk/compact-runtime');
-      const [, ps] = await firstValueFrom(joinedRef.current.api.contractState as any) as [any, any];
+      const account = await walletApi.getUnshieldedAddress();
+      const contractAddress = joinedRef.current?.api?.deployedContractAddress ?? joinedAddress ?? CONTRACT_ADDRESS;
+      const provider = joinedRef.current?.providers?.privateStateProvider
+        ?? privateStateProviderFor(account.unshieldedAddress, contractAddress);
+      const ps = await provider.get(PRIVATE_STATE_ID);
       if (!ps) { setError('No private state to export'); return; }
 
       const payload = JSON.stringify({
         secreteKey: _toHex(ps.secreteKey),
         creditScores: ps.creditScores,
         scoreAmmulations: ps.scoreAmmulations,
-        contractAddress: joinedRef.current.api.deployedContractAddress,
+        contractAddress,
         exportedAt: new Date().toISOString(),
       }, (_, v) => (typeof v === 'bigint' ? v.toString() : v instanceof Uint8Array ? _toHex(v) : v), 2);
 
@@ -1001,8 +1185,8 @@ export default function DashboardPage() {
       try {
         await prepareCkbMintIntent(userPk);
       } catch (error) {
-        setError(`CKB DOB mint intent: ${serializeError(error)}`);
-        toast.error(`CKB DOB mint intent failed: ${serializeError(error)}`);
+        setError(`Identity pass mint: ${serializeError(error)}`);
+        toast.error(`Identity pass mint failed: ${serializeError(error)}`);
       }
       return;
     }
@@ -1017,8 +1201,8 @@ export default function DashboardPage() {
         try {
           await prepareCkbMintIntent(userPk);
         } catch (error) {
-          setError(`CKB DOB mint intent: ${serializeError(error)}`);
-          toast.error(`CKB DOB mint intent failed: ${serializeError(error)}`);
+          setError(`Identity pass mint: ${serializeError(error)}`);
+          toast.error(`Identity pass mint failed: ${serializeError(error)}`);
         }
       }
       return;
@@ -1026,7 +1210,7 @@ export default function DashboardPage() {
 
     if (!ckbSigner) {
       ckb.open();
-      const msg = 'Connect a CKB wallet before creating the score entry. The CKB wallet will mint and pay for the Veil Identity DOB.';
+      const msg = 'Connect a CKB wallet before creating the credit profile. The CKB wallet will mint and pay for your identity pass.';
       setError(msg);
       toast.error(msg);
       return;
@@ -1034,7 +1218,7 @@ export default function DashboardPage() {
     setScoreStatus('submitting');
     setError(null);
     console.log('Requesting score entry from backend…');
-    const loadingToast = toast.loading('Creating score entry on Midnight…');
+    const loadingToast = toast.loading('Creating credit profile…');
     try {
       const userCkbAddress = await ckbSigner.getRecommendedAddress();
       const res = await fetch(backendApiUrl('/score-entries'), {
@@ -1053,7 +1237,7 @@ export default function DashboardPage() {
         const existingDob = result?.ckbDob as ExistingCkbDob | undefined;
         if (existingDob) {
           applyExistingCkbDob(userPk, existingDob, ckbAddress ?? undefined);
-          toast.success('Existing Veil DOB restored.', { id: loadingToast });
+          toast.success('Existing identity pass restored.', { id: loadingToast });
           return;
         }
         if (intent) {
@@ -1061,14 +1245,14 @@ export default function DashboardPage() {
           setVeilIdHash(intent.content.veilIdHash);
           setCkbMintStatus('idle');
         }
-        console.log('Score entry confirmed. CKB Veil Identity DOB mint intent ready.', result);
-        toast.success('Score entry confirmed. CKB DOB mint is ready.', { id: loadingToast });
+        console.log('Credit profile confirmed. Identity pass mint is ready.', result);
+        toast.success('Credit profile confirmed. Identity pass is ready.', { id: loadingToast });
         return;
       }
       setScoreStatus('done');
       if (data.ckbDob) {
         applyExistingCkbDob(userPk, data.ckbDob as ExistingCkbDob, ckbAddress ?? undefined);
-        toast.success('Existing Veil DOB restored.', { id: loadingToast });
+        toast.success('Existing identity pass restored.', { id: loadingToast });
         return;
       }
       if (data.ckbMintIntent) {
@@ -1088,8 +1272,8 @@ export default function DashboardPage() {
         try {
           await prepareCkbMintIntent(userPk);
         } catch (intentError) {
-          setError(`CKB DOB mint intent: ${serializeError(intentError)}`);
-          toast.error(`CKB DOB mint intent failed: ${serializeError(intentError)}`);
+          setError(`Identity pass mint: ${serializeError(intentError)}`);
+          toast.error(`Identity pass mint failed: ${serializeError(intentError)}`);
         }
         return;
       }
@@ -1104,19 +1288,19 @@ export default function DashboardPage() {
     if (!userPk) return;
     if (!ckbSigner) {
       ckb.open();
-      const msg = 'Connect a CKB wallet to prepare the Veil Identity DOB mint.';
+      const msg = 'Connect a CKB wallet to prepare your identity pass.';
       setError(msg);
       toast.error(msg);
       return;
     }
 
-    const loadingToast = toast.loading('Preparing CKB DOB mint…');
+    const loadingToast = toast.loading('Preparing identity pass…');
     try {
       await prepareCkbMintIntent(userPk);
-      toast.success('CKB DOB mint is ready.', { id: loadingToast });
+      toast.success('Identity pass is ready.', { id: loadingToast });
     } catch (error) {
-      setError(`CKB DOB mint intent: ${serializeError(error)}`);
-      toast.error(`CKB DOB mint intent failed: ${serializeError(error)}`, { id: loadingToast });
+      setError(`Identity pass mint: ${serializeError(error)}`);
+      toast.error(`Identity pass mint failed: ${serializeError(error)}`, { id: loadingToast });
     }
   };
 
@@ -1124,7 +1308,7 @@ export default function DashboardPage() {
     if (!ckbMintIntent || !userPk) return;
     if (!ckbSigner) {
       ckb.open();
-      const msg = 'Connect a CKB wallet to mint the Veil Identity DOB.';
+      const msg = 'Connect a CKB wallet to mint your identity pass.';
       setError(msg);
       toast.error(msg);
       return;
@@ -1132,7 +1316,7 @@ export default function DashboardPage() {
 
     setCkbMintStatus('minting');
     setError(null);
-    const loadingToast = toast.loading('Minting CKB Veil Identity DOB…');
+    const loadingToast = toast.loading('Minting identity pass…');
     try {
       const userCkbAddress = await ckbSigner.getRecommendedAddress();
       const { tx, id } = await spore.createSpore({
@@ -1156,6 +1340,7 @@ export default function DashboardPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           veilIdHash: ckbMintIntent.content.veilIdHash,
+          userPk,
           userCkbAddress,
           sporeId: id,
           txHash,
@@ -1163,7 +1348,7 @@ export default function DashboardPage() {
       });
       const record = await readJsonResponse(recordRes);
       if (!recordRes.ok || record.success === false) {
-        throw new Error(record.message ?? `CKB DOB record failed with HTTP ${recordRes.status}`);
+        throw new Error(record.message ?? `Identity pass record failed with HTTP ${recordRes.status}`);
       }
       setCkbSporeId(id);
       setCkbTxHash(txHash);
@@ -1177,16 +1362,14 @@ export default function DashboardPage() {
         ckbAddress: userCkbAddress,
       });
       requestCreditDecisionInBackground({
-        userPk,
         veilIdHash: ckbMintIntent.content.veilIdHash,
-        sporeId: id,
       });
-      console.log('CKB Veil Identity DOB minted and recorded:', record);
-      toast.success('CKB Veil Identity DOB minted.', { id: loadingToast });
+      console.log('Identity pass minted and recorded:', record);
+      toast.success('Identity pass minted.', { id: loadingToast });
     } catch (err) {
-      console.error('CKB DOB mint failed:', err);
-      setError(`CKB DOB mint failed: ${serializeError(err)}`);
-      toast.error(`CKB DOB mint failed: ${serializeError(err)}`, { id: loadingToast });
+      console.error('Identity pass mint failed:', err);
+      setError(`Identity pass mint failed: ${serializeError(err)}`);
+      toast.error(`Identity pass mint failed: ${serializeError(err)}`, { id: loadingToast });
       setCkbMintStatus('error');
     }
   };
@@ -1289,7 +1472,7 @@ export default function DashboardPage() {
           <div className="space-y-2">
             <h1 className="font-black uppercase tracking-tight text-foreground" style={{ fontSize: 'clamp(1.9rem, 4vw, 3.2rem)' }}>Veil Dashboard</h1>
             <p className="max-w-2xl text-sm leading-relaxed text-muted-foreground">
-              Create a private Midnight credit identity and anchor the stable public identity proof as a user-owned CKB Spore DOB.
+              Create your private Veil credit profile and mint a public CKB identity pass you control.
             </p>
           </div>
           <div className="rounded-sm border border-border/20 bg-card/70 px-4 py-3 md:min-w-72">
@@ -1320,18 +1503,18 @@ export default function DashboardPage() {
           <StatCard
             label="CKB Wallet"
             value={ckbAddress ? shortAddr(ckbAddress) : 'Not connected'}
-            sub={ckbAddress ? 'Pays for Spore minting' : 'Connect to mint DOB'}
+            sub={ckbAddress ? 'Pays for identity pass minting' : 'Connect to mint pass'}
           />
           <StatCard
-            label="Veil ID"
+            label="Veil Public Key"
             value={userPk ? `${userPk.slice(0, 10)}…${userPk.slice(-6)}` : undefined}
-            sub={userPk ? 'User public key' : joinedAddress ? 'Click Generate below' : 'Join contract first'}
+            sub={userPk ? 'Ready for scoring' : isDeriving ? 'Creating your public key' : 'Start below'}
             shimmer={isDeriving}
           />
           <StatCard
-            label="CKB DOB"
+            label="Identity Pass"
             value={ckbSporeId ? `${ckbSporeId.slice(0, 10)}…${ckbSporeId.slice(-6)}` : joinedAddress ? 'Not minted' : '—'}
-            sub={ckbTxHash ? `Tx ${ckbTxHash.slice(0, 8)}…${ckbTxHash.slice(-6)}` : 'User-paid CKB wallet mint'}
+            sub={ckbTxHash ? `Tx ${ckbTxHash.slice(0, 8)}…${ckbTxHash.slice(-6)}` : 'Minted with your CKB wallet'}
             shimmer={isLoading && !joinedAddress}
           />
         </div>
@@ -1340,20 +1523,23 @@ export default function DashboardPage() {
         <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-12">
 
           {/* Progress steps — left column */}
-          <div className="flat-card rounded-sm p-5 lg:sticky lg:top-24 lg:col-span-4">
-            <div className="mb-5 flex items-center justify-between gap-3">
-              <p className="section-label">Progress</p>
-              <span className="rounded-sm border border-border/20 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
-                {ckbSporeId ? 'Complete' : scoreStatus === 'done' ? 'Anchor ready' : 'In progress'}
-              </span>
+          <div className="space-y-4 lg:sticky lg:top-24 lg:col-span-4">
+            <div className="flat-card rounded-sm p-5">
+              <div className="mb-5 flex items-center justify-between gap-3">
+                <p className="section-label">Progress</p>
+                <span className="rounded-sm border border-border/20 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
+                  {ckbSporeId ? 'Complete' : scoreStatus === 'done' ? 'Ready to mint' : 'In progress'}
+                </span>
+              </div>
+              <div className="space-y-3">
+                <StepRow n="1" label="Connect wallet" done={isConnected} active={!isConnected} />
+                <StepRow n="2" label="Select Veil network" done={!!joinedAddress} active={isConnected && !joinedAddress} />
+                <StepRow n="3" label="Create Veil ID" done={!!userPk} active={isConnected && !userPk} loading={isDeriving} />
+                <StepRow n="4" label="Create credit profile" done={scoreStatus === 'done'} active={!!userPk && scoreStatus === 'idle'} />
+                <StepRow n="5" label="Mint identity pass" done={!!ckbSporeId} active={!!ckbMintIntent && !ckbSporeId} />
+              </div>
             </div>
-            <div className="space-y-3">
-              <StepRow n="1" label="Connect wallet" done={isConnected} active={!isConnected} />
-              <StepRow n="2" label="Join contract" done={!!joinedAddress} active={isConnected && !joinedAddress} />
-              <StepRow n="3" label="Generate Veil ID" done={!!userPk} active={!!joinedAddress && !userPk} />
-              <StepRow n="4" label="Create score entry" done={scoreStatus === 'done'} active={!!userPk && scoreStatus === 'idle'} />
-              <StepRow n="5" label="Mint CKB Spore DOB" done={!!ckbSporeId} active={!!ckbMintIntent && !ckbSporeId} />
-            </div>
+            {ckbSporeId && <VeilDidQrPanel veilIdHash={veilIdHash} />}
           </div>
 
           {/* Action panel — right column */}
@@ -1366,22 +1552,33 @@ export default function DashboardPage() {
             </>
           )}
 
-          {/* Join / Status */}
+          {/* Local identity setup / status */}
           {!joinedAddress ? (
-            <div className="space-y-3">
+            <div className="space-y-4">
               <div className="space-y-1">
-                <p className="text-sm font-bold text-foreground uppercase tracking-wide">Join Protocol Contract</p>
+                <p className="text-sm font-bold text-foreground uppercase tracking-wide">Create Veil ID</p>
                 <p className="section-label">
                   {CONTRACT_ADDRESS
-                    ? `Auto-connecting to ${shortAddr(CONTRACT_ADDRESS)}`
-                    : 'No NEXT_PUBLIC_CONTRACT_ADDRESS set — enter one below'}
+                    ? `Uses Veil network ${shortAddr(CONTRACT_ADDRESS)}`
+                    : 'No Veil network address set — enter one below'}
                 </p>
               </div>
+              {isDeriving && (
+                <div className="rounded-sm border border-primary/30 bg-primary/10 px-4 py-3">
+                  <div className="mb-2 flex items-center gap-2 text-primary">
+                    <Loader2 size={15} className="animate-spin" aria-hidden="true" />
+                    <p className="text-xs font-black uppercase tracking-widest">Creating your Veil ID</p>
+                  </div>
+                  <p className="text-xs leading-relaxed text-muted-foreground">
+                    Setting up the private browser data used for your Veil credit profile.
+                  </p>
+                </div>
+              )}
               {!CONTRACT_ADDRESS && (
                 <input
                   id="contract-addr-input"
                   type="text"
-                  placeholder="Paste contract address…"
+                  placeholder="Paste Veil network address…"
                   className="w-full rounded-sm px-3 py-2 bg-background text-foreground text-sm border border-border/20 focus:outline-none focus:border-primary placeholder:text-muted-foreground/40"
                   onBlur={(e) => {
                     (window as any).__manualContractAddr = e.target.value;
@@ -1389,18 +1586,20 @@ export default function DashboardPage() {
                 />
               )}
               <button
-                onClick={() => void handleJoin()}
+                onClick={() => void deriveAndCheck()}
                 disabled={isBusy}
-                className="w-full py-3 rounded-sm font-bold text-sm uppercase tracking-widest disabled:opacity-50 transition-opacity hover:opacity-90"
+                aria-busy={isDeriving}
+                className={`inline-flex w-full items-center justify-center gap-2 rounded-sm py-3 text-sm font-bold uppercase tracking-widest transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60 ${isDeriving ? 'cursor-wait opacity-80' : ''}`}
                 style={{ background: 'var(--color-primary)', color: 'var(--color-primary-foreground)' }}
               >
-                {isJoining ? 'Joining contract…' : 'Join Contract'}
+                {isDeriving && <Loader2 size={16} className="animate-spin" aria-hidden="true" />}
+                {isDeriving ? 'Creating Veil ID…' : 'Create Veil ID'}
               </button>
             </div>
           ) : (
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div className="min-w-0 flex-1">
-                <DetailRow label="Connected Contract" value={joinedAddress} />
+                <DetailRow label="Veil Network" value={joinedAddress} />
               </div>
               <button
                 onClick={() => {
@@ -1422,7 +1621,7 @@ export default function DashboardPage() {
                 }}
                 className="shrink-0 rounded-sm border border-border/30 px-3 py-2 text-xs font-bold uppercase tracking-wide text-muted-foreground transition-colors hover:text-foreground"
               >
-                {isMidnightJoined ? 'Switch' : 'Join Midnight'}
+                {isMidnightJoined ? 'Switch' : 'Sync Midnight'}
               </button>
             </div>
           )}
@@ -1433,8 +1632,8 @@ export default function DashboardPage() {
           {joinedAddress && (
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <p className="text-sm font-bold text-foreground uppercase tracking-wide">Veil ID</p>
-                {userPk && isMidnightJoined && (
+                <p className="text-sm font-bold text-foreground uppercase tracking-wide">Veil Key</p>
+                {userPk && (
                   <button
                     onClick={() => void handleExportPrivateState()}
                     className="text-xs px-3 py-1.5 rounded-sm border border-border/30 text-muted-foreground hover:text-primary hover:border-primary/40 transition-colors flex items-center gap-1.5"
@@ -1452,18 +1651,15 @@ export default function DashboardPage() {
                   <Shimmer className="h-3 w-2/3" />
                 </div>
               ) : userPk ? (
-                <DetailRow label="User Public Key" value={userPk} />
+                <DetailRow label="Veil Key" value={userPk} />
               ) : (
                 <button
-                  onClick={() => {
-                    const j = joinedRef.current;
-                    if (j) void deriveAndCheck(j.api, j.coinPublicKey, j.api.deployedContractAddress);
-                  }}
+                  onClick={() => void deriveAndCheck()}
                   disabled={isBusy}
                   className="w-full rounded-sm px-4 py-3 text-sm font-black uppercase tracking-widest transition-transform hover:-translate-y-0.5 hover:opacity-95 disabled:translate-y-0 disabled:opacity-50"
                   style={{ background: 'var(--color-primary)', color: 'var(--color-primary-foreground)' }}
                 >
-                  Generate Veil ID
+                  Create Veil Key
                 </button>
               )}
             </div>
@@ -1476,8 +1672,8 @@ export default function DashboardPage() {
             <div className="space-y-3">
               <div className="flex items-start justify-between gap-2">
                 <div className="space-y-0.5">
-                  <p className="text-sm font-bold text-foreground uppercase tracking-wide">Credit Score Entry</p>
-                  <p className="section-label">Registers your Veil ID on Midnight, then prepares a CKB Spore mint.</p>
+                  <p className="text-sm font-bold text-foreground uppercase tracking-wide">Credit Profile</p>
+                  <p className="section-label">Creates your private score profile, then prepares your CKB identity pass.</p>
                 </div>
                 {scoreStatus === 'done' && (
                   <span className="shrink-0 text-xs px-2 py-1 rounded-sm font-bold uppercase tracking-wide" style={{ background: 'color-mix(in oklch, var(--color-primary) 15%, transparent)', color: 'var(--color-primary)' }}>Confirmed</span>
@@ -1492,7 +1688,7 @@ export default function DashboardPage() {
                 >
                   {scoreStatus === 'submitting' ? 'Submitting to chain…'
                     : scoreStatus === 'error' ? 'Retry Score Entry'
-                    : 'Create Score Entry + Prepare CKB DOB'}
+                    : 'Create Credit Profile'}
                 </button>
               )}
               {!ckbSigner && scoreStatus !== 'done' && (
@@ -1514,8 +1710,8 @@ export default function DashboardPage() {
             <div className="space-y-3">
               <div className="flex items-start justify-between gap-2">
                 <div className="space-y-0.5">
-                  <p className="text-sm font-bold text-foreground uppercase tracking-wide">CKB Veil Identity DOB</p>
-                  <p className="section-label">Public Spore anchor for your Veil ID hash. Scores stay private on Midnight.</p>
+                  <p className="text-sm font-bold text-foreground uppercase tracking-wide">CKB Identity Pass</p>
+                  <p className="section-label">Public proof of your Veil ID. Scores stay private on Midnight.</p>
                 </div>
                 {ckbSporeId && (
                   <span className="shrink-0 text-xs px-2 py-1 rounded-sm font-bold uppercase tracking-wide" style={{ background: 'color-mix(in oklch, var(--color-primary) 15%, transparent)', color: 'var(--color-primary)' }}>Minted</span>
@@ -1531,7 +1727,7 @@ export default function DashboardPage() {
                   />
                   {creditDecision && (
                     <div className="rounded-sm border border-border/20 bg-background/70 px-4 py-3">
-                      <p className="section-label mb-1">Risk Decision</p>
+                      <p className="section-label mb-1">Credit Check</p>
                       <p className="text-xs text-foreground/60 break-all">
                         {creditDecision.scoreBand} · {creditDecision.approved ? `LTV ${creditDecision.maxLtvBps / 100}%` : 'not approved'}
                       </p>
@@ -1542,7 +1738,7 @@ export default function DashboardPage() {
                     disabled={isBusy || !ckbSigner}
                     className="w-full py-2.5 rounded-sm font-bold text-sm disabled:opacity-40 transition-opacity hover:opacity-90 border border-border/30 text-foreground uppercase tracking-wide"
                   >
-                    {isRequestingDecision ? 'Authorizing risk decision…' : 'Authorize Risk Decision'}
+                    {isRequestingDecision ? 'Checking Credit…' : 'Check My Credit'}
                   </button>
                 </div>
               ) : ckbMintIntent ? (
@@ -1556,17 +1752,17 @@ export default function DashboardPage() {
                   >
                     {ckbMintStatus === 'minting' ? 'Confirming in CKB wallet…'
                       : ckbMintStatus === 'recording' ? 'Recording mint…'
-                      : ckbMintStatus === 'error' ? 'Retry CKB DOB Mint'
-                      : 'Mint Veil Identity DOB in CKB Wallet'}
+                      : ckbMintStatus === 'error' ? 'Retry Identity Pass Mint'
+                      : 'Mint Identity Pass in CKB Wallet'}
                   </button>
                   {!ckbSigner && (
-                    <p className="section-label">Connect a CKB wallet to sign and pay for this Spore mint.</p>
+                    <p className="section-label">Connect a CKB wallet to sign and pay for this mint.</p>
                   )}
                 </div>
               ) : (
                 <div className="space-y-3">
                   <p className="section-label">
-                    Score entry is confirmed. Prepare the CKB Spore mint intent with your connected CKB wallet.
+                    Credit profile is ready. Prepare your CKB identity pass with your connected CKB wallet.
                   </p>
                   <button
                     onClick={() => void handlePrepareCkbMintIntent()}
@@ -1574,7 +1770,7 @@ export default function DashboardPage() {
                     className="w-full rounded-sm px-4 py-2.5 text-sm font-bold uppercase tracking-wide transition-opacity hover:opacity-90 disabled:opacity-50"
                     style={{ background: 'var(--color-primary)', color: 'var(--color-primary-foreground)' }}
                   >
-                    {ckbSigner ? 'Prepare CKB DOB Mint' : 'Connect CKB Wallet'}
+                    {ckbSigner ? 'Prepare Identity Pass' : 'Connect CKB Wallet'}
                   </button>
                 </div>
               )}

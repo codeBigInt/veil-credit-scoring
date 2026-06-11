@@ -7,8 +7,8 @@ export default function Header() {
 
   return (
     <header className="site-header sticky top-0 z-50">
-      <div className="container mx-auto px-4 sm:px-6 py-4 max-w-7xl">
-        <div className="flex items-center justify-between">
+      <div className="mx-auto max-w-7xl px-4 pb-3 pt-0 sm:px-6">
+        <div className="site-header-shell">
           <a href="/" className="site-brand" aria-label="Veil Protocol home">
             <span className="site-brand-mark">
               <img src="/veil-cred-logo.PNG" alt="" className="h-9 w-9 object-contain" />
@@ -20,10 +20,10 @@ export default function Header() {
           </a>
 
           <nav className="site-nav" aria-label="Primary navigation">
-            <a href="https://veil-docs.vercel.app/introduction" target="_blank" className="site-nav-link">
+            <a href="https://docs-veil-credit-scoring.netlify.app/docs/introduction" target="_blank" className="site-nav-link">
               Docs
             </a>
-            <a href="https://veil-docs.vercel.app/introduction" target="_blank" className="site-nav-link">
+            <a href="https://docs-veil-credit-scoring.netlify.app/docs/integration" target="_blank" className="site-nav-link">
               Integrations
             </a>
             <a href="https://github.com/codeBigInt/veil-credit-scoring/tree/dev" target="_blank" className="site-nav-link">
@@ -60,8 +60,8 @@ export default function Header() {
           {open && (
             <div className="site-mobile-panel lg:hidden">
               <div className="site-mobile-grid">
-                <a href="https://veil-docs.vercel.app/introduction" target="_blank" onClick={() => setOpen(false)} className="site-mobile-link">Docs</a>
-                <a href="https://veil-docs.vercel.app/introduction" target="_blank" onClick={() => setOpen(false)} className="site-mobile-link">Integrations</a>
+                <a href="https://docs-veil-credit-scoring.netlify.app/docs/introduction" target="_blank" onClick={() => setOpen(false)} className="site-mobile-link">Docs</a>
+                <a href="https://docs-veil-credit-scoring.netlify.app/docs/integration" target="_blank" onClick={() => setOpen(false)} className="site-mobile-link">Integrations</a>
                 <a href="https://github.com/codeBigInt/veil-credit-scoring/tree/dev" target="_blank" onClick={() => setOpen(false)} className="site-mobile-link">GitHub</a>
                 <a href="/dashboard" onClick={() => setOpen(false)} className="site-mobile-cta">Launch App</a>
               </div>

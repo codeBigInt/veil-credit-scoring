@@ -46,7 +46,7 @@ export default function Footer() {
             </div>
 
             <p className="text-muted-foreground text-sm leading-relaxed max-w-xs">
-              Cross-chain credit scoring. Privacy enforced by Midnight ZK proofs. Identity anchored as a Spore DOB on CKB.
+              Private credit checks for DeFi. Your score stays hidden, and your CKB identity pass proves the result is yours.
             </p>
 
             {/* Chain badges */}
@@ -83,9 +83,9 @@ export default function Footer() {
               <p className="section-label text-foreground" style={{ color: 'oklch(0.7 0 0)' }}>Protocol</p>
               <div className="space-y-3">
                 {[
-                  { label: 'Architecture', href: 'https://veil-docs.vercel.app/concepts/architecture/actors' },
+                  { label: 'Architecture', href: 'https://docs-veil-credit-scoring.netlify.app/docs/concepts' },
                   { label: 'Smart Contract', href: 'https://github.com/codeBigInt/veil-credit-scoring/tree/dev/packages/contract' },
-                  { label: 'Security', href: 'https://veil-docs.vercel.app/introduction' },
+                  { label: 'Security', href: 'https://docs-veil-credit-scoring.netlify.app/docs/introduction' },
                   { label: 'Roadmap', href: '#' },
                 ].map((link) => (
                   <a key={link.label} href={link.href} target="_blank" className="flex items-center gap-1.5 section-label hover:text-primary transition-colors group">
@@ -101,9 +101,9 @@ export default function Footer() {
               <p className="section-label text-foreground" style={{ color: 'oklch(0.7 0 0)' }}>Developers</p>
               <div className="space-y-3">
                 {[
-                  { label: 'API Guide', href: 'https://veil-docs.vercel.app/api-integration-guide' },
-                  { label: 'Integration', href: 'https://veil-docs.vercel.app/api-integration-guide' },
-                  { label: 'Whitepaper', href: 'https://veil-docs.vercel.app/introduction' },
+                  { label: 'API Guide', href: 'https://docs-veil-credit-scoring.netlify.app/docs/integration/api-reference' },
+                  { label: 'Integration', href: 'https://docs-veil-credit-scoring.netlify.app/docs/integration' },
+                  { label: 'Whitepaper', href: 'https://docs-veil-credit-scoring.netlify.app/docs/introduction' },
                   { label: 'GitHub', href: 'https://github.com/codeBigInt/veil-credit-scoring/tree/dev' },
                 ].map((link) => (
                   <a key={link.label} href={link.href} target="_blank" className="flex items-center gap-1.5 section-label hover:text-primary transition-colors group">

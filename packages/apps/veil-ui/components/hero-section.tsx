@@ -5,14 +5,14 @@ export default function HeroSection() {
   const ticker = [...chains, ...chains]
 
   return (
-    <section className="hero-grid-shell w-full bg-background relative overflow-hidden">
+    <section className="hero-grid-shell w-full bg-background relative -mt-[83px] overflow-hidden pt-[83px]">
       <div className="hero-grid-lines" aria-hidden="true" />
       <div className="hero-scanline" aria-hidden="true" />
 
       {/* Main hero content */}
-      <div className="container relative z-10 mx-auto px-6 max-w-7xl pt-20 md:pt-36 pb-16">
+      <div className="container relative z-10 mx-auto px-6 max-w-7xl pt-20 md:pt-30 pb-16">
         {/* Section label */}
-        <p className="section-label mb-8">Cross-Chain Credit Protocol</p>
+        <p className="section-label mb-8">Privacy By Default On Midnight</p>
 
         {/* Main heading — full width, massive */}
         <div className="mb-10">
@@ -37,16 +37,16 @@ export default function HeroSection() {
         {/* Three-column stat strip */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-px bg-border/20 mb-14 max-w-3xl">
           <div className="flat-card px-6 py-5">
-            <p className="section-label mb-1">Privacy Layer</p>
-            <p className="font-black uppercase text-foreground text-base">Midnight ZK Proofs</p>
+            <p className="section-label mb-1">Privacy</p>
+            <p className="font-black uppercase text-foreground text-base">Kept On Midnight</p>
           </div>
           <div className="flat-card px-6 py-5">
-            <p className="section-label mb-1">Identity Anchor</p>
-            <p className="font-black uppercase text-foreground text-base">CKB Spore DOB</p>
+            <p className="section-label mb-1">Your Proof</p>
+            <p className="font-black uppercase text-foreground text-base">CKB Identity Pass</p>
           </div>
           <div className="flat-card px-6 py-5">
             <p className="section-label mb-1">Open to</p>
-            <p className="font-black uppercase text-primary text-base">Any Protocol</p>
+            <p className="font-black uppercase text-primary text-base">Any App</p>
           </div>
         </div>
 
@@ -60,10 +60,10 @@ export default function HeroSection() {
               href="/dashboard"
               className="inline-block bg-primary text-primary-foreground px-8 py-4 rounded-sm font-bold hover:opacity-90 transition-opacity uppercase tracking-widest text-sm text-center"
             >
-              Launch Protocol
+              Open Dashboard
             </a>
             <a
-              href="https://veil-docs.vercel.app/introduction"
+              href="https://docs-veil-credit-scoring.netlify.app/docs/introduction"
               target="_blank"
               className="inline-block border border-border/40 text-foreground px-8 py-4 rounded-sm font-medium hover:border-primary/60 transition-colors uppercase tracking-widest text-sm text-center no-underline"
             >

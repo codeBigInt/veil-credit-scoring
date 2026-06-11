@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fromHex } from "@midnight-ntwrk/compact-runtime";
+import { fromHex, toHex } from "@midnight-ntwrk/compact-runtime";
 import { VeilScoreSimulator } from "./veil-score-setup";
 import { randomBytes } from "./utils";
 
@@ -22,6 +22,10 @@ const createVeilScoreContract = (name?: string): VeilScoreSimulator => {
     console.log(`${name} deployment successful`);
   }
   return simulator;
+};
+
+const expectBytesEqual = (actual: Uint8Array, expected: Uint8Array): void => {
+  expect(toHex(actual)).toBe(toHex(expected));
 };
 
 describe("Test admin functionality", () => {
@@ -229,5 +233,108 @@ describe("Test scoring functionality", () => {
     expect(() =>
       simulator.submitLiquidationEvent(userPk, issuerPk, 4n, 0n, randomBytes(32))
     ).toThrowError(/Invalid severity/);
+  });
+});
+
+describe("Test DID registry functionality", () => {
+  it("registers, asserts, rotates, and revokes a Veil DID", () => {
+    const simulator = createVeilScoreContract("DID Registry Test Contract");
+    simulator.registerUser("alice");
+
+    simulator.as("alice");
+    simulator.createScoreEntry();
+    const userPk = getUserPkFromPrivateState(simulator.getPrivateState());
+
+    const veilIdHash = randomBytes(32);
+    const sporeIdHash = randomBytes(32);
+    const ownerLockHash = randomBytes(32);
+    const recoveryCommitment = randomBytes(32);
+
+    simulator.registerDid(userPk, veilIdHash, sporeIdHash, ownerLockHash, recoveryCommitment, 7n);
+
+    const didRecord = simulator.getDidRecord(veilIdHash);
+    expectBytesEqual(didRecord.userPk, userPk);
+    expectBytesEqual(didRecord.veilIdHash, veilIdHash);
+    expectBytesEqual(didRecord.activeSporeIdHash, sporeIdHash);
+    expectBytesEqual(didRecord.activeCkbOwnerLockHash, ownerLockHash);
+    expectBytesEqual(didRecord.recoveryCommitment, recoveryCommitment);
+    expect(didRecord.version).toBe(1n);
+    expect(didRecord.status).toBe(1n);
+    expect(didRecord.createdAtEpoch).toBe(7n);
+    expect(didRecord.updatedAtEpoch).toBe(7n);
+
+    expect(simulator.assertDidActive(veilIdHash, sporeIdHash, ownerLockHash)).toBe(true);
+    expect(simulator.assertDidActive(veilIdHash, randomBytes(32), ownerLockHash)).toBe(false);
+
+    const nextSporeIdHash = randomBytes(32);
+    const nextOwnerLockHash = randomBytes(32);
+    simulator.rotateDidVerificationMethod(
+      veilIdHash,
+      ownerLockHash,
+      nextSporeIdHash,
+      nextOwnerLockHash,
+      recoveryCommitment,
+      8n
+    );
+
+    const rotatedRecord = simulator.getDidRecord(veilIdHash);
+    expectBytesEqual(rotatedRecord.activeSporeIdHash, nextSporeIdHash);
+    expectBytesEqual(rotatedRecord.activeCkbOwnerLockHash, nextOwnerLockHash);
+    expect(rotatedRecord.version).toBe(2n);
+    expect(rotatedRecord.updatedAtEpoch).toBe(8n);
+    expect(simulator.assertDidActive(veilIdHash, nextSporeIdHash, nextOwnerLockHash)).toBe(true);
+
+    simulator.as("admin");
+    simulator.revokeDid(veilIdHash, 9n);
+
+    const revokedRecord = simulator.getDidRecord(veilIdHash);
+    expect(revokedRecord.status).toBe(2n);
+    expect(revokedRecord.updatedAtEpoch).toBe(9n);
+    expect(simulator.assertDidActive(veilIdHash, nextSporeIdHash, nextOwnerLockHash)).toBe(false);
+  });
+
+  it("rejects invalid DID registry operations", () => {
+    const simulator = createVeilScoreContract("DID Registry Failure Test Contract");
+    simulator.registerUser("alice");
+
+    simulator.as("alice");
+    const userPk = simulator.generateCurrentUserPk();
+    const veilIdHash = randomBytes(32);
+    const sporeIdHash = randomBytes(32);
+    const ownerLockHash = randomBytes(32);
+    const recoveryCommitment = randomBytes(32);
+
+    expect(() =>
+      simulator.registerDid(userPk, veilIdHash, sporeIdHash, ownerLockHash, recoveryCommitment)
+    ).toThrowError(/User score entry not found/);
+
+    simulator.createScoreEntry(userPk);
+    simulator.registerDid(userPk, veilIdHash, sporeIdHash, ownerLockHash, recoveryCommitment);
+
+    expect(() =>
+      simulator.registerDid(userPk, veilIdHash, randomBytes(32), randomBytes(32), recoveryCommitment)
+    ).toThrowError(/DID already registered/);
+
+    expect(() =>
+      simulator.rotateDidVerificationMethod(
+        veilIdHash,
+        randomBytes(32),
+        randomBytes(32),
+        randomBytes(32),
+        recoveryCommitment
+      )
+    ).toThrowError(/Previous CKB owner lock mismatch/);
+
+    expect(() =>
+      simulator.rotateDidVerificationMethod(
+        veilIdHash,
+        ownerLockHash,
+        randomBytes(32),
+        randomBytes(32),
+        randomBytes(32)
+      )
+    ).toThrowError(/Invalid recovery proof/);
+
+    expect(() => simulator.revokeDid(veilIdHash)).toThrowError(/Unauthorized/);
   });
 });

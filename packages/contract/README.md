@@ -1,5 +1,8 @@
 # Veil Credit Scoring Contract
 
+Live docs: https://docs-veil-credit-scoring.netlify.app
+
+
 Compact smart contract for privacy-preserving credit scoring on Midnight.
 
 ## Overview

@@ -61,24 +61,24 @@ export default function BuildSection() {
               <span style={{ WebkitTextStroke: '2px var(--color-primary)', color: 'transparent' }}>Integrate</span> Veil Into Your Stack
             </h2>
             <p className="text-lg text-muted-foreground max-w-lg mx-auto md:mx-0">
-              Call Veil's REST API from any DeFi protocol on Ethereum, Solana, CKB, Midnight, or any EVM chain. Get ZK-verified credit decisions without any user identity disclosure.
+              Add private credit checks to any DeFi app on Ethereum, Solana, CKB, Midnight, or any EVM chain. Users prove their credit status without revealing their full identity.
             </p>
             <div className="space-y-3 max-w-lg mx-auto md:mx-0">
               <div className="flex items-start gap-3">
                 <span className="text-primary font-bold">✓</span>
-                <p className="text-muted-foreground">Chain-agnostic REST API</p>
+                <p className="text-muted-foreground">Works from any supported chain</p>
               </div>
               <div className="flex items-start gap-3">
                 <span className="text-primary font-bold">✓</span>
-                <p className="text-muted-foreground">Midnight ZK proofs — zero identity disclosure</p>
+                <p className="text-muted-foreground">Private checks powered by Midnight</p>
               </div>
               <div className="flex items-start gap-3">
                 <span className="text-primary font-bold">✓</span>
-                <p className="text-muted-foreground">CKB Spore DOB identity anchor</p>
+                <p className="text-muted-foreground">CKB identity pass users control</p>
               </div>
             </div>
             <button className="w-full md:w-auto border border-primary text-primary px-6 py-3 rounded-sm font-bold hover:bg-primary/10 transition-colors uppercase tracking-wide text-sm">
-              <a href="https://veil-docs.vercel.app/introduction" target="_blank" className="no-underline hover:no-underline">Read API Docs</a>
+              <a href="https://docs-veil-credit-scoring.netlify.app/docs/introduction" target="_blank" className="no-underline hover:no-underline">Read API Docs</a>
             </button>
           </div>
         </div>

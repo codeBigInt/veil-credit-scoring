@@ -20,6 +20,7 @@ import "./modules/GlobalLedgerStates" prefix LedgerStates_;
 import "./modules/CustomStructs" prefix CustomStructs_;
 import "./modules/Scoring" prefix Scoring_;
 import "./modules/Admin" prefix Admin_;
+import "./modules/DIDRegistry" prefix DIDRegistry_;
 
 export {
     /** Score entrypoints */
@@ -28,14 +29,19 @@ export {
 
     /** Custom struct definitions */
     CustomStructs_CreditScore, CustomStructs_Issuer, CustomStructs_ScoreAccumulators, CustomStructs_ScoreConfig,
+    CustomStructs_VeilDidRecord,
 
     /** Admin entrypoints */
     Admin_addIssuer, Admin_removeIssuer, Admin_addAdmin, Admin_removeAdmin, Admin_updatedScoreConfig,
+
+    /** DID registry entrypoints */
+    DIDRegistry_register, DIDRegistry_assertActive, DIDRegistry_rotateVerificationMethod, DIDRegistry_revoke,
 
     /** Ledger states */
     LedgerStates_issuerTrustWeights, LedgerStates_processedScoreEvents,
     LedgerStates_superAdmin, LedgerStates_issuers, LedgerStates_creditScoreCommitments, 
     LedgerStates_scoreAccumulatorCommitments, LedgerStates_scoreConfig, LedgerStates_admins,
+    LedgerStates_didRecords,
     
     /** Utility circuits */
     Utils_generateUserPk

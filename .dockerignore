@@ -9,3 +9,4 @@
 **/logs
 npm-debug.log
 yarn-error.log
+packages/backend/src/contract-build

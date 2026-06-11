@@ -1,31 +1,44 @@
-// Bootstrap deployment entrypoint.
+// This file is part of REPLACE WITH REPO-NAME.
+// Copyright (C) Midnight Foundation
+// SPDX-License-Identifier: Apache-2.0
+// Licensed under the Apache License, Version 2.0 (the "License");
+// You may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This contract has the same ledger layout and constructor as main.compact, but
-// exports only the circuits needed immediately after deployment. The remaining
-// circuit verifier keys can be installed later through contract maintenance.
+// https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 pragma language_version >= 0.23.0;
 import CompactStandardLibrary;
 import "./modules/Utils" prefix Utils_;
 import "./modules/GlobalLedgerStates" prefix LedgerStates_;
 import "./modules/CustomStructs" prefix CustomStructs_;
-import "./modules/Admin" prefix Admin_;
 import "./modules/Scoring" prefix Scoring_;
+import "./modules/Admin" prefix Admin_;
+import "./modules/DIDRegistry" prefix DIDRegistry_;
 
 export {
-    /** Bootstrap entrypoints */
-    Scoring_submitLiquidationEvent, Scoring_submitProtocolUsageEvent, Scoring_submitRepaymentEvent, 
-    Scoring_createScoreEntry, Scoring_submitDebtStateEvent, Utils_generateUserPk, Admin_addIssuer,
+    /** Custom struct definitions */
+    CustomStructs_CreditScore, CustomStructs_Issuer, CustomStructs_ScoreAccumulators, CustomStructs_ScoreConfig,
+    CustomStructs_VeilDidRecord,
 
-    /** Custom struct definitions needed by TypeScript callers */
-    CustomStructs_Issuer, CustomStructs_ScoreConfig,
+    /** Admin entrypoints */
+    Admin_addIssuer, Admin_removeIssuer, Admin_addAdmin, Admin_removeAdmin, Admin_updatedScoreConfig,
 
     /** Ledger states */
-    LedgerStates_issuerTrustWeights, LedgerStates_processedScoreEvents, LedgerStates_superAdmin,
-    LedgerStates_issuers, LedgerStates_creditScoreCommitments, LedgerStates_scoreAccumulatorCommitments, LedgerStates_scoreConfig,
-    LedgerStates_admins
+    LedgerStates_issuerTrustWeights, LedgerStates_processedScoreEvents,
+    LedgerStates_superAdmin, LedgerStates_issuers, LedgerStates_creditScoreCommitments, 
+    LedgerStates_scoreAccumulatorCommitments, LedgerStates_scoreConfig, LedgerStates_admins,
+    LedgerStates_didRecords,
+    
+    /** Utility circuits */
+    Utils_generateUserPk
 };
-
 
 constructor(
     _scoreConfig: CustomStructs_ScoreConfig,
