@@ -4,10 +4,11 @@ import MidnightWalletSelector from '@/components/midnight-wallet-selector';
 import { useWallet } from '@/context/WalletContext';
 import { syncNetworkId } from '@/utils/network-id';
 import { PRIVATE_STATE_ID, makeFullCompiledContract } from '@/contract-api-utils';
-import { createCircuitContext, createConstructorContext, toHex } from '@midnight-ntwrk/compact-runtime';
 import { DynamicContractAPI } from 'nite-api';
-import { Contract, createVeilPrivateState, VeilPrivateState, witness, Witnesses } from '@veil/veil-contract';
-import { ProvableCircuitId } from '@midnight-ntwrk/compact-js';
+import { createVeilPrivateState } from '@veil/veil-contract';
+import { CompactTypeBytes, CompactTypeVector, persistentHash, toHex } from '@midnight-ntwrk/compact-runtime';
+import type { Contract, VeilPrivateState, Witnesses } from '@veil/veil-contract';
+import type { ProvableCircuitId } from '@midnight-ntwrk/compact-js';
 import { FetchZkConfigProvider } from '@midnight-ntwrk/midnight-js-fetch-zk-config-provider';
 import { httpClientProofProvider } from '@midnight-ntwrk/midnight-js-http-client-proof-provider';
 import { Transaction } from '@midnight-ntwrk/ledger-v8';
@@ -26,18 +27,6 @@ const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? 'http://localhost:300
 const CONTRACT_ADDRESS = process.env.NEXT_PUBLIC_CONTRACT_ADDRESS ?? '';
 const CKB_EXPLORER_URL = process.env.NEXT_PUBLIC_CKB_EXPLORER_URL ?? 'https://pudge.explorer.nervos.org';
 const PRIVATE_STATE_STORE_NAME = 'veil-private-state';
-
-const DEFAULT_SCORE_CONFIG = {
-  baseScore: BigInt(350),
-  maxScore: BigInt(900),
-  scale: BigInt(100),
-  repaymentWeight: BigInt(2),
-  protocolWeight: BigInt(10),
-  tenureWeight: BigInt(1),
-  liquidationWeight: BigInt(3),
-  activeDebtPenalty: BigInt(5),
-  riskBandWeight: BigInt(5),
-};
 
 const backendApiUrl = (path: string): string => {
   const base = BACKEND_URL.replace(/\/+$/, '');
@@ -228,6 +217,40 @@ function writeCompletedFlowCache(cache: CompletedDashboardFlowCache): void {
   localStorage.setItem(completedFlowStorageKey(cache.accountId, cache.contractAddress), JSON.stringify(cache));
 }
 
+const userPkCacheKey = (accountId: string, contractAddress: string): string =>
+  `veil-user-pk:v1:${accountId.toUpperCase()}:${contractAddress.toLowerCase()}`;
+
+function readCachedUserPk(accountId: string, contractAddress: string): string | null {
+  try {
+    return localStorage.getItem(userPkCacheKey(accountId, contractAddress));
+  } catch {
+    return null;
+  }
+}
+
+function writeCachedUserPk(accountId: string, contractAddress: string, pk: string): void {
+  try {
+    localStorage.setItem(userPkCacheKey(accountId, contractAddress), pk);
+  } catch { /* best-effort */ }
+}
+
+const userPkHashDescriptor = new CompactTypeVector(3, new CompactTypeBytes(32));
+const userPkDomain = new Uint8Array(32);
+new TextEncoder().encodeInto('veil:user', userPkDomain);
+
+function deriveUserPkDirect(input: {
+  secreteKeyHex: string;
+  contractAddress: string;
+}): string {
+  // Mirrors Utils.generateUserPk(sk) in Compact without loading the generated circuit:
+  // persistentHash([pad(32, "veil:user"), sk, kernel.self().bytes]).
+  return toHex(persistentHash(userPkHashDescriptor, [
+    userPkDomain,
+    hexToBytes(input.secreteKeyHex),
+    hexToBytes(input.contractAddress),
+  ]));
+}
+
 function shortAddr(addr: string) {
   return `${addr.slice(0, 8)}…${addr.slice(-6)}`;
 }
@@ -237,8 +260,17 @@ function compactId(value: string, head = 18, tail = 12): string {
   return `${value.slice(0, head)}…${value.slice(-tail)}`;
 }
 
+const resolveCkbExplorerBase = (): string => {
+  const configured = CKB_EXPLORER_URL.trim().replace(/\/+$/, '');
+  // Wallet/RPC URLs such as https://testnet.ckb.dev/rpc are not browser explorers.
+  if (!configured || configured.endsWith('/rpc') || configured.includes('ckb.dev/rpc')) {
+    return 'https://testnet.explorer.nervos.org';
+  }
+  return configured;
+};
+
 const explorerUrl = (path: string): string =>
-  `${CKB_EXPLORER_URL.replace(/\/+$/, '')}/${path.replace(/^\/+/, '')}`;
+  `${resolveCkbExplorerBase()}/${path.replace(/^\/+/, '')}`;
 
 const createVeilDid = (veilIdHash: string): string => `did:veil:${veilIdHash.toLowerCase()}`;
 
@@ -378,7 +410,7 @@ function VeilDobNftCard({
 
           {veilDid && (
             <div className="rounded-sm border border-primary/30 bg-primary/5 p-4">
-              <p className="section-label mb-2">Your Veil ID</p>
+              <p className="section-label mb-2">Your Veil DID</p>
               <div className="rounded-sm border border-border/20 bg-background/70 px-3 py-3">
                 <p className="truncate text-sm font-black leading-relaxed text-primary" title={veilDid}>
                   {compactId(veilDid, 24, 16)}
@@ -393,14 +425,14 @@ function VeilDobNftCard({
                 }}
                 className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-sm border border-border/30 px-3 py-2.5 text-xs font-black uppercase tracking-wide text-foreground transition-colors hover:border-primary/50 hover:text-primary"
               >
-                {didCopied ? 'ID Copied' : 'Copy ID'}
+                {didCopied ? 'DID Copied' : 'Copy DID'}
                 {didCopied ? <Check size={14} aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}
               </button>
             </div>
           )}
 
           <div className="grid gap-3">
-            <DetailRow label="Record ID" value={sporeId} displayValue={compactId(sporeId, 18, 14)} />
+            <DetailRow label="Spore ID" value={sporeId} displayValue={compactId(sporeId, 18, 14)} />
             {veilIdHash && <DetailRow label="ID Hash" value={veilIdHash} displayValue={compactId(veilIdHash, 18, 14)} muted />}
             {/*    */}
           </div>
@@ -947,7 +979,7 @@ export default function DashboardPage() {
 
     setIsDeriving(true);
     setError(null);
-      console.log('Creating Veil ID…');
+    console.log('Creating Veil ID…');
     try {
       syncNetworkId(NETWORK_ID);
       const [account, shielded] = await Promise.all([
@@ -957,20 +989,21 @@ export default function DashboardPage() {
       const accountId: string = account.unshieldedAddress;
       const coinPublicKey = parseCoinPublicKeyToHex(shielded.shieldedCoinPublicKey as string, NETWORK_ID);
       const privateStateProvider = privateStateProviderFor(accountId, contractAddress);
-      const privateState = await getOrCreatePrivateState(accountId, contractAddress);
-      const contract = new Contract(witness as any);
-      const initial = contract.initialState(
-        createConstructorContext(privateState, coinPublicKey as any),
-        DEFAULT_SCORE_CONFIG,
-      );
-      const ctx = createCircuitContext(
-        contractAddress as any,
-        coinPublicKey,
-        initial.currentContractState.data,
-        privateState,
-      );
-      const { result: pkBytes } = contract.circuits.Utils_generateUserPk(ctx, privateState.secreteKey);
-      const pk = toHex(pkBytes);
+
+      // Fast path: skip the ZK circuit entirely if we've derived this key before.
+      const cachedPk = readCachedUserPk(accountId, contractAddress);
+      let pk: string;
+      if (cachedPk) {
+        console.log('Veil public key restored from cache.');
+        pk = cachedPk;
+      } else {
+        const privateState = await getOrCreatePrivateState(accountId, contractAddress);
+        pk = deriveUserPkDirect({
+          secreteKeyHex: bytesToHex(privateState.secreteKey),
+          contractAddress,
+        });
+        writeCachedUserPk(accountId, contractAddress, pk);
+      }
       joinedRef.current = {
         api: { deployedContractAddress: contractAddress },
         coinPublicKey,
@@ -980,8 +1013,8 @@ export default function DashboardPage() {
       setJoinedAddress(contractAddress);
       setIsMidnightJoined(false);
       setUserPk(pk);
-      console.log('Veil ID ready:', pk);
-      toast.success('Veil ID ready.');
+      console.log('Veil public key ready:', pk);
+      toast.success('Veil public key ready.');
       const foundLocal = await hydrateExistingScoreEntry(pk);
       if (!foundLocal) await hydrateBackendScoreEntry(pk);
     } catch (err) {
@@ -1015,6 +1048,7 @@ export default function DashboardPage() {
       localStorage.removeItem(pwKey);
       if (CONTRACT_ADDRESS) {
         localStorage.removeItem(legacyUserSecretsStorageKey(account.unshieldedAddress, CONTRACT_ADDRESS));
+        localStorage.removeItem(userPkCacheKey(account.unshieldedAddress, CONTRACT_ADDRESS));
       }
     } catch { /* best-effort */ }
     await new Promise<void>((resolve) => {
@@ -1472,9 +1506,9 @@ export default function DashboardPage() {
             sub={ckbAddress ? 'Pays for identity pass minting' : 'Connect to mint pass'}
           />
           <StatCard
-            label="Veil ID"
+            label="Veil Public Key"
             value={userPk ? `${userPk.slice(0, 10)}…${userPk.slice(-6)}` : undefined}
-            sub={userPk ? 'Ready for scoring' : isDeriving ? 'Creating your ID' : 'Start below'}
+            sub={userPk ? 'Ready for scoring' : isDeriving ? 'Creating your public key' : 'Start below'}
             shimmer={isDeriving}
           />
           <StatCard
@@ -1598,7 +1632,7 @@ export default function DashboardPage() {
           {joinedAddress && (
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <p className="text-sm font-bold text-foreground uppercase tracking-wide">Veil ID</p>
+                <p className="text-sm font-bold text-foreground uppercase tracking-wide">Veil Key</p>
                 {userPk && (
                   <button
                     onClick={() => void handleExportPrivateState()}
@@ -1625,7 +1659,7 @@ export default function DashboardPage() {
                   className="w-full rounded-sm px-4 py-3 text-sm font-black uppercase tracking-widest transition-transform hover:-translate-y-0.5 hover:opacity-95 disabled:translate-y-0 disabled:opacity-50"
                   style={{ background: 'var(--color-primary)', color: 'var(--color-primary-foreground)' }}
                 >
-                  Create Veil ID
+                  Create Veil Key
                 </button>
               )}
             </div>
