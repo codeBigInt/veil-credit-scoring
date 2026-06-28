@@ -1,0 +1,102 @@
+module Governance {
+    import CompactStandardLibrary;
+    import CustomStructs prefix CustomStructs_;
+    import GlobalLedgerStates prefix LedgerStates_;
+    import Utils prefix Utils_;
+
+    export circuit proposeScoreConfig(
+        _updatedScoreConfig: CustomStructs_ScoreConfig,
+        _currentEpoch: Uint<64>,
+        _governanceActionHash: Bytes<32>,
+        _governanceProofHash: Bytes<32>,
+        _governanceNonce: Bytes<32>
+    ): [] {
+        const updatedScoreConfig = disclose(_updatedScoreConfig);
+        Utils_assertScoreConfigValid(updatedScoreConfig);
+        assert (LedgerStates_governanceControllerCommitment != default<Bytes<32>>, "Governance controller not configured");
+        assert (disclose(_governanceNonce) != default<Bytes<32>>, "Invalid governance nonce");
+
+        const updatedConfigHash = Utils_deriveScoreConfigHashFor(updatedScoreConfig);
+        assert (
+            disclose(_governanceActionHash) == Utils_deriveGovernanceActionHash(
+                pad(32, "score-config"),
+                updatedConfigHash,
+                _currentEpoch
+            ),
+            "Invalid governance action"
+        );
+        assert (
+            disclose(_governanceProofHash) == Utils_deriveGovernanceProofHash(
+                LedgerStates_governanceControllerCommitment,
+                _governanceActionHash,
+                _governanceNonce
+            ),
+            "Invalid governance proof"
+        );
+
+        const replayKey = persistentHash<Vector<4, Bytes<32>>>([
+            pad(32, "veil:v2:governance:nonce"),
+            LedgerStates_governanceControllerCommitment,
+            disclose(_governanceNonce),
+            kernel.self().bytes
+        ]);
+        assert (!LedgerStates_processedProofs.member(replayKey), "Governance proof already used");
+        LedgerStates_processedProofs.insert(replayKey);
+
+        const executableAtEpoch = (disclose(_currentEpoch) + LedgerStates_configTimelockEpochs) as Uint<64>;
+        LedgerStates_pendingScoreConfig = CustomStructs_PendingScoreConfig {
+            config: updatedScoreConfig,
+            proposedByController: LedgerStates_governanceControllerCommitment,
+            proposedAtEpoch: disclose(_currentEpoch),
+            executableAtEpoch: executableAtEpoch
+        };
+        LedgerStates_hasPendingScoreConfig = true;
+    }
+
+    export circuit applyScoreConfig(_currentEpoch: Uint<64>): [] {
+        assert (LedgerStates_hasPendingScoreConfig, "No pending score config");
+        assert (disclose(_currentEpoch) >= LedgerStates_pendingScoreConfig.executableAtEpoch, "Score config timelock active");
+
+        Utils_assertScoreConfigValid(LedgerStates_pendingScoreConfig.config);
+        LedgerStates_scoreConfig = LedgerStates_pendingScoreConfig.config;
+        LedgerStates_hasPendingScoreConfig = false;
+    }
+
+    export circuit cancelScoreConfig(
+        _governanceActionHash: Bytes<32>,
+        _governanceProofHash: Bytes<32>,
+        _governanceNonce: Bytes<32>
+    ): [] {
+        assert (LedgerStates_governanceControllerCommitment != default<Bytes<32>>, "Governance controller not configured");
+        assert (LedgerStates_hasPendingScoreConfig, "No pending score config");
+        assert (disclose(_governanceNonce) != default<Bytes<32>>, "Invalid governance nonce");
+
+        assert (
+            disclose(_governanceActionHash) == Utils_deriveGovernanceActionHash(
+                pad(32, "cancel-config"),
+                default<Bytes<32>>,
+                LedgerStates_pendingScoreConfig.executableAtEpoch
+            ),
+            "Invalid governance action"
+        );
+        assert (
+            disclose(_governanceProofHash) == Utils_deriveGovernanceProofHash(
+                LedgerStates_governanceControllerCommitment,
+                _governanceActionHash,
+                _governanceNonce
+            ),
+            "Invalid governance proof"
+        );
+
+        const replayKey = persistentHash<Vector<4, Bytes<32>>>([
+            pad(32, "veil:v2:governance:nonce"),
+            LedgerStates_governanceControllerCommitment,
+            disclose(_governanceNonce),
+            kernel.self().bytes
+        ]);
+        assert (!LedgerStates_processedProofs.member(replayKey), "Governance proof already used");
+        LedgerStates_processedProofs.insert(replayKey);
+
+        LedgerStates_hasPendingScoreConfig = false;
+    }
+}

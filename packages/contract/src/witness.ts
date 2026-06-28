@@ -1,189 +1,96 @@
 import type {
-  CustomStructs_CreditScore,
-  CustomStructs_ScoreAccumulators,
+  CustomStructs_ReputationScore,
   Ledger,
 } from "./managed/veil-protocol/contract";
 import { MerkleTreePath, toHex, WitnessContext } from "@midnight-ntwrk/compact-runtime";
 
 export interface VeilPrivateState {
-    creditScores: Record<string, CustomStructs_CreditScore>,
-    scoreAmmulations: Record<string, CustomStructs_ScoreAccumulators>,
-    secreteKey: Uint8Array;
+  reputationScores: Record<string, CustomStructs_ReputationScore>;
 }
 
-export function createVeilPrivateState(secreteKey: Uint8Array): VeilPrivateState {
-    return {
-        secreteKey,
-        scoreAmmulations: {},
-        creditScores: {},
-    }
+export function createVeilPrivateState(): VeilPrivateState {
+  return {
+    reputationScores: {},
+  };
 }
-
-export const defaultCreditScore = {
-  score: 0n,                  
-  durationWeeks: 0n,          
-  lastComputedEpoch: 0n,      
-  repaymentRatio: 0n,         
-  liquidationCount: 0n,       
-  protocolsUsed: 0n,          
-  activeDebt: false,          
-  mtIndex: 0n,                
-};
 
 export const defaultMerkleTreePath = {
-  leaf: new Uint8Array(32),        
+  leaf: new Uint8Array(32),
   path: Array.from({ length: 32 }, () => ({
-    sibling: { field: 0n },        
-    goes_left: false,              
+    sibling: { field: 0n },
+    goes_left: false,
   })),
 };
 
-export const defaultScoreAccumulators = {
-  firstSeenEpoch: 0n,               
-  lastEventEpoch: 0n,               
-  lastComputedEpoch: 0n,            
-
-  onTimeCount: 0n,                  
-  lateCount: 0n,                    
-  weightedRepaymentVolume: 0n,      
-
-  liquidationCount: 0n,             
-  liquidationPenaltyPoints: 0n,     
-
-  distinctProtocols: 0n,            
-  activeDebtFlag: 0n,               
-  riskBand: 0n,                     
-  mtIndex: 0n,                      
+export const defaultReputationScore: CustomStructs_ReputationScore = {
+  veilIdHash: new Uint8Array(32),
+  score: 0n,
+  band: 0n,
+  walletAgeInDays: 0n,
+  distinctProtocols: 0n,
+  daoVoteCount: 0n,
+  lpTenureInDays: 0n,
+  crossChainCount: 0n,
+  txConsistencyScore: 0n,
+  ethChainCommitment: new Uint8Array(32),
+  ckbChainCommitment: new Uint8Array(32),
+  witnessCommitment: new Uint8Array(32),
+  proofHash: new Uint8Array(32),
+  lastUpdatedEpoch: 0n,
+  mtIndex: 0n,
 };
 
 export const witness = {
-    getLocalSecreteKey: ({ privateState }: WitnessContext<Ledger, VeilPrivateState>): [VeilPrivateState, Uint8Array] => {
-        return [privateState, privateState.secreteKey]
-    },
+  getReputationByVeilId: (
+    { privateState }: WitnessContext<Ledger, VeilPrivateState>,
+    veilIdHash: Uint8Array
+  ): [VeilPrivateState, { is_some: boolean; value: CustomStructs_ReputationScore }] => {
+    const key = toHex(veilIdHash);
+    const reputation = privateState.reputationScores[key];
 
-    getCreditScoreByPk: (
-        { privateState }: WitnessContext<Ledger, VeilPrivateState>,
-        userPk: Uint8Array
-    ): [VeilPrivateState, {is_some: boolean, value: CustomStructs_CreditScore}] => {
-        const strUserPk = toHex(userPk);
-        const creditScores = privateState.creditScores[strUserPk];
+    if (reputation) {
+      return [privateState, { is_some: true, value: reputation }];
+    }
 
-        if (creditScores) {
-            return [privateState, {
-                is_some: true,
-                value: creditScores
-            }]
-        } else {
-            return [privateState, {
-                is_some: false,
-                value: defaultCreditScore
-            }]
+    return [privateState, { is_some: false, value: defaultReputationScore }];
+  },
 
-        }
-    },
+  updatedReputation: (
+    { privateState }: WitnessContext<Ledger, VeilPrivateState>,
+    veilIdHash: Uint8Array,
+    reputation: CustomStructs_ReputationScore
+  ): [VeilPrivateState, []] => {
+    const key = toHex(veilIdHash);
 
-    updatedCreditScore: (
-        { privateState }: WitnessContext<Ledger, VeilPrivateState>,
-        userPk: Uint8Array,
-        updatedCreditScore: CustomStructs_CreditScore
-    ): [VeilPrivateState, []] => {
-        const strUserPk = toHex(userPk);
+    return [
+      {
+        ...privateState,
+        reputationScores: {
+          ...privateState.reputationScores,
+          [key]: reputation,
+        },
+      },
+      [],
+    ];
+  },
 
-        const newPrivateState: VeilPrivateState = {
-            ...privateState,
-            creditScores: {
-                ...privateState.creditScores,
-                [strUserPk]: updatedCreditScore
-            }
-        }
+  verifyReputationCommitment: (
+    { privateState, ledger }: WitnessContext<Ledger, VeilPrivateState>,
+    commitmentHash: Uint8Array
+  ): [VeilPrivateState, { is_some: boolean; value: MerkleTreePath<Uint8Array> }] => {
+    const path = ledger.LedgerStates_reputationCommitments.findPathForLeaf(commitmentHash);
 
-        return [newPrivateState, []]
-    },
+    if (path) {
+      return [privateState, { is_some: true, value: path }];
+    }
 
-    getAccumulatedScoreByPk: (
-        { privateState }: WitnessContext<Ledger, VeilPrivateState>,
-        userPk: Uint8Array
-    ): [VeilPrivateState, {is_some: boolean, value: CustomStructs_ScoreAccumulators}] => {
-        const strUserPk = toHex(userPk);
-        const accumulatedScore = privateState.scoreAmmulations[strUserPk];
+    return [privateState, { is_some: false, value: defaultMerkleTreePath }];
+  },
 
-        if (accumulatedScore) {
-            return [privateState, {
-                is_some: true,
-                value: accumulatedScore
-            }]
-        } else {
-            return [privateState, {
-                is_some: false,
-                value: defaultScoreAccumulators
-            }]
-
-        }
-    },
-
-    updatedAccumulatedScore: (
-        { privateState }: WitnessContext<Ledger, VeilPrivateState>,
-        userPk: Uint8Array,
-        updatedAccumulatedScore: CustomStructs_ScoreAccumulators
-    ): [VeilPrivateState, []] => {
-        const strUserPk = toHex(userPk);
-
-        const newPrivateState: VeilPrivateState = {
-            ...privateState,
-            scoreAmmulations: {
-                ...privateState.scoreAmmulations,
-                [strUserPk]: updatedAccumulatedScore
-            }
-        }
-
-        return [newPrivateState, []]
-    },
-
-    verifyScoreCommitment: (
-        { privateState, ledger }: WitnessContext<Ledger, VeilPrivateState>,
-        commitmentHash: Uint8Array
-    ): [VeilPrivateState, {is_some: boolean, value: MerkleTreePath<Uint8Array>}] => {
-        const path = ledger.LedgerStates_creditScoreCommitments.findPathForLeaf(commitmentHash);
-
-        if (path) {
-            return [privateState, {
-                is_some: true,
-                value: path
-            }]
-        } else {
-            return [privateState, {
-                is_some: false,
-                value: defaultMerkleTreePath
-            }]
-
-        }
-    },
-
-     verifyAggregatCommitment: (
-        { privateState, ledger }: WitnessContext<Ledger, VeilPrivateState>,
-        commitmentHash: Uint8Array
-    ): [VeilPrivateState, {is_some: boolean, value: MerkleTreePath<Uint8Array>}] => {
-        const path = ledger.LedgerStates_scoreAccumulatorCommitments.findPathForLeaf(commitmentHash);
-
-        if (path) {
-            return [privateState, {
-                is_some: true,
-                value: path
-            }]
-        } else {
-            return [privateState, {
-                is_some: false,
-                value: defaultMerkleTreePath
-            }]
-        }
-    },
-
-    getFirstFreeCreditScoreIndex: ({ privateState, ledger}: WitnessContext<Ledger, VeilPrivateState>): [VeilPrivateState, bigint] => {
-        return [privateState, ledger.LedgerStates_creditScoreCommitments.firstFree()]
-    },
-
-    getFirstFreeAccumulatorIndex: ({ privateState, ledger}: WitnessContext<Ledger, VeilPrivateState>): [VeilPrivateState, bigint] => {
-        return [privateState, ledger.LedgerStates_scoreAccumulatorCommitments.firstFree()]
-    },
-
-};  
+  getFirstFreeReputationIndex: ({
+    privateState,
+    ledger,
+  }: WitnessContext<Ledger, VeilPrivateState>): [VeilPrivateState, bigint] => {
+    return [privateState, ledger.LedgerStates_reputationCommitments.firstFree()];
+  },
+};

@@ -4,611 +4,126 @@ import {
   type CompiledContract,
   type Contract as CompactContract,
 } from "@midnight-ntwrk/compact-js";
-import { fromHex, toHex } from "@midnight-ntwrk/compact-runtime";
 import { createCircuitMaintenanceTxInterface } from "@midnight-ntwrk/midnight-js-contracts";
 import { indexerPublicDataProvider } from "@midnight-ntwrk/midnight-js-indexer-public-data-provider";
 import { NodeZkConfigProvider } from "@midnight-ntwrk/midnight-js-node-zk-config-provider";
 import { httpClientProofProvider } from "@midnight-ntwrk/midnight-js-http-client-proof-provider";
 import type { EnvironmentConfiguration } from "@midnight-ntwrk/testkit-js";
 import { DynamicContractAPI, type DynamicProviders, utils } from "nite-api";
-import type { Logger } from "pino";
 import type { Collection, Db } from "mongodb";
+import type { Logger } from "pino";
 import {
   Contract as VeilContractClass,
   createVeilPrivateState,
   witness,
-  type Witnesses as VeilWitnesses,
+  type CustomStructs_ScoreConfig,
   type VeilPrivateState,
-} from "../contract-build/index.js";
+  type Witnesses as VeilWitnesses,
+} from "@veil/veil-contract";
 import {
   Contract as VeilBootstrapContractClass,
   type Witnesses as VeilBootstrapWitnesses,
-} from "../contract-build/managed/veil-protocol-bootstrap/contract/index.js";
+} from "@veil/veil-contract/bootstrap";
 
 import type { BackendConfig } from "../config.js";
-import { BackendWalletProvider } from "./wallet-service.js";
+import { BackendWalletProvider, type SponsorCapacity, type SponsorshipResult } from "./wallet-service.js";
 import { MongoPrivateStateProvider } from "./mongo-private-state-provider.js";
-import { bytesFrom0xHex32 } from "../did-utils.js";
 
-type VeilContract = VeilContractClass<
-  VeilPrivateState,
-  VeilWitnesses<VeilPrivateState>
->;
-type VeilAPI = DynamicContractAPI<VeilContract, "veil_ps">;
+const PRIVATE_STATE_ID = "veil_ps";
+const GOVERNANCE_TIMELOCK_EPOCHS = 10n;
+
+type VeilContract = VeilContractClass<VeilPrivateState, VeilWitnesses<VeilPrivateState>>;
 type VeilBootstrapContract = VeilBootstrapContractClass<
   VeilPrivateState,
   VeilBootstrapWitnesses<VeilPrivateState>
 >;
 
-const BOOTSTRAP_CONTRACT_CIRCUITS = [
-  "Utils_generateUserPk",
-  "Admin_addIssuer",
-  "Admin_removeIssuer",
-  "Admin_addAdmin",
-  "Admin_removeAdmin",
-  "Admin_updatedScoreConfig"
-] as const;
-
 const FULL_CONTRACT_CIRCUITS = [
-  "Utils_generateUserPk",
-  "Scoring_submitRepaymentEvent",
-  "Scoring_submitLiquidationEvent",
-  "Scoring_submitProtocolUsageEvent",
-  "Scoring_submitDebtStateEvent",
-  "Scoring_createScoreEntry",
-  "Admin_addIssuer",
-  "Admin_removeIssuer",
-  "Admin_addAdmin",
-  "Admin_removeAdmin",
-  "Admin_updatedScoreConfig",
-  "DIDRegistry_register",
-  "DIDRegistry_assertActive",
-  "DIDRegistry_rotateVerificationMethod",
-  "DIDRegistry_revoke",
+  "Utils_deriveVeilId",
+  "Utils_deriveIdentityProofHash",
+  "Utils_deriveScoreConfigHash",
+  "Utils_deriveScoreConfigHashFor",
+  "Utils_deriveReputationProofHash",
+  "Utils_deriveGovernanceActionHash",
+  "Utils_deriveGovernanceProofHash",
+  "Utils_deriveBand",
+  "Identity_register",
+  "Identity_assertActive",
+  "Reputation_prove",
+  "Reputation_check",
+  "Governance_proposeScoreConfig",
+  "Governance_applyScoreConfig",
+  "Governance_cancelScoreConfig",
 ] as const;
 
-const BOOTSTRAP_CONTRACT_CIRCUIT_SET = new Set<string>(BOOTSTRAP_CONTRACT_CIRCUITS);
+const BOOTSTRAP_CONTRACT_CIRCUITS = [
+  "Utils_deriveVeilId",
+  "Utils_deriveIdentityProofHash",
+  "Identity_register",
+  "Identity_assertActive",
+  "Reputation_prove",
+  "Reputation_check",
+  "Governance_proposeScoreConfig",
+  "Governance_applyScoreConfig",
+  "Governance_cancelScoreConfig",
+] as const;
 
-const POST_BOOTSTRAP_CONTRACT_CIRCUITS = FULL_CONTRACT_CIRCUITS.filter(
-  (circuitId) => !BOOTSTRAP_CONTRACT_CIRCUIT_SET.has(circuitId),
-);
+const POST_BOOTSTRAP_CONTRACT_CIRCUITS = [
+  "Utils_deriveScoreConfigHash",
+  "Utils_deriveScoreConfigHashFor",
+  "Utils_deriveReputationProofHash",
+  "Utils_deriveGovernanceActionHash",
+  "Utils_deriveGovernanceProofHash",
+  "Utils_deriveBand",
+] as const;
 
-const DEFAULT_SCORE_CONFIG = {
-  baseScore: 350n,
+const DEFAULT_SCORE_CONFIG: CustomStructs_ScoreConfig = {
+  baseScore: 300n,
   maxScore: 900n,
-  scale: 100n,
-  repaymentWeight: 2n,
-  protocolWeight: 10n,
-  tenureWeight: 1n,
-  liquidationWeight: 3n,
-  activeDebtPenalty: 5n,
-  riskBandWeight: 5n,
+  walletAgeWeight: 3n,
+  protocolWeight: 15n,
+  daoWeight: 20n,
+  lpWeight: 10n,
+  crossChainWeight: 25n,
+  consistencyWeight: 5n,
+  bronzeThreshold: 400n,
+  silverThreshold: 550n,
+  goldThreshold: 700n,
+  platinumThreshold: 820n,
 };
 
-const stripHexPrefix = (value: string): string => value.startsWith("0x") || value.startsWith("0X")
-  ? value.slice(2)
-  : value;
-const bytesFromHex = (value: string): Uint8Array => fromHex(stripHexPrefix(value));
-
-export type ContractCallResult = {
-  readonly circuit: string;
-  readonly txHash?: string;
-  readonly contractAddress: string;
-  readonly raw: unknown;
-};
-
-export type CreditDecision = {
-  readonly approved: boolean;
-  readonly scoreBand: "unranked" | "bronze" | "silver" | "gold" | "platinum";
-  readonly maxLtvBps: number;
-  readonly riskPremiumBps: number;
-  readonly hasCreditScore: boolean;
-  readonly reason: string;
-  readonly veilIdHash: string;
-  readonly validAt: string;
-};
-
-export type ScoreEntryStatus = {
-  readonly exists: boolean;
-  readonly hasAccumulator: boolean;
-  readonly hasCreditScore: boolean;
-};
+const DEFAULT_GOVERNANCE_CONTROLLER_COMMITMENT = new Uint8Array([
+  1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+]);
 
 type ContractDeploymentRecord = {
   readonly key: "active";
   readonly contractAddress: string;
   readonly deployedBy: "backend";
-  readonly superAdminSource: "VEIL_BACKEND_WALLET_SEED";
+  readonly source: "env" | "mongo" | "backend-deploy";
   readonly createdAt: Date;
   readonly updatedAt: Date;
 };
 
-export class ContractService {
-  private api?: VeilAPI;
-  private readonly deployments: Collection<ContractDeploymentRecord>;
-
-  private constructor(
-    private readonly config: BackendConfig,
-    private readonly env: EnvironmentConfiguration,
-    private readonly db: Db,
-    private readonly logger: Logger,
-    private readonly walletProvider: BackendWalletProvider,
-  ) {
-    this.deployments = db.collection<ContractDeploymentRecord>("veil_contract_deployments");
-  }
-
-  static async build(
-    config: BackendConfig,
-    env: EnvironmentConfiguration,
-    db: Db,
-    logger: Logger,
-  ): Promise<ContractService> {
-    const walletProvider = await BackendWalletProvider.build(
-      logger,
-      env,
-      config.walletSeed,
-    );
-    await walletProvider.start();
-    walletProvider.startWalletStateCache();
-    await walletProvider.waitForReadyFunds();
-
-    const service = new ContractService(
-      config,
-      env,
-      db,
-      logger,
-      walletProvider,
-    );
-    await service.initContractApi();
-    return service;
-  }
-
-  async stop(): Promise<void> {
-    await this.walletProvider.stop();
-  }
-
-  async createScoreEntry(userPk: Uint8Array): Promise<ContractCallResult> {
-    return this.call("Scoring_createScoreEntry", userPk);
-  }
-
-  async registerDid(input: {
-    readonly userPk: Uint8Array;
-    readonly veilIdHash: string;
-    readonly sporeIdHash: string;
-    readonly ckbOwnerLockHash: string;
-    readonly recoveryCommitment?: string;
-    readonly currentEpoch?: bigint;
-  }): Promise<ContractCallResult> {
-    return this.call(
-      "DIDRegistry_register",
-      input.userPk,
-      bytesFrom0xHex32(input.veilIdHash, "veilIdHash"),
-      bytesFrom0xHex32(input.sporeIdHash, "sporeIdHash"),
-      bytesFrom0xHex32(input.ckbOwnerLockHash, "ckbOwnerLockHash"),
-      bytesFrom0xHex32(input.recoveryCommitment ?? ZERO_BYTES32, "recoveryCommitment"),
-      input.currentEpoch ?? BigInt(Date.now()),
-    );
-  }
-
-  async assertDidActive(input: {
-    readonly veilIdHash: string;
-    readonly sporeIdHash: string;
-    readonly ckbOwnerLockHash: string;
-  }): Promise<ContractCallResult> {
-    return this.call(
-      "DIDRegistry_assertActive",
-      bytesFrom0xHex32(input.veilIdHash, "veilIdHash"),
-      bytesFrom0xHex32(input.sporeIdHash, "sporeIdHash"),
-      bytesFrom0xHex32(input.ckbOwnerLockHash, "ckbOwnerLockHash"),
-    );
-  }
-
-  async submitRepaymentEvent(input: {
-    userPk: Uint8Array;
-    issuerPk: Uint8Array;
-    paidOnTimeFlag: bigint;
-    amountWeight: bigint;
-    eventEpoch: bigint;
-    eventId: Uint8Array;
-  }): Promise<ContractCallResult> {
-    return this.call(
-      "Scoring_submitRepaymentEvent",
-      input.userPk,
-      input.issuerPk,
-      input.paidOnTimeFlag,
-      input.amountWeight,
-      input.eventEpoch,
-      input.eventId,
-    );
-  }
-
-  async submitLiquidationEvent(input: {
-    userPk: Uint8Array;
-    issuerPk: Uint8Array;
-    severity: bigint;
-    eventEpoch: bigint;
-    eventId: Uint8Array;
-  }): Promise<ContractCallResult> {
-    return this.call(
-      "Scoring_submitLiquidationEvent",
-      input.userPk,
-      input.issuerPk,
-      input.severity,
-      input.eventEpoch,
-      input.eventId,
-    );
-  }
-
-  async submitProtocolUsageEvent(input: {
-    userPk: Uint8Array;
-    issuerPk: Uint8Array;
-    protocolId: Uint8Array;
-    eventEpoch: bigint;
-  }): Promise<ContractCallResult> {
-    return this.call(
-      "Scoring_submitProtocolUsageEvent",
-      input.userPk,
-      input.issuerPk,
-      input.protocolId,
-      input.eventEpoch,
-    );
-  }
-
-  async submitDebtStateEvent(input: {
-    userPk: Uint8Array;
-    issuerPk: Uint8Array;
-    activeDebtFlag: bigint;
-    riskBand: bigint;
-    eventEpoch: bigint;
-    eventId: Uint8Array;
-  }): Promise<ContractCallResult> {
-    return this.call(
-      "Scoring_submitDebtStateEvent",
-      input.userPk,
-      input.issuerPk,
-      input.activeDebtFlag,
-      input.riskBand,
-      input.eventEpoch,
-      input.eventId,
-    );
-  }
-
-  async createCreditDecision(userPk: Uint8Array, veilIdHash: string): Promise<CreditDecision> {
-    if (!this.api) {
-      throw new Error('Contract service has not joined the deployed contract yet.');
-    }
-
-    const privateState = await this.api.providers.privateStateProvider.get(
-      this.config.privateStateId,
-    );
-    if (!privateState) {
-      throw new Error("No backend private state found for the Veil contract");
-    }
-
-    const score = privateState.creditScores[toHex(userPk)] ?? null;
-    return decisionFromScore(score?.score, veilIdHash);
-  }
-
-  async getScoreEntryStatus(userPk: Uint8Array): Promise<ScoreEntryStatus> {
-    if (!this.api) {
-      throw new Error('Contract service has not joined the deployed contract yet.');
-    }
-
-    const privateState = await this.api.providers.privateStateProvider.get(
-      this.config.privateStateId,
-    );
-    if (!privateState) {
-      return {
-        exists: false,
-        hasAccumulator: false,
-        hasCreditScore: false,
-      };
-    }
-
-    const key = toHex(userPk);
-    const hasAccumulator = privateState.scoreAmmulations?.[key] != null;
-    const hasCreditScore = privateState.creditScores?.[key] != null;
-
-    return {
-      exists: hasAccumulator || hasCreditScore,
-      hasAccumulator,
-      hasCreditScore,
-    };
-  }
-
-  contractAddress(): string {
-    if (!this.api) {
-      throw new Error("Contract service has not initialized the contract API yet.");
-    }
-    return this.api.deployedContractAddress;
-  }
-
-  private async initContractApi(): Promise<void> {
-    const compiledContract = this.compiledContract();
-    const providers = await this.providers();
-    const contractAddress = await this.resolveContractAddress(providers, compiledContract);
-
-    this.api = await DynamicContractAPI.join<VeilContract, "veil_ps">({
-      providers,
-      compiledContract,
-      contractAddress,
-      privateStateId: this.config.privateStateId,
-      initialPrivateState: createVeilPrivateState(
-        bytesFromHex(this.config.walletSeed),
-      ),
-      logger: this.logger,
-    });
-  }
-
-  private async resolveContractAddress(
-    providers: DynamicProviders<VeilContract, "veil_ps">,
-    compiledContract: CompiledContract.CompiledContract<any, any>,
-  ): Promise<string> {
-    if (this.config.contractAddress) {
-      await this.saveDeployment(this.config.contractAddress);
-      this.logger.info(`Using configured Veil contract address ${this.config.contractAddress}`);
-      return this.config.contractAddress;
-    }
-
-    const saved = await this.deployments.findOne({ key: "active" });
-    if (saved?.contractAddress) {
-      this.logger.info(`Using saved Veil contract address ${saved.contractAddress}`);
-      return saved.contractAddress;
-    }
-
-    if (!this.config.autoDeploy) {
-      throw new Error(
-        "VEIL_CONTRACT_ADDRESS is not set and no saved backend deployment exists. Set VEIL_AUTO_DEPLOY=true to deploy from the backend wallet.",
-      );
-    }
-
-    await assertZkArtifacts(
-      this.config.bootstrapZkConfigPath,
-      BOOTSTRAP_CONTRACT_CIRCUITS,
-      "bootstrap contract",
-    );
-    await assertZkArtifacts(
-      this.config.zkConfigPath,
-      FULL_CONTRACT_CIRCUITS,
-      "full contract",
-    );
-    const api = await this.deployBootstrapThenInstallFullContract(
-      providers,
-      compiledContract,
-    );
-    await this.saveDeployment(api.deployedContractAddress);
-    return api.deployedContractAddress;
-  }
-
-  private async deployBootstrapWithBackendSuperAdmin(
-    providers: DynamicProviders<VeilContract, "veil_ps">,
-    compiledContract: CompiledContract.CompiledContract<any, any>,
-  ): Promise<{ readonly deployedContractAddress: string }> {
-    this.logger.info("Deploying bootstrap Veil contract from backend wallet. Backend wallet seed will derive the contract super admin.");
-    const api = await DynamicContractAPI.deploy<VeilBootstrapContract, "veil_ps">({
-      providers: providers as any,
-      compiledContract,
-      privateStateId: this.config.privateStateId,
-      initialPrivateState: createVeilPrivateState(bytesFromHex(this.config.walletSeed)),
-      args: [DEFAULT_SCORE_CONFIG],
-      logger: this.logger,
-    });
-    this.logger.info(`Deployed bootstrap Veil contract at ${api.deployedContractAddress}`);
-    return api;
-  }
-
-  private async deployBootstrapThenInstallFullContract(
-    providers: DynamicProviders<VeilContract, "veil_ps">,
-    fullCompiledContract: CompiledContract.CompiledContract<any, any>,
-  ): Promise<VeilAPI> {
-    const bootstrapProviders = this.withZkConfigPath(
-      providers,
-      this.config.bootstrapZkConfigPath,
-    );
-    const bootstrapApi = await this.deployBootstrapWithBackendSuperAdmin(
-      bootstrapProviders,
-      this.compiledBootstrapContract(),
-    );
-
-    await this.installPostBootstrapVerifierKeys(
-      providers,
-      fullCompiledContract,
-      bootstrapApi.deployedContractAddress,
-    );
-
-    return DynamicContractAPI.join<VeilContract, "veil_ps">({
-      providers,
-      compiledContract: fullCompiledContract,
-      contractAddress: bootstrapApi.deployedContractAddress,
-      privateStateId: this.config.privateStateId,
-      initialPrivateState: createVeilPrivateState(
-        bytesFromHex(this.config.walletSeed),
-      ),
-      logger: this.logger,
-    });
-  }
-
-  private async installPostBootstrapVerifierKeys(
-    providers: DynamicProviders<VeilContract, "veil_ps">,
-    fullCompiledContract: CompiledContract.CompiledContract<any, any>,
-    contractAddress: string,
-  ): Promise<void> {
-    for (const circuitId of POST_BOOTSTRAP_CONTRACT_CIRCUITS) {
-      const [[, verifierKey]] = await providers.zkConfigProvider.getVerifierKeys([
-        circuitId,
-      ]);
-      const contractState = await providers.publicDataProvider.queryContractState(
-        contractAddress,
-      );
-      const maintenanceTx = createCircuitMaintenanceTxInterface(
-        providers as any,
-        circuitId as any,
-        fullCompiledContract,
-        contractAddress,
-      );
-
-      if (contractState?.operation(circuitId) != null) {
-        this.logger.info({ circuitId }, "Replacing existing verifier key");
-        await maintenanceTx.removeVerifierKey();
-      }
-
-      this.logger.info({ circuitId }, "Installing verifier key with contract maintenance authority");
-      await maintenanceTx.insertVerifierKey(verifierKey);
-    }
-  }
-
-  private async saveDeployment(contractAddress: string): Promise<void> {
-    const now = new Date();
-    await this.deployments.updateOne(
-      { key: "active" },
-      {
-        $setOnInsert: {
-          key: "active",
-          deployedBy: "backend",
-          superAdminSource: "VEIL_BACKEND_WALLET_SEED",
-          createdAt: now,
-        },
-        $set: {
-          contractAddress,
-          updatedAt: now,
-        },
-      },
-      { upsert: true },
-    );
-  }
-
-  private async providers(): Promise<
-    DynamicProviders<VeilContract, "veil_ps">
-  > {
-    const zkConfigProvider = new NodeZkConfigProvider<
-      CompactContract.ProvableCircuitId<VeilContract>
-    >(this.config.zkConfigPath);
-    const accountId = (await this.walletProvider.wallet.unshielded.getAddress())
-      .hexString;
-    const privateStateProvider = new MongoPrivateStateProvider<
-      "veil_ps",
-      VeilPrivateState
-    >({
-      db: this.db,
-      accountId,
-      privateStateCollectionName: "veil_private_states",
-      signingKeyCollectionName: "veil_signing_keys",
-    });
-    await privateStateProvider.init();
-
-    return {
-      privateStateProvider,
-      publicDataProvider: indexerPublicDataProvider(
-        this.env.indexer,
-        this.env.indexerWS,
-      ),
-      zkConfigProvider,
-      proofProvider: httpClientProofProvider(
-        this.env.proofServer,
-        zkConfigProvider,
-      ),
-      walletProvider: this.walletProvider,
-      midnightProvider: this.walletProvider,
-    };
-  }
-
-  private withZkConfigPath(
-    providers: DynamicProviders<VeilContract, "veil_ps">,
-    zkConfigPath: string,
-  ): DynamicProviders<VeilContract, "veil_ps"> {
-    const zkConfigProvider = new NodeZkConfigProvider<
-      CompactContract.ProvableCircuitId<VeilContract>
-    >(zkConfigPath);
-
-    return {
-      ...providers,
-      zkConfigProvider,
-      proofProvider: httpClientProofProvider(
-        this.env.proofServer,
-        zkConfigProvider,
-      ),
-    };
-  }
-
-  private compiledContract(): CompiledContract.CompiledContract<any, any> {
-    return utils.createCompiledContract<VeilContract>(
-      "veil-protocol",
-      VeilContractClass,
-      witness as any,
-      this.config.zkConfigPath,
-    ) as CompiledContract.CompiledContract<any, any>;
-  }
-
-  private compiledBootstrapContract(): CompiledContract.CompiledContract<any, any> {
-    return utils.createCompiledContract<VeilBootstrapContract>(
-      "veil-protocol-bootstrap",
-      VeilBootstrapContractClass as any,
-      witness as any,
-      this.config.bootstrapZkConfigPath,
-    ) as CompiledContract.CompiledContract<any, any>;
-  }
-
-  private async call(
-    circuit: string,
-    ...args: unknown[]
-  ): Promise<ContractCallResult> {
-    if (!this.api) {
-      throw new Error(
-        "Contract service has not joined the deployed contract yet.",
-      );
-    }
-
-    this.logger.info({ circuit }, "Submitting contract transaction");
-    const raw = await this.api.callTx(circuit as never, ...(args as never[]));
-    return {
-      circuit,
-      contractAddress: this.api.deployedContractAddress,
-      txHash: extractTxHash(raw),
-      raw,
-    };
-  }
-}
-
-const extractTxHash = (raw: unknown): string | undefined => {
-  if (!raw || typeof raw !== "object") return undefined;
-  const record = raw as Record<string, unknown>;
-  const direct = record.txHash;
-  if (typeof direct === "string") return direct;
-  const publicData = record.public;
-  if (publicData && typeof publicData === "object") {
-    const publicTxHash = (publicData as Record<string, unknown>).txHash;
-    if (typeof publicTxHash === "string") return publicTxHash;
-  }
-  return undefined;
-};
-
-const ZERO_BYTES32 = "0x0000000000000000000000000000000000000000000000000000000000000000";
-
-const assertNoDeprecatedPotCircuits = (): void => {
-  const contract = new VeilContractClass(witness as any);
-  const circuits = contract.impureCircuits as Record<string, unknown>;
-  const deprecated = [
-    "NFT_mintPoTNFT",
-    "NFT_renewPoTNFT",
-    "NFT_verifyPoTNFT",
-  ].filter((name) => name in circuits);
-
-  if (deprecated.length > 0) {
-    throw new Error(
-      [
-        "Refusing to auto-deploy stale generated Veil contract artifacts.",
-        `Deprecated PoT circuits are still present: ${deprecated.join(", ")}`,
-        "Regenerate Compact artifacts after removing PoT exports, then rebuild the backend.",
-        "Expected command: `bun --filter @veil/veil-contract compile` followed by rebuilding/copying backend contract artifacts.",
-      ].join(" "),
-    );
-  }
+type DustSponsorshipRecord = {
+  readonly dustAddress: string;
+  readonly txId: string;
+  readonly utxoIds: string[];
+  readonly requiredDust: string;
+  readonly estimatedGeneratedDust: string;
+  readonly registrationFee: string;
+  readonly status: "active" | "reclaiming" | "reclaimed" | "reclaim_failed";
+  readonly reclaimTxId?: string;
+  readonly createdAt: Date;
+  readonly expiresAt: Date;
+  readonly updatedAt: Date;
 };
 
 const assertZkArtifacts = async (
   zkConfigPath: string,
   circuitIds: readonly string[],
-  label = "contract",
+  label: string,
 ): Promise<void> => {
   const missing: string[] = [];
 
@@ -632,7 +147,7 @@ const assertZkArtifacts = async (
     throw new Error(
       [
         `Missing ${label} ZK artifacts required for backend contract deployment.`,
-        "Run `bun --filter @veil/veil-contract compile` before deploying from the backend.",
+        "Run `bun --filter @veil/veil-contract compile && bun --filter @veil/veil-contract build` before deploying.",
         "Do not use `test:compile` for deployable artifacts because it uses `--skip-zk`.",
         `Missing files:\n${missing.map((file) => `- ${file}`).join("\n")}`,
       ].join("\n"),
@@ -640,81 +155,369 @@ const assertZkArtifacts = async (
   }
 };
 
-const decisionFromScore = (score: bigint | undefined, veilIdHash: string): CreditDecision => {
-  const value = score == null ? undefined : Number(score);
-  if (value == null || !Number.isFinite(value)) {
+export class ContractService {
+  private activeContractAddress?: string;
+  private deploymentPromise?: Promise<string>;
+  private readonly deployments: Collection<ContractDeploymentRecord>;
+  private readonly dustSponsorships: Collection<DustSponsorshipRecord>;
+  private reclaimTimer?: NodeJS.Timeout;
+
+  private constructor(
+    private readonly config: BackendConfig,
+    private readonly env: EnvironmentConfiguration,
+    private readonly db: Db,
+    private readonly logger: Logger,
+    private readonly walletProvider: BackendWalletProvider,
+    private readonly sponsorWalletProvider: BackendWalletProvider,
+  ) {
+    this.deployments = db.collection<ContractDeploymentRecord>("veil_contract_deployments");
+    this.dustSponsorships = db.collection<DustSponsorshipRecord>("veil_dust_sponsorships");
+  }
+
+  static async build(
+    config: BackendConfig,
+    env: EnvironmentConfiguration,
+    db: Db,
+    logger: Logger,
+  ): Promise<ContractService> {
+    const walletProvider = await BackendWalletProvider.build(
+      logger,
+      env,
+      config.walletSeed,
+      "operating",
+    );
+    await walletProvider.start();
+    walletProvider.startWalletStateCache();
+    await walletProvider.waitForReadyFunds({ generateOperatingDust: true });
+
+    const sponsorWalletProvider = await BackendWalletProvider.build(
+      logger,
+      env,
+      config.sponsorWalletSeed,
+      "sponsor",
+    );
+    await sponsorWalletProvider.start();
+    sponsorWalletProvider.startWalletStateCache();
+    await sponsorWalletProvider.waitForReadyFunds({
+      generateOperatingDust: false,
+      requireFunds: false,
+    });
+
+    const service = new ContractService(config, env, db, logger, walletProvider, sponsorWalletProvider);
+    await service.initContractAddress();
+    await service.initDustSponsorships();
+    service.startSponsorshipReclaimer();
+    return service;
+  }
+
+  async stop(): Promise<void> {
+    await Promise.all([
+      this.walletProvider.stop(),
+      this.sponsorWalletProvider.stop(),
+    ]);
+    if (this.reclaimTimer) clearInterval(this.reclaimTimer);
+  }
+
+  /**
+   * Delegates a user's DUST address to the backend wallet for DUST generation.
+   * DUST cannot be transferred directly; sponsorship registers backend NIGHT
+   * liquidity so generated DUST flows to the user's address.
+   */
+  async sponsorDust(dustAddress: string, requiredDust?: bigint): Promise<SponsorshipResult | null> {
+    const now = new Date();
+    const existing = await this.dustSponsorships.findOne({
+      dustAddress,
+      status: "active",
+      expiresAt: { $gt: now },
+    });
+    if (existing) {
+      return {
+        txId: existing.txId,
+        selectedUtxos: existing.utxoIds.length,
+        utxoIds: existing.utxoIds,
+        requiredDust: existing.requiredDust,
+        estimatedGeneratedDust: existing.estimatedGeneratedDust,
+        registrationFee: existing.registrationFee,
+        expiresAt: existing.expiresAt.toISOString(),
+        reused: true,
+      };
+    }
+
+    await this.reclaimExpiredSponsorships(25);
+
+    const sponsorship = await this.sponsorWalletProvider.sponsorDustFor(dustAddress, this.env.walletNetworkId, {
+      requiredDust: requiredDust ?? this.config.sponsorDefaultRequiredDust,
+    });
+    if (sponsorship == null) {
+      await this.reclaimExpiredSponsorships(25);
+      return null;
+    }
+
+    const expiresAt = new Date(now.getTime() + this.config.sponsorAllocationTtlMs);
+    await this.dustSponsorships.insertOne({
+      dustAddress,
+      txId: sponsorship.txId,
+      utxoIds: sponsorship.utxoIds,
+      requiredDust: sponsorship.requiredDust,
+      estimatedGeneratedDust: sponsorship.estimatedGeneratedDust,
+      registrationFee: sponsorship.registrationFee,
+      status: "active",
+      createdAt: now,
+      expiresAt,
+      updatedAt: now,
+    });
+
     return {
-      approved: false,
-      scoreBand: "unranked",
-      maxLtvBps: 0,
-      riskPremiumBps: 0,
-      hasCreditScore: false,
-      reason: "No computed credit score is available yet.",
-      veilIdHash,
-      validAt: new Date().toISOString(),
+      ...sponsorship,
+      expiresAt: expiresAt.toISOString(),
+      reused: false,
     };
   }
 
-  if (value >= 800) {
+  async sponsorStatus(): Promise<{
+    available: boolean;
+    allocationTtlMs: number;
+    reclaimIntervalMs: number;
+    capacity: SponsorCapacity;
+    activeAllocations: number;
+    expiringSoon: number;
+  }> {
+    const now = new Date();
+    const soon = new Date(now.getTime() + this.config.sponsorAllocationTtlMs);
+    const [capacity, activeAllocations, expiringSoon] = await Promise.all([
+      this.sponsorWalletProvider.sponsorCapacity(),
+      this.dustSponsorships.countDocuments({ status: "active", expiresAt: { $gt: now } }),
+      this.dustSponsorships.countDocuments({ status: "active", expiresAt: { $gt: now, $lte: soon } }),
+    ]);
+
     return {
-      approved: true,
-      scoreBand: "platinum",
-      maxLtvBps: 7800,
-      riskPremiumBps: 80,
-      hasCreditScore: true,
-      reason: "Credit score meets platinum risk policy.",
-      veilIdHash,
-      validAt: new Date().toISOString(),
+      available: capacity.freeNightUtxos > 0,
+      allocationTtlMs: this.config.sponsorAllocationTtlMs,
+      reclaimIntervalMs: this.config.sponsorReclaimIntervalMs,
+      capacity,
+      activeAllocations,
+      expiringSoon,
     };
   }
 
-  if (value >= 700) {
+  contractAddress(): string | undefined {
+    return this.activeContractAddress;
+  }
+
+  deploymentEnabled(): boolean {
+    return this.config.autoDeploy;
+  }
+
+  async deployContract(): Promise<string> {
+    if (this.activeContractAddress) return this.activeContractAddress;
+    this.deploymentPromise ??= this.deployAndJoin().finally(() => {
+      this.deploymentPromise = undefined;
+    });
+    return this.deploymentPromise;
+  }
+
+  private async initContractAddress(): Promise<void> {
+    await this.deployments.createIndex({ key: 1 }, { unique: true });
+
+    if (this.config.contractAddress) {
+      this.activeContractAddress = this.config.contractAddress;
+      await this.saveDeployment(this.config.contractAddress, "env");
+      return;
+    }
+
+    const saved = await this.deployments.findOne({ key: "active" });
+    if (saved?.contractAddress) {
+      this.activeContractAddress = saved.contractAddress;
+      return;
+    }
+
+    if (this.config.autoDeploy) {
+      this.activeContractAddress = await this.deployContract();
+    }
+  }
+
+  private async initDustSponsorships(): Promise<void> {
+    await this.dustSponsorships.createIndex({ status: 1, expiresAt: 1 });
+    await this.dustSponsorships.createIndex({ txId: 1 }, { unique: true });
+  }
+
+  private startSponsorshipReclaimer(): void {
+    if (this.config.sponsorReclaimIntervalMs <= 0) return;
+
+    const reclaimExpired = async (): Promise<void> => {
+      await this.reclaimExpiredSponsorships(10);
+    };
+
+    this.reclaimTimer = setInterval(() => {
+      void reclaimExpired().catch((error) => {
+        this.logger.warn({ err: error }, "Expired DUST sponsorship reclaim loop failed");
+      });
+    }, this.config.sponsorReclaimIntervalMs);
+    void reclaimExpired().catch((error) => {
+      this.logger.warn({ err: error }, "Initial expired DUST sponsorship reclaim failed");
+    });
+  }
+
+  private async reclaimExpiredSponsorships(limit: number): Promise<void> {
+    const now = new Date();
+    const expired = await this.dustSponsorships
+      .find({ status: "active", expiresAt: { $lte: now } })
+      .limit(limit)
+      .toArray();
+
+    for (const record of expired) {
+      await this.dustSponsorships.updateOne(
+        { txId: record.txId, status: "active" },
+        { $set: { status: "reclaiming", updatedAt: new Date() } },
+      );
+
+      try {
+        const reclaimTxId = await this.sponsorWalletProvider.reclaimDustForUtxoIds(record.utxoIds);
+        await this.dustSponsorships.updateOne(
+          { txId: record.txId },
+          {
+            $set: {
+              status: reclaimTxId ? "reclaimed" : "reclaim_failed",
+              reclaimTxId: reclaimTxId ?? undefined,
+              updatedAt: new Date(),
+            },
+          },
+        );
+      } catch (error) {
+        this.logger.warn({ err: error }, `Failed to reclaim expired DUST sponsorship ${record.txId}`);
+        await this.dustSponsorships.updateOne(
+          { txId: record.txId },
+          { $set: { status: "reclaim_failed", updatedAt: new Date() } },
+        );
+      }
+    }
+  }
+
+  private async deployAndJoin(): Promise<string> {
+    await assertZkArtifacts(
+      this.config.bootstrapZkConfigPath,
+      BOOTSTRAP_CONTRACT_CIRCUITS,
+      "bootstrap contract",
+    );
+    await assertZkArtifacts(
+      this.config.zkConfigPath,
+      FULL_CONTRACT_CIRCUITS,
+      "full contract",
+    );
+
+    const providers = await this.providers(this.config.zkConfigPath);
+    const bootstrapProviders = await this.providers(this.config.bootstrapZkConfigPath);
+    const fullCompiledContract = this.compiledContract();
+
+    const bootstrapApi = await DynamicContractAPI.deploy<VeilBootstrapContract, typeof PRIVATE_STATE_ID>({
+      providers: bootstrapProviders as unknown as DynamicProviders<VeilBootstrapContract, typeof PRIVATE_STATE_ID>,
+      compiledContract: this.compiledBootstrapContract(),
+      privateStateId: PRIVATE_STATE_ID,
+      initialPrivateState: createVeilPrivateState(),
+      args: [
+        DEFAULT_SCORE_CONFIG,
+        DEFAULT_GOVERNANCE_CONTROLLER_COMMITMENT,
+        GOVERNANCE_TIMELOCK_EPOCHS,
+      ],
+      logger: this.logger,
+    });
+
+    const contractAddress = bootstrapApi.deployedContractAddress;
+    this.logger.info({ contractAddress }, "Bootstrap Veil contract deployed");
+
+    providers.privateStateProvider.setContractAddress(contractAddress);
+    await this.installMissingVerifierKeys(providers, fullCompiledContract, contractAddress);
+    await this.saveDeployment(contractAddress, "backend-deploy");
+    this.activeContractAddress = contractAddress;
+    return contractAddress;
+  }
+
+  private async installMissingVerifierKeys(
+    providers: DynamicProviders<VeilContract, typeof PRIVATE_STATE_ID>,
+    compiledContract: CompiledContract.CompiledContract<any, any>,
+    contractAddress: string,
+  ): Promise<void> {
+    for (const circuitId of POST_BOOTSTRAP_CONTRACT_CIRCUITS) {
+      const contractState = await providers.publicDataProvider.queryContractState(contractAddress);
+
+      if (contractState?.operation(circuitId) != null) {
+        this.logger.info({ circuitId }, "Verifier key already present; skipping");
+        continue;
+      }
+
+      const [[, verifierKey]] = await providers.zkConfigProvider.getVerifierKeys([circuitId]);
+      const maintenanceTx = createCircuitMaintenanceTxInterface(
+        providers as any,
+        circuitId as any,
+        compiledContract,
+        contractAddress,
+      );
+
+      this.logger.info({ circuitId }, "Installing missing verifier key");
+      await maintenanceTx.insertVerifierKey(verifierKey);
+    }
+  }
+
+  private async providers(
+    zkConfigPath: string,
+  ): Promise<DynamicProviders<VeilContract, typeof PRIVATE_STATE_ID>> {
+    const zkConfigProvider = new NodeZkConfigProvider<CompactContract.ProvableCircuitId<VeilContract>>(
+      zkConfigPath,
+    );
+    const privateStateProvider = new MongoPrivateStateProvider<typeof PRIVATE_STATE_ID, VeilPrivateState>({
+      db: this.db,
+      accountId: String(this.walletProvider.getCoinPublicKey()),
+    });
+    await privateStateProvider.init();
+
     return {
-      approved: true,
-      scoreBand: "gold",
-      maxLtvBps: 7000,
-      riskPremiumBps: 150,
-      hasCreditScore: true,
-      reason: "Credit score meets gold risk policy.",
-      veilIdHash,
-      validAt: new Date().toISOString(),
+      privateStateProvider,
+      publicDataProvider: indexerPublicDataProvider(this.env.indexer, this.env.indexerWS),
+      zkConfigProvider,
+      proofProvider: httpClientProofProvider(this.env.proofServer, zkConfigProvider),
+      walletProvider: this.walletProvider,
+      midnightProvider: this.walletProvider,
     };
   }
 
-  if (value >= 600) {
-    return {
-      approved: true,
-      scoreBand: "silver",
-      maxLtvBps: 6000,
-      riskPremiumBps: 300,
-      hasCreditScore: true,
-      reason: "Credit score meets silver risk policy.",
-      veilIdHash,
-      validAt: new Date().toISOString(),
-    };
+  private compiledContract(): CompiledContract.CompiledContract<any, any> {
+    return utils.createCompiledContract<VeilContract>(
+      "veil-protocol",
+      VeilContractClass as any,
+      witness as any,
+      this.config.zkConfigPath,
+    ) as any;
   }
 
-  if (value >= 500) {
-    return {
-      approved: false,
-      scoreBand: "bronze",
-      maxLtvBps: 0,
-      riskPremiumBps: 0,
-      hasCreditScore: true,
-      reason: "Credit score is below the current approval threshold.",
-      veilIdHash,
-      validAt: new Date().toISOString(),
-    };
+  private compiledBootstrapContract(): CompiledContract.CompiledContract<any, any> {
+    return utils.createCompiledContract<VeilBootstrapContract>(
+      "veil-protocol-bootstrap",
+      VeilBootstrapContractClass as any,
+      witness as any,
+      this.config.bootstrapZkConfigPath,
+    ) as any;
   }
 
-  return {
-    approved: false,
-    scoreBand: "unranked",
-    maxLtvBps: 0,
-    riskPremiumBps: 0,
-    hasCreditScore: true,
-    reason: "Credit score is unranked under the current risk policy.",
-    veilIdHash,
-    validAt: new Date().toISOString(),
-  };
-};
+  private async saveDeployment(
+    contractAddress: string,
+    source: ContractDeploymentRecord["source"],
+  ): Promise<void> {
+    const now = new Date();
+    await this.deployments.updateOne(
+      { key: "active" },
+      {
+        $setOnInsert: {
+          key: "active",
+          createdAt: now,
+        },
+        $set: {
+          contractAddress,
+          deployedBy: "backend",
+          source,
+          updatedAt: now,
+        },
+      },
+      { upsert: true },
+    );
+  }
+}

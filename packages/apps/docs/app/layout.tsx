@@ -15,7 +15,7 @@ export const metadata: Metadata = {
     default: "Veil Protocol Documentation",
   },
   description:
-    "Official documentation for the Veil Protocol — a cross-chain, privacy-preserving credit scoring system built on Midnight and CKB.",
+    "Official documentation for Veil Protocol v2 — private cross-chain band checks built on Midnight.",
   icons: {
     icon: [
       { url: "/favicon.ico", sizes: "any" },

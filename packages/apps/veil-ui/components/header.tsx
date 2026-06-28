@@ -15,7 +15,7 @@ export default function Header() {
             </span>
             <span className="site-brand-copy">
               <span className="site-brand-name">Veil Protocol</span>
-              <span className="site-brand-sub">Private credit infrastructure</span>
+              <span className="site-brand-sub">Private band infrastructure</span>
             </span>
           </a>
 

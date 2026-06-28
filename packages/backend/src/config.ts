@@ -23,6 +23,10 @@ export type BackendConfig = {
   readonly mongoUri: string;
   readonly mongoDbName: string;
   readonly walletSeed: string;
+  readonly sponsorWalletSeed: string;
+  readonly sponsorDefaultRequiredDust: bigint;
+  readonly sponsorAllocationTtlMs: number;
+  readonly sponsorReclaimIntervalMs: number;
   readonly contractAddress?: string;
   readonly autoDeploy: boolean;
   readonly proofServer: string;
@@ -34,14 +38,26 @@ export type BackendConfig = {
 export type EnvironmentConfig = {}
 
 export const getConfig = (): BackendConfig => {
-  const contractZkPath = path.resolve(currentDir, 'contract-build', 'managed', 'veil-protocol');
-  const bootstrapContractZkPath = path.resolve(currentDir, 'contract-build', 'managed', 'veil-protocol-bootstrap');
+  const contractZkPath = path.resolve(currentDir, '..', '..', 'contract', 'dist', 'managed', 'veil-protocol');
+  const bootstrapContractZkPath = path.resolve(
+    currentDir,
+    '..',
+    '..',
+    'contract',
+    'dist',
+    'managed',
+    'veil-protocol-bootstrap',
+  );
 
   return {
     port: optionalNumber('PORT', 3001),
     mongoUri: required('MONGODB_URI'),
     mongoDbName: process.env.MONGODB_DB_NAME ?? 'veil_backend',
     walletSeed: required('VEIL_BACKEND_WALLET_SEED'),
+    sponsorWalletSeed: process.env.VEIL_SPONSOR_WALLET_SEED ?? required('VEIL_BACKEND_WALLET_SEED'),
+    sponsorDefaultRequiredDust: BigInt(process.env.VEIL_SPONSOR_DEFAULT_REQUIRED_DUST ?? '0'),
+    sponsorAllocationTtlMs: optionalNumber('VEIL_SPONSOR_ALLOCATION_TTL_MS', 10 * 60 * 1000),
+    sponsorReclaimIntervalMs: optionalNumber('VEIL_SPONSOR_RECLAIM_INTERVAL_MS', 60 * 1000),
     contractAddress: process.env.VEIL_CONTRACT_ADDRESS || undefined,
     autoDeploy: process.env.VEIL_AUTO_DEPLOY === 'true',
     proofServer: required('VEIL_PROOF_SERVER_URL'),

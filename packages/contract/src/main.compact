@@ -1,55 +1,53 @@
-// This file is part of REPLACE WITH REPO-NAME.
-// Copyright (C) Midnight Foundation
-// SPDX-License-Identifier: Apache-2.0
-// Licensed under the Apache License, Version 2.0 (the "License");
-// You may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-// https://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-
 pragma language_version >= 0.23.0;
 import CompactStandardLibrary;
 import "./modules/Utils" prefix Utils_;
 import "./modules/GlobalLedgerStates" prefix LedgerStates_;
 import "./modules/CustomStructs" prefix CustomStructs_;
-import "./modules/Scoring" prefix Scoring_;
-import "./modules/Admin" prefix Admin_;
-import "./modules/DIDRegistry" prefix DIDRegistry_;
+import "./modules/Identity" prefix Identity_;
+import "./modules/Reputation" prefix Reputation_;
+import "./modules/Governance" prefix Governance_;
 
 export {
-    /** Score entrypoints */
-    Scoring_submitLiquidationEvent, Scoring_submitProtocolUsageEvent, Scoring_submitRepaymentEvent, 
-    Scoring_createScoreEntry, Scoring_submitDebtStateEvent, 
+    /** Identity entrypoints */
+    Identity_register, Identity_assertActive,
+
+    /** Reputation entrypoints */
+    Reputation_prove, Reputation_check,
+
+    /** Governance entrypoints */
+    Governance_proposeScoreConfig, Governance_applyScoreConfig, Governance_cancelScoreConfig,
 
     /** Custom struct definitions */
-    CustomStructs_CreditScore, CustomStructs_Issuer, CustomStructs_ScoreAccumulators, CustomStructs_ScoreConfig,
-    CustomStructs_VeilDidRecord,
-
-    /** Admin entrypoints */
-    Admin_addIssuer, Admin_removeIssuer, Admin_addAdmin, Admin_removeAdmin, Admin_updatedScoreConfig,
-
-    /** DID registry entrypoints */
-    DIDRegistry_register, DIDRegistry_assertActive, DIDRegistry_rotateVerificationMethod, DIDRegistry_revoke,
+    CustomStructs_VeilIdentityRecord, CustomStructs_ReputationScore,
+    CustomStructs_ReputationDecision, CustomStructs_ScoreConfig,
+    CustomStructs_ReputationSignals, CustomStructs_ReputationProofBinding,
+    CustomStructs_PendingScoreConfig, CustomStructs_GovernanceAction,
 
     /** Ledger states */
-    LedgerStates_issuerTrustWeights, LedgerStates_processedScoreEvents,
-    LedgerStates_superAdmin, LedgerStates_issuers, LedgerStates_creditScoreCommitments, 
-    LedgerStates_scoreAccumulatorCommitments, LedgerStates_scoreConfig, LedgerStates_admins,
-    LedgerStates_didRecords,
-    
+    LedgerStates_identityRecords, LedgerStates_identityCommitments,
+    LedgerStates_reputationCommitments, LedgerStates_processedProofs,
+    LedgerStates_scoreConfig, LedgerStates_governanceControllerCommitment,
+    LedgerStates_configTimelockEpochs, LedgerStates_pendingScoreConfig,
+    LedgerStates_hasPendingScoreConfig,
+
     /** Utility circuits */
-    Utils_generateUserPk
+    Utils_deriveVeilId, Utils_deriveIdentityProofHash,
+    Utils_deriveReputationWitnessCommitment, Utils_deriveReputationProofHash,
+    Utils_deriveScoreConfigHash, Utils_deriveScoreConfigHashFor,
+    Utils_deriveGovernanceActionHash,
+    Utils_deriveGovernanceProofHash, Utils_deriveBand, Utils_deriveCommunityWeightBps
 };
 
 constructor(
     _scoreConfig: CustomStructs_ScoreConfig,
+    _governanceControllerCommitment: Bytes<32>,
+    _configTimelockEpochs: Uint<64>,
 ) {
-    LedgerStates_superAdmin = Utils_generateAdminPk(disclose(Utils_getLocalSecreteKey()));
-    LedgerStates_scoreConfig = disclose(_scoreConfig);
+    const scoreConfig = disclose(_scoreConfig);
+    Utils_assertScoreConfigValid(scoreConfig);
+    assert (disclose(_governanceControllerCommitment) != default<Bytes<32>>, "Invalid governance controller");
+    LedgerStates_scoreConfig = scoreConfig;
+    LedgerStates_governanceControllerCommitment = disclose(_governanceControllerCommitment);
+    LedgerStates_configTimelockEpochs = disclose(_configTimelockEpochs);
+    LedgerStates_hasPendingScoreConfig = false;
 }

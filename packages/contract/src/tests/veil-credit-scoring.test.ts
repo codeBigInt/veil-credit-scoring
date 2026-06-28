@@ -1,340 +1,406 @@
 import { describe, expect, it } from "vitest";
-import { fromHex, toHex } from "@midnight-ntwrk/compact-runtime";
-import { VeilScoreSimulator } from "./veil-score-setup";
+import { toHex } from "@midnight-ntwrk/compact-runtime";
+import {
+  defaultGovernanceControllerCommitment,
+  VeilScoreSimulator,
+} from "./veil-score-setup";
 import { randomBytes } from "./utils";
-
-const getUserPkFromPrivateState = (
-  privateState: ReturnType<VeilScoreSimulator["getPrivateState"]>
-): Uint8Array => {
-  const keys = Object.keys(privateState.creditScores);
-  if (keys.length !== 1 || !keys[0]) {
-    throw new Error("Expected exactly one user score key");
-  }
-  return fromHex(keys[0]);
-};
-
-const createVeilScoreContract = (name?: string): VeilScoreSimulator => {
-  const simulator = VeilScoreSimulator.deploy();
-  const ledgerState = simulator.getLedgerState();
-  expect(ledgerState.LedgerStates_issuers.size()).toBe(0n);
-  expect(ledgerState.LedgerStates_processedScoreEvents.size()).toBe(0n);
-  if (name) {
-    console.log(`${name} deployment successful`);
-  }
-  return simulator;
-};
 
 const expectBytesEqual = (actual: Uint8Array, expected: Uint8Array): void => {
   expect(toHex(actual)).toBe(toHex(expected));
 };
 
-describe("Test admin functionality", () => {
-  it("add/update/remove admin and issuer configuration", () => {
-    const simulator = createVeilScoreContract("Admin Test Contract");
-    simulator.registerUser("issuer");
+const createVeilScoreContract = (): VeilScoreSimulator => {
+  const simulator = VeilScoreSimulator.deploy();
+  const ledgerState = simulator.getLedgerState() as unknown as Record<string, unknown>;
+  expect(ledgerState.LedgerStates_processedProofs).toBeDefined();
+  expect(ledgerState.LedgerStates_identityRecords).toBeDefined();
+  expect(ledgerState.LedgerStates_reputationCommitments).toBeDefined();
+  return simulator;
+};
 
-    simulator.as("admin");
-    const issuerPk = simulator.addIssuer();
-    expect(simulator.getLedgerState().LedgerStates_issuers.member(issuerPk)).toBe(
-      true
-    );
-
-    simulator.updateScoreConfig({
-      baseScore: 360n,
-      maxScore: 900n,
-      scale: 100n,
-      repaymentWeight: 2n,
-      protocolWeight: 12n,
-      tenureWeight: 1n,
-      liquidationWeight: 4n,
-      activeDebtPenalty: 6n,
-      riskBandWeight: 5n,
-    });
-    expect(simulator.getLedgerState().LedgerStates_scoreConfig.baseScore).toBe(
-      360n
-    );
-
-    const adminCandidate = randomBytes(32);
-    simulator.addAdmin(adminCandidate);
-    expect(simulator.getLedgerState().LedgerStates_admins.member(adminCandidate)).toBe(
-      true
-    );
-
-    simulator.removeAdmin(adminCandidate);
-    expect(simulator.getLedgerState().LedgerStates_admins.member(adminCandidate)).toBe(
-      false
-    );
-
-    simulator.removeIssuer(issuerPk);
-    expect(simulator.getLedgerState().LedgerStates_issuers.member(issuerPk)).toBe(
-      false
-    );
-  });
-
-  it("rejects non-admin issuer and score config changes", () => {
-    const simulator = createVeilScoreContract("Admin Negative Test Contract");
-    simulator.registerUser("alice");
-
-    simulator.as("alice");
-
-    expect(() => simulator.addIssuer()).toThrowError(/Unauthorized/);
-    expect(() =>
-      simulator.updateScoreConfig({
-        baseScore: 300n,
-        maxScore: 900n,
-        scale: 100n,
-        repaymentWeight: 2n,
-        protocolWeight: 10n,
-        tenureWeight: 1n,
-        liquidationWeight: 3n,
-        activeDebtPenalty: 5n,
-        riskBandWeight: 5n,
-      })
-    ).toThrowError(/Unauthorized/);
-  });
-
-  it("does not expose deprecated Midnight PoT NFT contract surface", () => {
-    const simulator = createVeilScoreContract("PoT Regression Test Contract");
+describe("Veil v2 architecture", () => {
+  it("does not expose v1 admin, issuer, credit-event, or Spore DID surfaces", () => {
+    const simulator = createVeilScoreContract();
     const impureCircuits = simulator.contract.impureCircuits as Record<string, unknown>;
     const ledgerState = simulator.getLedgerState() as unknown as Record<string, unknown>;
 
-    expect(impureCircuits.NFT_mintPoTNFT).toBeUndefined();
-    expect(impureCircuits.NFT_renewPoTNFT).toBeUndefined();
-    expect(impureCircuits.NFT_verifyPoTNFT).toBeUndefined();
-    expect(impureCircuits.Utils_initializeContractConfigurations).toBeUndefined();
-    expect(impureCircuits.Admin_updateTokenUris).toBeUndefined();
-    expect(impureCircuits.Admin_updatedProtocolConfig).toBeUndefined();
+    expect(impureCircuits.Admin_addIssuer).toBeUndefined();
+    expect(impureCircuits.Admin_removeIssuer).toBeUndefined();
+    expect(impureCircuits.Admin_updatedScoreConfig).toBeUndefined();
+    expect(impureCircuits.Scoring_submitRepaymentEvent).toBeUndefined();
+    expect(impureCircuits.Scoring_submitLiquidationEvent).toBeUndefined();
+    expect(impureCircuits.Scoring_submitProtocolUsageEvent).toBeUndefined();
+    expect(impureCircuits.Scoring_submitDebtStateEvent).toBeUndefined();
+    expect(impureCircuits.DIDRegistry_register).toBeUndefined();
+    expect(impureCircuits.DIDRegistry_revoke).toBeUndefined();
 
-    expect(ledgerState.LedgerStates_nftRegistry).toBeUndefined();
-    expect(ledgerState.LedgerStates_protocolConfig).toBeUndefined();
-    expect(ledgerState.LedgerStates_tokenImageUris).toBeUndefined();
-    expect(ledgerState.LedgerStates_tokenMarkers).toBeUndefined();
-  });
-});
-
-describe("Test scoring functionality", () => {
-  it("create score entry, submit events, and recompute private score state", () => {
-    const simulator = createVeilScoreContract("Scoring Test Contract");
-    simulator.registerUser("issuer");
-    simulator.registerUser("alice");
-
-    simulator.as("admin");
-    const issuerPk = simulator.addIssuer();
-
-    simulator.as("alice");
-    simulator.createScoreEntry();
-
-    const userPk = getUserPkFromPrivateState(simulator.getPrivateState());
-
-    simulator.submitRepaymentEvent(userPk, issuerPk, 1n, 100n, 0n, randomBytes(32));
-    simulator.submitProtocolUsageEvent(userPk, issuerPk, randomBytes(32), 0n);
-    simulator.submitDebtStateEvent(userPk, issuerPk, 1n, 2n, 0n, randomBytes(32));
-    simulator.submitLiquidationEvent(userPk, issuerPk, 2n, 0n, randomBytes(32));
-
-    // const score = simulator.recomputeAndReturnScore(userPk, issuerPk);
-    // expect(score.score).toBeGreaterThanOrEqual(0n);
-    // expect(score.repaymentRatio).toBeGreaterThanOrEqual(0n);
-    // expect(score.protocolsUsed).toBe(1n);
-
-    // const userKeyHex = toHex(userPk);
-    // const updatedScore = simulator.getPrivateState().creditScores[userKeyHex];
-    // if (!updatedScore) {
-    //   throw new Error("Expected updated credit score in private state");
-    // }
-    // expect(updatedScore.score).toBe(score.score);
-
-    simulator.as("admin");
+    expect(ledgerState.LedgerStates_issuers).toBeUndefined();
+    expect(ledgerState.LedgerStates_admins).toBeUndefined();
+    expect(ledgerState.LedgerStates_superAdmin).toBeUndefined();
+    expect(ledgerState.LedgerStates_didRecords).toBeUndefined();
   });
 
-  it("fails for invalid scoring flows and duplicate actions", () => {
-    const simulator = createVeilScoreContract("Scoring Failure Test Contract");
-    simulator.registerUser("issuer");
-    simulator.registerUser("alice");
-    simulator.registerUser("bob");
-
-    simulator.as("admin");
-    const issuerPk = simulator.addIssuer();
-
-    simulator.as("alice");
-    const fakeUserPk = randomBytes(32);
-
-    expect(() =>
-      simulator.submitRepaymentEvent(
-        fakeUserPk,
-        issuerPk,
-        1n,
-        100n,
-        0n,
-        randomBytes(32)
-      )
-    ).toThrowError(/User score entry not found/);
-
-    simulator.createScoreEntry();
-    const userPk = getUserPkFromPrivateState(simulator.getPrivateState());
-
-    expect(() => simulator.createScoreEntry()).toThrowError(
-      /Not allowed to create duplicated credit score position/
-    );
-
-    const duplicateEventId = randomBytes(32);
-    simulator.submitRepaymentEvent(userPk, issuerPk, 1n, 100n, 0n, duplicateEventId);
-    expect(() =>
-      simulator.submitRepaymentEvent(
-        userPk,
-        issuerPk,
-        1n,
-        100n,
-        0n,
-        duplicateEventId
-      )
-    ).toThrowError(/Duplicate score event/);
-
-    const unknownIssuerPk = randomBytes(32);
-    expect(() =>
-      simulator.submitDebtStateEvent(
-        userPk,
-        unknownIssuerPk,
-        1n,
-        2n,
-        0n,
-        randomBytes(32)
-      )
-    ).toThrowError(/Unauthorized issuer/);
-
-    simulator.as("bob");
-    expect(simulator.getLedgerState().LedgerStates_issuers.member(issuerPk)).toBe(
-      true
-    );
-  });
-
-  it("rejects malformed scoring event flags", () => {
-    const simulator = createVeilScoreContract("Malformed Event Test Contract");
-    simulator.registerUser("alice");
-
-    simulator.as("admin");
-    const issuerPk = simulator.addIssuer();
-
-    simulator.as("alice");
-    simulator.createScoreEntry();
-    const userPk = getUserPkFromPrivateState(simulator.getPrivateState());
-
-    expect(() =>
-      simulator.submitRepaymentEvent(userPk, issuerPk, 2n, 100n, 0n, randomBytes(32))
-    ).toThrowError(/paidOnTimeFlag must be 0 or 1/);
-
-    expect(() =>
-      simulator.submitDebtStateEvent(userPk, issuerPk, 2n, 1n, 0n, randomBytes(32))
-    ).toThrowError(/activeDebtFlag must be 0 or 1/);
-
-    expect(() =>
-      simulator.submitDebtStateEvent(userPk, issuerPk, 1n, 4n, 0n, randomBytes(32))
-    ).toThrowError(/riskBand must be 0..3/);
-
-    expect(() =>
-      simulator.submitLiquidationEvent(userPk, issuerPk, 4n, 0n, randomBytes(32))
-    ).toThrowError(/Invalid severity/);
-  });
-});
-
-describe("Test DID registry functionality", () => {
-  it("registers, asserts, rotates, and revokes a Veil DID", () => {
-    const simulator = createVeilScoreContract("DID Registry Test Contract");
-    simulator.registerUser("alice");
-
-    simulator.as("alice");
-    simulator.createScoreEntry();
-    const userPk = getUserPkFromPrivateState(simulator.getPrivateState());
-
+  it("registers a permissionless identity without a Spore DOB", () => {
+    const simulator = createVeilScoreContract();
     const veilIdHash = randomBytes(32);
-    const sporeIdHash = randomBytes(32);
-    const ownerLockHash = randomBytes(32);
-    const recoveryCommitment = randomBytes(32);
-
-    simulator.registerDid(userPk, veilIdHash, sporeIdHash, ownerLockHash, recoveryCommitment, 7n);
-
-    const didRecord = simulator.getDidRecord(veilIdHash);
-    expectBytesEqual(didRecord.userPk, userPk);
-    expectBytesEqual(didRecord.veilIdHash, veilIdHash);
-    expectBytesEqual(didRecord.activeSporeIdHash, sporeIdHash);
-    expectBytesEqual(didRecord.activeCkbOwnerLockHash, ownerLockHash);
-    expectBytesEqual(didRecord.recoveryCommitment, recoveryCommitment);
-    expect(didRecord.version).toBe(1n);
-    expect(didRecord.status).toBe(1n);
-    expect(didRecord.createdAtEpoch).toBe(7n);
-    expect(didRecord.updatedAtEpoch).toBe(7n);
-
-    expect(simulator.assertDidActive(veilIdHash, sporeIdHash, ownerLockHash)).toBe(true);
-    expect(simulator.assertDidActive(veilIdHash, randomBytes(32), ownerLockHash)).toBe(false);
-
-    const nextSporeIdHash = randomBytes(32);
-    const nextOwnerLockHash = randomBytes(32);
-    simulator.rotateDidVerificationMethod(
+    const chainNamespace = randomBytes(32);
+    const lockHashCommitment = randomBytes(32);
+    const walletSignatureHash = randomBytes(32);
+    const chainProofHash = simulator.deriveIdentityProofHash(
       veilIdHash,
-      ownerLockHash,
-      nextSporeIdHash,
-      nextOwnerLockHash,
-      recoveryCommitment,
-      8n
+      chainNamespace,
+      lockHashCommitment,
+      walletSignatureHash
     );
 
-    const rotatedRecord = simulator.getDidRecord(veilIdHash);
-    expectBytesEqual(rotatedRecord.activeSporeIdHash, nextSporeIdHash);
-    expectBytesEqual(rotatedRecord.activeCkbOwnerLockHash, nextOwnerLockHash);
-    expect(rotatedRecord.version).toBe(2n);
-    expect(rotatedRecord.updatedAtEpoch).toBe(8n);
-    expect(simulator.assertDidActive(veilIdHash, nextSporeIdHash, nextOwnerLockHash)).toBe(true);
+    const record = simulator.registerIdentity(
+      veilIdHash,
+      chainNamespace,
+      lockHashCommitment,
+      walletSignatureHash,
+      chainProofHash,
+      7n
+    );
 
-    simulator.as("admin");
-    simulator.revokeDid(veilIdHash, 9n);
+    expectBytesEqual(record.veilIdHash, veilIdHash);
+    expectBytesEqual(record.chainNamespace, chainNamespace);
+    expectBytesEqual(record.publicKeyOrLockHashCommitment, lockHashCommitment);
+    expectBytesEqual(record.walletSignatureHash, walletSignatureHash);
+    expectBytesEqual(record.chainProofHash, chainProofHash);
+    expect(record.status).toBe(1n);
+    expect(record.version).toBe(1n);
+    expect(record.createdAtEpoch).toBe(7n);
+    expect(simulator.assertIdentityActive(veilIdHash)).toBe(true);
 
-    const revokedRecord = simulator.getDidRecord(veilIdHash);
-    expect(revokedRecord.status).toBe(2n);
-    expect(revokedRecord.updatedAtEpoch).toBe(9n);
-    expect(simulator.assertDidActive(veilIdHash, nextSporeIdHash, nextOwnerLockHash)).toBe(false);
+    expect(() => simulator.registerIdentity(veilIdHash)).toThrowError(
+      /Identity already registered/
+    );
   });
 
-  it("rejects invalid DID registry operations", () => {
-    const simulator = createVeilScoreContract("DID Registry Failure Test Contract");
-    simulator.registerUser("alice");
-
-    simulator.as("alice");
-    const userPk = simulator.generateCurrentUserPk();
+  it("stores self-proven reputation privately and checks public band thresholds", () => {
+    const simulator = createVeilScoreContract();
     const veilIdHash = randomBytes(32);
-    const sporeIdHash = randomBytes(32);
-    const ownerLockHash = randomBytes(32);
-    const recoveryCommitment = randomBytes(32);
+    const proofNonce = randomBytes(32);
+    const purposeHash = randomBytes(32);
+
+    simulator.registerIdentity(veilIdHash);
+    const band = simulator.proveReputation(veilIdHash, {
+      walletAgeInDays: 50n,
+      distinctProtocols: 5n,
+      daoVoteCount: 2n,
+      lpTenureInDays: 10n,
+      crossChainCount: 1n,
+      txConsistencyScore: 2n,
+      claimedBand: 3n,
+      proofNonce,
+      currentEpoch: 11n,
+    });
+
+    expect(band).toBe(3n);
+    const privateScore = simulator.getReputationScore(veilIdHash);
+    expect(privateScore.score).toBeGreaterThan(300n);
+    expect(privateScore.band).toBe(3n);
+    expect(privateScore.lastUpdatedEpoch).toBe(11n);
+    expect(simulator.getLedgerState().LedgerStates_reputationCommitments.firstFree()).toBe(1n);
+
+    const goldDecision = simulator.checkReputation(veilIdHash, 3n, purposeHash);
+    expect(goldDecision.meetsThreshold).toBe(true);
+    expect(goldDecision.band).toBe(3n);
+    expect(goldDecision.communityWeightBps).toBe(15000n);
+    expect(goldDecision.accessTier).toBe(3n);
+    expectBytesEqual(goldDecision.purposeHash, purposeHash);
+
+    const platinumDecision = simulator.checkReputation(veilIdHash, 4n);
+    expect(platinumDecision.meetsThreshold).toBe(false);
 
     expect(() =>
-      simulator.registerDid(userPk, veilIdHash, sporeIdHash, ownerLockHash, recoveryCommitment)
-    ).toThrowError(/User score entry not found/);
+      simulator.proveReputation(veilIdHash, {
+        walletAgeInDays: 50n,
+        distinctProtocols: 5n,
+        daoVoteCount: 2n,
+        lpTenureInDays: 10n,
+        crossChainCount: 1n,
+        txConsistencyScore: 2n,
+        claimedBand: 3n,
+        proofNonce,
+      })
+    ).toThrowError(/Reputation proof already used/);
+  });
 
-    simulator.createScoreEntry(userPk);
-    simulator.registerDid(userPk, veilIdHash, sporeIdHash, ownerLockHash, recoveryCommitment);
+  it("rejects malformed v2 flows", () => {
+    const simulator = createVeilScoreContract();
+    const veilIdHash = randomBytes(32);
 
     expect(() =>
-      simulator.registerDid(userPk, veilIdHash, randomBytes(32), randomBytes(32), recoveryCommitment)
-    ).toThrowError(/DID already registered/);
+      simulator.proveReputation(veilIdHash, {
+        walletAgeInDays: 1n,
+        distinctProtocols: 0n,
+        daoVoteCount: 0n,
+        lpTenureInDays: 0n,
+        crossChainCount: 0n,
+        txConsistencyScore: 0n,
+        claimedBand: 0n,
+      })
+    ).toThrowError(/Identity not registered/);
+
+    simulator.registerIdentity(veilIdHash);
 
     expect(() =>
-      simulator.rotateDidVerificationMethod(
+      simulator.proveReputation(veilIdHash, {
+        walletAgeInDays: 1n,
+        distinctProtocols: 0n,
+        daoVoteCount: 0n,
+        lpTenureInDays: 0n,
+        crossChainCount: 0n,
+        txConsistencyScore: 0n,
+        claimedBand: 5n,
+      })
+    ).toThrowError(/Invalid claimed band/);
+
+    expect(() => simulator.checkReputation(veilIdHash, 1n)).toThrowError(
+      /Reputation not found/
+    );
+  });
+
+  it("rejects malicious cheat attempts without mutating contract state", () => {
+    const simulator = createVeilScoreContract();
+    const zeroBytes = new Uint8Array(32);
+    const veilIdHash = randomBytes(32);
+    const replayedProofHash = randomBytes(32);
+    const replayedNonce = randomBytes(32);
+
+    expect(() =>
+      simulator.registerIdentity(zeroBytes, randomBytes(32), randomBytes(32), randomBytes(32))
+    ).toThrowError(/Invalid Veil ID hash/);
+
+    expect(() =>
+      simulator.registerIdentity(randomBytes(32), randomBytes(32), randomBytes(32), zeroBytes)
+    ).toThrowError(/Invalid wallet signature/);
+
+    simulator.registerIdentity(
+      veilIdHash,
+      randomBytes(32),
+      randomBytes(32),
+      replayedProofHash
+    );
+    expect(simulator.getLedgerState().LedgerStates_identityCommitments.firstFree()).toBe(1n);
+
+    expect(() =>
+      simulator.registerIdentity(
         veilIdHash,
         randomBytes(32),
         randomBytes(32),
-        randomBytes(32),
-        recoveryCommitment
+        replayedProofHash
       )
-    ).toThrowError(/Previous CKB owner lock mismatch/);
+    ).toThrowError(/Identity already registered/);
+    expect(simulator.getLedgerState().LedgerStates_identityCommitments.firstFree()).toBe(1n);
 
     expect(() =>
-      simulator.rotateDidVerificationMethod(
-        veilIdHash,
-        ownerLockHash,
-        randomBytes(32),
-        randomBytes(32),
-        randomBytes(32)
-      )
-    ).toThrowError(/Invalid recovery proof/);
+      simulator.proveReputation(veilIdHash, {
+        walletAgeInDays: 80n,
+        distinctProtocols: 6n,
+        daoVoteCount: 2n,
+        lpTenureInDays: 12n,
+        crossChainCount: 2n,
+        txConsistencyScore: 4n,
+        claimedBand: 4n,
+        ethChainCommitment: zeroBytes,
+        ckbChainCommitment: zeroBytes,
+      })
+    ).toThrowError(/Missing chain data commitment/);
+    expect(simulator.getLedgerState().LedgerStates_reputationCommitments.firstFree()).toBe(0n);
 
-    expect(() => simulator.revokeDid(veilIdHash)).toThrowError(/Unauthorized/);
+    simulator.proveReputation(veilIdHash, {
+      walletAgeInDays: 80n,
+      distinctProtocols: 6n,
+      daoVoteCount: 2n,
+      lpTenureInDays: 12n,
+      crossChainCount: 2n,
+      txConsistencyScore: 4n,
+      claimedBand: 4n,
+      proofNonce: replayedNonce,
+    });
+    expect(simulator.getLedgerState().LedgerStates_reputationCommitments.firstFree()).toBe(1n);
+
+    expect(() =>
+      simulator.proveReputation(veilIdHash, {
+        walletAgeInDays: 80n,
+        distinctProtocols: 6n,
+        daoVoteCount: 2n,
+        lpTenureInDays: 12n,
+        crossChainCount: 2n,
+        txConsistencyScore: 4n,
+        claimedBand: 4n,
+        proofNonce: replayedNonce,
+      })
+    ).toThrowError(/Reputation proof already used/);
+    expect(simulator.getLedgerState().LedgerStates_reputationCommitments.firstFree()).toBe(1n);
+
+    expect(() =>
+      simulator.checkReputation(veilIdHash, 5n, randomBytes(32), randomBytes(32))
+    ).toThrowError(/Invalid minimum band/);
+
+    expect(() =>
+      simulator.checkReputation(veilIdHash, 1n, randomBytes(32), zeroBytes)
+    ).toThrowError(/Invalid requester/);
+  });
+
+  it("rejects forged reputation proof bindings and incorrect claimed bands", () => {
+    const simulator = createVeilScoreContract();
+    const veilIdHash = randomBytes(32);
+    const witnessSalt = randomBytes(32);
+    const proofNonce = randomBytes(32);
+    const ethChainCommitment = randomBytes(32);
+    const ckbChainCommitment = new Uint8Array(32);
+
+    simulator.registerIdentity(veilIdHash);
+
+    const witnessCommitment = simulator.deriveReputationWitnessCommitment({
+      veilIdHash,
+      walletAgeInDays: 50n,
+      distinctProtocols: 5n,
+      daoVoteCount: 2n,
+      lpTenureInDays: 10n,
+      crossChainCount: 1n,
+      txConsistencyScore: 2n,
+      ethChainCommitment,
+      ckbChainCommitment,
+      witnessSalt,
+    });
+    const proofHash = simulator.deriveReputationProofHash(
+      veilIdHash,
+      witnessCommitment,
+      3n,
+      proofNonce
+    );
+
+    expect(() =>
+      simulator.proveReputation(veilIdHash, {
+        walletAgeInDays: 50n,
+        distinctProtocols: 5n,
+        daoVoteCount: 2n,
+        lpTenureInDays: 10n,
+        crossChainCount: 1n,
+        txConsistencyScore: 3n,
+        claimedBand: 3n,
+        ethChainCommitment,
+        ckbChainCommitment,
+        witnessSalt,
+        witnessCommitment,
+        proofNonce,
+        proofHash,
+      })
+    ).toThrowError(/Invalid witness commitment/);
+
+    expect(() =>
+      simulator.proveReputation(veilIdHash, {
+        walletAgeInDays: 50n,
+        distinctProtocols: 5n,
+        daoVoteCount: 2n,
+        lpTenureInDays: 10n,
+        crossChainCount: 1n,
+        txConsistencyScore: 2n,
+        claimedBand: 4n,
+        ethChainCommitment,
+        ckbChainCommitment,
+        witnessSalt,
+      })
+    ).toThrowError(/Claimed band does not match score/);
+
+    expect(() =>
+      simulator.proveReputation(veilIdHash, {
+        walletAgeInDays: 50n,
+        distinctProtocols: 5n,
+        daoVoteCount: 2n,
+        lpTenureInDays: 10n,
+        crossChainCount: 1n,
+        txConsistencyScore: 2n,
+        claimedBand: 3n,
+        ethChainCommitment,
+        ckbChainCommitment,
+        witnessSalt,
+        witnessCommitment,
+        proofNonce,
+        proofHash: randomBytes(32),
+      })
+    ).toThrowError(/Invalid proof binding/);
+  });
+
+  it("applies score config changes only after the governance timelock", () => {
+    const simulator = createVeilScoreContract();
+    const nextConfig = {
+      baseScore: 320n,
+      maxScore: 900n,
+      walletAgeWeight: 3n,
+      protocolWeight: 15n,
+      daoWeight: 20n,
+      lpWeight: 10n,
+      crossChainWeight: 25n,
+      consistencyWeight: 5n,
+      bronzeThreshold: 410n,
+      silverThreshold: 560n,
+      goldThreshold: 710n,
+      platinumThreshold: 830n,
+    };
+
+    simulator.proposeScoreConfig(nextConfig, 100n);
+    expect(simulator.getLedgerState().LedgerStates_hasPendingScoreConfig).toBe(true);
+    expect(() => simulator.applyScoreConfig(109n)).toThrowError(/Score config timelock active/);
+
+    simulator.applyScoreConfig(110n);
+    expect(simulator.getLedgerState().LedgerStates_scoreConfig.baseScore).toBe(320n);
+    expect(simulator.getLedgerState().LedgerStates_hasPendingScoreConfig).toBe(false);
+  });
+
+  it("rejects governance from callers without the configured DAO controller proof", () => {
+    const simulator = createVeilScoreContract();
+    const nextConfig = {
+      baseScore: 320n,
+      maxScore: 900n,
+      walletAgeWeight: 3n,
+      protocolWeight: 15n,
+      daoWeight: 20n,
+      lpWeight: 10n,
+      crossChainWeight: 25n,
+      consistencyWeight: 5n,
+      bronzeThreshold: 410n,
+      silverThreshold: 560n,
+      goldThreshold: 710n,
+      platinumThreshold: 830n,
+    };
+    const nonce = randomBytes(32);
+    const scoreConfigHash = simulator.deriveScoreConfigCommitment(nextConfig);
+    const actionHash = simulator.deriveGovernanceActionHash(
+      new TextEncoder().encode("score-config".padEnd(32, "\0")).slice(0, 32),
+      scoreConfigHash,
+      100n
+    );
+    const forgedProofHash = simulator.deriveGovernanceProofHash(
+      randomBytes(32),
+      actionHash,
+      nonce
+    );
+
+    expect(
+      (simulator.getLedgerState() as unknown as Record<string, unknown>)
+        .LedgerStates_governanceAuthority
+    ).toBeUndefined();
+    expectBytesEqual(
+      simulator.getLedgerState().LedgerStates_governanceControllerCommitment,
+      defaultGovernanceControllerCommitment
+    );
+
+    expect(() =>
+      simulator.contract.impureCircuits.Governance_proposeScoreConfig(
+        simulator.circuitContext,
+        nextConfig,
+        100n,
+        actionHash,
+        forgedProofHash,
+        nonce
+      )
+    ).toThrowError(/Invalid governance proof/);
+    expect(simulator.getLedgerState().LedgerStates_hasPendingScoreConfig).toBe(false);
   });
 });

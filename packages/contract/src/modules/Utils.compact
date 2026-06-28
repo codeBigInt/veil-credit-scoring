@@ -3,66 +3,212 @@ module Utils {
     import CustomStructs prefix CustomStructs_;
     import GlobalLedgerStates prefix LedgerStates_;
 
-    export witness getLocalSecreteKey(): Bytes<32>;
-    export witness getCreditScoreByPk(_userPk: Bytes<32>): Maybe<CustomStructs_CreditScore>;
-    export witness getAccumulatedScoreByPk(_userPk: Bytes<32>): Maybe<CustomStructs_ScoreAccumulators>;
-    export witness updatedCreditScore(_userPk: Bytes<32>, creditScore: CustomStructs_CreditScore): [];
-    export witness updatedAccumulatedScore(_userPk: Bytes<32>, accumulatedScore: CustomStructs_ScoreAccumulators): [];
-    export witness verifyScoreCommitment(commitmentHash: Bytes<32>): Maybe<MerkleTreePath<32, Bytes<32>>>;
-    export witness verifyAggregatCommitment(commitmentHash: Bytes<32>): Maybe<MerkleTreePath<32, Bytes<32>>>;
-    export witness getFirstFreeCreditScoreIndex(): Uint<64>;
-    export witness getFirstFreeAccumulatorIndex(): Uint<64>;
+    export witness getReputationByVeilId(_veilIdHash: Bytes<32>): Maybe<CustomStructs_ReputationScore>;
+    export witness updatedReputation(_veilIdHash: Bytes<32>, reputation: CustomStructs_ReputationScore): [];
+    export witness verifyReputationCommitment(commitmentHash: Bytes<32>): Maybe<MerkleTreePath<32, Bytes<32>>>;
+    export witness getFirstFreeReputationIndex(): Uint<64>;
 
-    export circuit assertAuthorization(sk: Bytes<32>): []{
-        const pk = disclose(generateAdminPk(sk));
-
-        const authSignatureStatus = (pk == LedgerStates_superAdmin);
-        assert (authSignatureStatus, "Unauthorized");
-    }
-
-    export circuit generateUserPk(sk: Bytes<32>): Bytes<32>{
-        return persistentHash<Vector<3, Bytes<32>>>([
-            pad(32, "veil:user"),
-            sk,
+    export circuit deriveVeilId(
+        _rawPublicKeyOrLockHash: Bytes<32>,
+        _chainNamespace: Bytes<32>,
+        _salt: Bytes<32>
+    ): Bytes<32> {
+        return persistentHash<Vector<5, Bytes<32>>>([
+            pad(32, "veil:v2:id"),
+            disclose(_rawPublicKeyOrLockHash),
+            disclose(_chainNamespace),
+            disclose(_salt),
             kernel.self().bytes
         ]);
     }
 
-    export circuit generateIssuerPk(sk: Bytes<32>): Bytes<32> {
-        return persistentHash<Vector<3, Bytes<32>>>([
-            pad(32, "veil:issuer"),
-            sk,
+    export circuit deriveIdentityProofHash(
+        _veilIdHash: Bytes<32>,
+        _chainNamespace: Bytes<32>,
+        _publicKeyOrLockHashCommitment: Bytes<32>,
+        _walletSignatureHash: Bytes<32>
+    ): Bytes<32> {
+        return persistentHash<Vector<6, Bytes<32>>>([
+            pad(32, "veil:v2:identity-proof"),
+            disclose(_veilIdHash),
+            disclose(_chainNamespace),
+            disclose(_publicKeyOrLockHashCommitment),
+            disclose(_walletSignatureHash),
             kernel.self().bytes
         ]);
     }
 
-    export circuit generateAdminPk(sk: Bytes<32>): Bytes<32> {
-        return persistentHash<Vector<2, Bytes<32>>>([
-            pad(32, "veil:superadmin"),
-            sk
+    export circuit deriveReputationWitnessCommitment(
+        _veilIdHash: Bytes<32>,
+        _walletAgeInDays: Uint<32>,
+        _distinctProtocols: Uint<32>,
+        _daoVoteCount: Uint<32>,
+        _lpTenureInDays: Uint<32>,
+        _crossChainCount: Uint<32>,
+        _txConsistencyScore: Uint<32>,
+        _ethChainCommitment: Bytes<32>,
+        _ckbChainCommitment: Bytes<32>,
+        _witnessSalt: Bytes<32>
+    ): Bytes<32> {
+        const signals = CustomStructs_ReputationSignals {
+            walletAgeInDays: _walletAgeInDays,
+            distinctProtocols: _distinctProtocols,
+            daoVoteCount: _daoVoteCount,
+            lpTenureInDays: _lpTenureInDays,
+            crossChainCount: _crossChainCount,
+            txConsistencyScore: _txConsistencyScore,
+            ethChainCommitment: disclose(_ethChainCommitment),
+            ckbChainCommitment: disclose(_ckbChainCommitment),
+            witnessSalt: disclose(_witnessSalt)
+        };
+
+        return persistentCommit<CustomStructs_ReputationSignals>(signals, disclose(_veilIdHash));
+    }
+
+    export circuit deriveScoreConfigHash(): Bytes<32> {
+        return deriveScoreConfigHashFor(LedgerStates_scoreConfig);
+    }
+
+    export circuit deriveScoreConfigHashFor(_scoreConfig: CustomStructs_ScoreConfig): Bytes<32> {
+        return persistentCommit<CustomStructs_ScoreConfig>(
+            _scoreConfig,
+            kernel.self().bytes
+        );
+    }
+
+    export circuit deriveReputationProofHash(
+        _veilIdHash: Bytes<32>,
+        _witnessCommitment: Bytes<32>,
+        _claimedBand: Uint<8>,
+        _proofNonce: Bytes<32>
+    ): Bytes<32> {
+        const proofBinding = CustomStructs_ReputationProofBinding {
+            veilIdHash: disclose(_veilIdHash),
+            witnessCommitment: disclose(_witnessCommitment),
+            claimedBand: disclose(_claimedBand),
+            scoreConfigHash: deriveScoreConfigHash(),
+            proofNonce: disclose(_proofNonce)
+        };
+
+        return persistentCommit<CustomStructs_ReputationProofBinding>(
+            proofBinding,
+            disclose(_veilIdHash)
+        );
+    }
+
+    export circuit deriveGovernanceActionHash(
+        _actionTag: Bytes<32>,
+        _scoreConfigHash: Bytes<32>,
+        _effectiveEpoch: Uint<64>
+    ): Bytes<32> {
+        const action = CustomStructs_GovernanceAction {
+            actionTag: disclose(_actionTag),
+            scoreConfigHash: disclose(_scoreConfigHash),
+            effectiveEpoch: disclose(_effectiveEpoch)
+        };
+
+        return persistentCommit<CustomStructs_GovernanceAction>(
+            action,
+            kernel.self().bytes
+        );
+    }
+
+    export circuit deriveGovernanceProofHash(
+        _controllerCommitment: Bytes<32>,
+        _actionHash: Bytes<32>,
+        _nonce: Bytes<32>
+    ): Bytes<32> {
+        return persistentHash<Vector<5, Bytes<32>>>([
+            pad(32, "veil:v2:governance-proof"),
+            disclose(_controllerCommitment),
+            disclose(_actionHash),
+            disclose(_nonce),
+            kernel.self().bytes
         ]);
     }
 
-    export circuit assetCreditScoreValidity(commitment: Bytes<32>): []{
-        const path = disclose(verifyScoreCommitment(commitment));
-
-        assert (path.is_some && LedgerStates_creditScoreCommitments.checkRoot(merkleTreePathRoot<32, Bytes<32>>(path.value)), "Credit score commitment failed verification");
+    export circuit assertScoreConfigValid(config: CustomStructs_ScoreConfig): [] {
+        assert (config.baseScore <= config.maxScore, "Invalid score config bounds");
+        assert (config.bronzeThreshold < config.silverThreshold, "Invalid bronze threshold");
+        assert (config.silverThreshold < config.goldThreshold, "Invalid silver threshold");
+        assert (config.goldThreshold < config.platinumThreshold, "Invalid gold threshold");
+        assert (config.platinumThreshold <= config.maxScore, "Invalid platinum threshold");
     }
 
-    export circuit assertAccumulationCommitment(commitment: Bytes<32>, accumulationStatus: Boolean): [] {
-        if(disclose(accumulationStatus)){
-            const path = disclose(verifyAggregatCommitment(commitment));
-            assert (path.is_some && LedgerStates_scoreAccumulatorCommitments.checkRoot(merkleTreePathRoot<32, Bytes<32>>(path.value)), "Score accumulation commitment failed verification");
-        }else{
+    export circuit assertSignalBounds(
+        _walletAgeInDays: Uint<32>,
+        _distinctProtocols: Uint<32>,
+        _daoVoteCount: Uint<32>,
+        _lpTenureInDays: Uint<32>,
+        _crossChainCount: Uint<32>,
+        _txConsistencyScore: Uint<32>
+    ): [] {
+        assert (_walletAgeInDays <= 3650, "Wallet age exceeds supported range");
+        assert (_distinctProtocols <= 100, "Protocol count exceeds supported range");
+        assert (_daoVoteCount <= 1000, "DAO vote count exceeds supported range");
+        assert (_lpTenureInDays <= 3650, "LP tenure exceeds supported range");
+        assert (_crossChainCount <= 32, "Cross-chain count exceeds supported range");
+        assert (_txConsistencyScore <= 100, "Consistency score exceeds supported range");
+    }
+
+    export circuit assertBandMatchesScore(score: Uint<32>, band: Uint<8>): [] {
+        assert (band <= 4, "Invalid claimed band");
+
+        if (band == 4) {
+            assert (score >= LedgerStates_scoreConfig.platinumThreshold, "Claimed band does not match score");
+        } else if (band == 3) {
+            assert (score >= LedgerStates_scoreConfig.goldThreshold, "Claimed band does not match score");
+            assert (score < LedgerStates_scoreConfig.platinumThreshold, "Claimed band does not match score");
+        } else if (band == 2) {
+            assert (score >= LedgerStates_scoreConfig.silverThreshold, "Claimed band does not match score");
+            assert (score < LedgerStates_scoreConfig.goldThreshold, "Claimed band does not match score");
+        } else if (band == 1) {
+            assert (score >= LedgerStates_scoreConfig.bronzeThreshold, "Claimed band does not match score");
+            assert (score < LedgerStates_scoreConfig.silverThreshold, "Claimed band does not match score");
+        } else {
+            assert (score < LedgerStates_scoreConfig.bronzeThreshold, "Claimed band does not match score");
+        }
+    }
+
+    export circuit deriveBand(score: Uint<32>): Uint<8> {
+        const publicScore = disclose(score);
+        if (publicScore >= LedgerStates_scoreConfig.platinumThreshold) {
+            return 4;
+        } else if (publicScore >= LedgerStates_scoreConfig.goldThreshold) {
+            return 3;
+        } else if (publicScore >= LedgerStates_scoreConfig.silverThreshold) {
+            return 2;
+        } else if (publicScore >= LedgerStates_scoreConfig.bronzeThreshold) {
+            return 1;
+        } else {
+            return 0;
+        }
+    }
+
+    export circuit deriveCommunityWeightBps(band: Uint<8>): Uint<32> {
+        if (band >= 4) {
+            return 20000;
+        } else if (band == 3) {
+            return 15000;
+        } else if (band == 2) {
+            return 10000;
+        } else if (band == 1) {
+            return 5000;
+        } else {
+            return 0;
+        }
+    }
+
+    export circuit assertReputationCommitment(commitment: Bytes<32>, reputationStatus: Boolean): [] {
+        if(disclose(reputationStatus)){
+            const path = disclose(verifyReputationCommitment(commitment));
+            assert (path.is_some && LedgerStates_reputationCommitments.checkRoot(merkleTreePathRoot<32, Bytes<32>>(path.value)), "Reputation commitment failed verification");
+        } else {
             return;
         }
     }
 
-    export circuit deleteAccumulationCommitmentByIndex(_index: Uint<64>): []{
-        LedgerStates_scoreAccumulatorCommitments.insertIndexDefault(disclose(_index));
-    }
-
-    export circuit deleteCreditScoreCommitmentByIndex(_index: Uint<64>): []{
-        LedgerStates_creditScoreCommitments.insertIndexDefault(disclose(_index));
+    export circuit deleteReputationCommitmentByIndex(_index: Uint<64>): [] {
+        LedgerStates_reputationCommitments.insertIndexDefault(disclose(_index));
     }
 }

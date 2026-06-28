@@ -1,0 +1,166 @@
+module Reputation {
+    import CompactStandardLibrary;
+    import CustomStructs prefix CustomStructs_;
+    import GlobalLedgerStates prefix LedgerStates_;
+    import Utils prefix Utils_;
+
+    export circuit prove(
+        _veilIdHash: Bytes<32>,
+        _walletAgeInDays: Uint<32>,
+        _distinctProtocols: Uint<32>,
+        _daoVoteCount: Uint<32>,
+        _lpTenureInDays: Uint<32>,
+        _crossChainCount: Uint<32>,
+        _txConsistencyScore: Uint<32>,
+        _claimedBand: Uint<8>,
+        _ethChainCommitment: Bytes<32>,
+        _ckbChainCommitment: Bytes<32>,
+        _witnessSalt: Bytes<32>,
+        _witnessCommitment: Bytes<32>,
+        _proofNonce: Bytes<32>,
+        _proofHash: Bytes<32>,
+        _currentEpoch: Uint<64>
+    ): Uint<8> {
+        const veilIdHash = disclose(_veilIdHash);
+        assert (LedgerStates_identityRecords.member(veilIdHash), "Identity not registered");
+        assert (LedgerStates_identityRecords.lookup(veilIdHash).status == 1, "Identity is not active");
+        assert (disclose(_ethChainCommitment) != default<Bytes<32>> || disclose(_ckbChainCommitment) != default<Bytes<32>>, "Missing chain data commitment");
+        assert (disclose(_witnessSalt) != default<Bytes<32>>, "Invalid witness salt");
+        assert (disclose(_witnessCommitment) != default<Bytes<32>>, "Invalid witness commitment");
+        assert (disclose(_proofHash) != default<Bytes<32>>, "Invalid proof hash");
+        Utils_assertSignalBounds(
+            _walletAgeInDays,
+            _distinctProtocols,
+            _daoVoteCount,
+            _lpTenureInDays,
+            _crossChainCount,
+            _txConsistencyScore
+        );
+
+        const nonceReplayKey = persistentHash<Vector<4, Bytes<32>>>([
+            pad(32, "veil:v2:reputation:nonce"),
+            veilIdHash,
+            disclose(_proofNonce),
+            kernel.self().bytes
+        ]);
+        assert (!LedgerStates_processedProofs.member(nonceReplayKey), "Reputation proof already used");
+
+        const proofReplayKey = persistentHash<Vector<4, Bytes<32>>>([
+            pad(32, "veil:v2:reputation:proof"),
+            veilIdHash,
+            disclose(_proofHash),
+            kernel.self().bytes
+        ]);
+        assert (!LedgerStates_processedProofs.member(proofReplayKey), "Reputation proof already used");
+        LedgerStates_processedProofs.insert(nonceReplayKey);
+        LedgerStates_processedProofs.insert(proofReplayKey);
+
+        assert (disclose(_claimedBand) <= 4, "Invalid claimed band");
+        assert (
+            disclose(_witnessCommitment) == Utils_deriveReputationWitnessCommitment(
+                _veilIdHash,
+                _walletAgeInDays,
+                _distinctProtocols,
+                _daoVoteCount,
+                _lpTenureInDays,
+                _crossChainCount,
+                _txConsistencyScore,
+                _ethChainCommitment,
+                _ckbChainCommitment,
+                _witnessSalt
+            ),
+            "Invalid witness commitment"
+        );
+        assert (
+            disclose(_proofHash) == Utils_deriveReputationProofHash(
+                _veilIdHash,
+                _witnessCommitment,
+                _claimedBand,
+                _proofNonce
+            ),
+            "Invalid proof binding"
+        );
+
+        const maybeExisting = Utils_getReputationByVeilId(veilIdHash);
+        if (disclose(maybeExisting.is_some)) {
+            const existingCommitment = persistentCommit<CustomStructs_ReputationScore>(
+                maybeExisting.value,
+                veilIdHash
+            );
+            Utils_assertReputationCommitment(existingCommitment, maybeExisting.is_some);
+            Utils_deleteReputationCommitmentByIndex(maybeExisting.value.mtIndex);
+        }
+
+        const walletAgeScore = _walletAgeInDays * LedgerStates_scoreConfig.walletAgeWeight;
+        const protocolScore = _distinctProtocols * LedgerStates_scoreConfig.protocolWeight;
+        const daoScore = _daoVoteCount * LedgerStates_scoreConfig.daoWeight;
+        const lpScore = _lpTenureInDays * LedgerStates_scoreConfig.lpWeight;
+        const crossChainScore = _crossChainCount * LedgerStates_scoreConfig.crossChainWeight;
+        const consistencyScore = _txConsistencyScore * LedgerStates_scoreConfig.consistencyWeight;
+        const behaviorScore = walletAgeScore + protocolScore + daoScore + lpScore + crossChainScore + consistencyScore;
+        const unclampedScore = LedgerStates_scoreConfig.baseScore + behaviorScore;
+        const rawScore = unclampedScore as Uint<32>;
+        assert (rawScore <= LedgerStates_scoreConfig.maxScore, "Score exceeds max score");
+        const band = disclose(_claimedBand);
+        Utils_assertBandMatchesScore(rawScore, band);
+
+        const reputation = CustomStructs_ReputationScore {
+            veilIdHash,
+            score: rawScore,
+            band: band,
+            walletAgeInDays: _walletAgeInDays,
+            distinctProtocols: _distinctProtocols,
+            daoVoteCount: _daoVoteCount,
+            lpTenureInDays: _lpTenureInDays,
+            crossChainCount: _crossChainCount,
+            txConsistencyScore: _txConsistencyScore,
+            ethChainCommitment: disclose(_ethChainCommitment),
+            ckbChainCommitment: disclose(_ckbChainCommitment),
+            witnessCommitment: disclose(_witnessCommitment),
+            proofHash: disclose(_proofHash),
+            lastUpdatedEpoch: disclose(_currentEpoch),
+            mtIndex: disclose(Utils_getFirstFreeReputationIndex())
+        };
+
+        Utils_updatedReputation(veilIdHash, reputation);
+        LedgerStates_reputationCommitments.insert(
+            persistentCommit<CustomStructs_ReputationScore>(reputation, veilIdHash)
+        );
+
+        return band;
+    }
+
+    export circuit check(
+        _veilIdHash: Bytes<32>,
+        _requesterAddressHash: Bytes<32>,
+        _purposeHash: Bytes<32>,
+        _minimumBand: Uint<8>,
+        _currentEpoch: Uint<64>
+    ): CustomStructs_ReputationDecision {
+        const veilIdHash = disclose(_veilIdHash);
+        assert (LedgerStates_identityRecords.member(veilIdHash), "Identity not registered");
+        assert (LedgerStates_identityRecords.lookup(veilIdHash).status == 1, "Identity is not active");
+        assert (disclose(_minimumBand) <= 4, "Invalid minimum band");
+        assert (disclose(_requesterAddressHash) != default<Bytes<32>>, "Invalid requester");
+
+        const maybeReputation = Utils_getReputationByVeilId(veilIdHash);
+        assert (disclose(maybeReputation.is_some), "Reputation not found");
+
+        const reputationCommitment = persistentCommit<CustomStructs_ReputationScore>(
+            maybeReputation.value,
+            veilIdHash
+        );
+        Utils_assertReputationCommitment(reputationCommitment, maybeReputation.is_some);
+
+        const band = disclose(maybeReputation.value.band);
+        return CustomStructs_ReputationDecision {
+            veilIdHash,
+            meetsThreshold: band >= disclose(_minimumBand),
+            band: band,
+            communityWeightBps: Utils_deriveCommunityWeightBps(band),
+            accessTier: band,
+            validAtEpoch: disclose(_currentEpoch),
+            purposeHash: disclose(_purposeHash)
+        };
+    }
+}

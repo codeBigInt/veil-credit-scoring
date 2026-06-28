@@ -10,6 +10,7 @@ interface CodeBlockProps {
 
 export default function CodeBlock({ code, language = "bash", filename }: CodeBlockProps) {
   const [copied, setCopied] = useState(false);
+  const lines = code.replace(/\n$/, "").split("\n");
 
   const handleCopy = async () => {
     try {
@@ -24,8 +25,15 @@ export default function CodeBlock({ code, language = "bash", filename }: CodeBlo
   return (
     <div className="code-block-wrap">
       <div className="code-block-header">
-        <span className="code-block-lang">{language}</span>
-        {filename && <span className="code-block-filename">{filename}</span>}
+        <div className="code-block-title">
+          <span className="code-window-dots" aria-hidden="true">
+            <span />
+            <span />
+            <span />
+          </span>
+          <span className="code-block-lang">{language}</span>
+          {filename && <span className="code-block-filename">{filename}</span>}
+        </div>
         <button
           className={`code-copy-btn${copied ? " copied" : ""}`}
           onClick={handleCopy}
@@ -50,7 +58,14 @@ export default function CodeBlock({ code, language = "bash", filename }: CodeBlo
         </button>
       </div>
       <pre className="code-block-pre">
-        <code>{code}</code>
+        <code>
+          {lines.map((line, index) => (
+            <span className="code-line" key={`${index}-${line}`}>
+              <span className="code-line-number">{index + 1}</span>
+              <span className="code-line-content">{line || " "}</span>
+            </span>
+          ))}
+        </code>
       </pre>
     </div>
   );

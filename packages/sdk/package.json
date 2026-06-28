@@ -1,0 +1,77 @@
+{
+  "name": "@veil-protocol/sdk",
+  "version": "0.1.0",
+  "description": "Framework-agnostic SDK for the Veil private reputation protocol",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/veil-protocol/veil-credit-scoring"
+  },
+  "bugs": {
+    "url": "https://github.com/veil-protocol/veil-credit-scoring/issues"
+  },
+  "homepage": "https://veil.network",
+  "keywords": [
+    "midnight",
+    "zkp",
+    "reputation",
+    "defi",
+    "privacy",
+    "dao",
+    "airdrop",
+    "access-control"
+  ],
+  "engines": { "node": ">=18" },
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "sideEffects": false,
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "require": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "rm -rf dist && tsc --project tsconfig.build.json",
+    "check-types": "tsc --project tsconfig.json --noEmit",
+    "prepack": "bun run check-types && bun run test:run && bun run build",
+    "test": "vitest",
+    "test:run": "vitest run",
+    "test:coverage": "vitest run --coverage"
+  },
+  "dependencies": {
+    "@midnight-ntwrk/compact-runtime": "^0.16.0",
+    "@veil/veil-contract": "^0.1.0",
+    "nite-api": "^0.0.19"
+  },
+  "optionalDependencies": {
+    "@midnight-ntwrk/ledger-v8": "^8.1.0",
+    "@midnight-ntwrk/midnight-js-http-client-proof-provider": "^4.1.1",
+    "@midnight-ntwrk/midnight-js-indexer-public-data-provider": "^4.1.1",
+    "@midnight-ntwrk/midnight-js-network-id": "^4.1.1",
+    "@midnight-ntwrk/midnight-js-types": "^4.1.1",
+    "@midnight-ntwrk/midnight-js-utils": "^4.1.1",
+    "@midnightntwrk/wallet-sdk-abstractions": "^2.1.0",
+    "@midnightntwrk/wallet-sdk-address-format": "^3.1.2",
+    "@midnightntwrk/wallet-sdk-hd": "^3.0.3",
+    "@midnightntwrk/wallet-sdk-dust-wallet": "^4.2.0",
+    "@midnightntwrk/wallet-sdk-facade": "^4.1.0",
+    "@midnightntwrk/wallet-sdk-shielded": "^3.0.2",
+    "@midnightntwrk/wallet-sdk-unshielded-wallet": "^3.1.0"
+  },
+  "devDependencies": {
+    "@vitest/coverage-v8": "^4.0.2",
+    "vitest": "^4.0.2",
+    "typescript": "^5"
+  }
+}

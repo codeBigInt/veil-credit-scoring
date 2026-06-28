@@ -23,24 +23,24 @@ export const nav: NavSection[] = [
     ],
   },
   {
-    section: "Scoring Model",
+    section: "Reputation Model",
     pages: [
-      { title: "Overview", href: "/docs/scoring-model", description: "How credit scores are computed" },
+      { title: "Overview", href: "/docs/scoring-model", description: "How reputation bands are computed" },
     ],
   },
   {
     section: "Integration",
     pages: [
       { title: "Integration Guide", href: "/docs/integration", description: "Step-by-step guide" },
-      { title: "API Reference", href: "/docs/integration/api-reference", description: "All endpoints" },
+      { title: "SDK Guide", href: "/docs/integration/sdk", description: "Use @veil-protocol/sdk and React hooks" },
+      { title: "Backend API", href: "/docs/integration/api-reference", description: "Sponsor and backup endpoints" },
     ],
   },
   {
     section: "User Guide",
     pages: [
-      { title: "Dashboard Guide", href: "/docs/user-guide", description: "Using the Veil dashboard" },
-      { title: "Testnet Testing Guide", href: "/docs/user-guide/testnet", description: "Shareable app testing instructions" },
-      { title: "CKB Wallet Setup", href: "/docs/user-guide/ckb-wallet", description: "Set up CKB & mint your DOB" },
+      { title: "Using Veil", href: "/docs/user-guide", description: "Wallet, identity, reputation, and testnet flow" },
+      { title: "Identity Anchor", href: "/docs/user-guide/ckb-wallet", description: "CKB lock-hash anchor" },
     ],
   },
   {

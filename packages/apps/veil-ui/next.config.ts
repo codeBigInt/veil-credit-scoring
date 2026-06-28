@@ -3,7 +3,7 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   output: "export",
-  transpilePackages: ["@veil/veil-contract"],
+  transpilePackages: ["@veil/veil-contract", "@veil-protocol/sdk"],
   // Keep midnight-js-contracts out of the SSR bundle — it uses Node.js APIs
   // (fs/path) that are fine at runtime in Node but must never be SSR-bundled.
   serverExternalPackages: ["@midnight-ntwrk/midnight-js-contracts"],
@@ -11,8 +11,9 @@ const nextConfig: NextConfig = {
   // that midnight-js-contracts ships but never actually calls.
   // Path must be relative to the project root — no path.resolve().
   turbopack: {
+    root: new URL("../../..", import.meta.url).pathname,
     resolveAlias: {
-      fs: "./stubs/empty-node-module.js",
+      fs: "./packages/apps/veil-ui/stubs/empty-node-module.js",
     },
   },
 };

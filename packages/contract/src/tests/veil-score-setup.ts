@@ -10,10 +10,10 @@ import {
 } from "@midnight-ntwrk/compact-runtime";
 import {
   Contract,
-  CustomStructs_CreditScore,
-  CustomStructs_ScoreAccumulators,
+  CustomStructs_ReputationDecision,
+  CustomStructs_ReputationScore,
   CustomStructs_ScoreConfig,
-  CustomStructs_VeilDidRecord,
+  CustomStructs_VeilIdentityRecord,
   Ledger,
   ledger,
   Witnesses,
@@ -22,16 +22,24 @@ import { createVeilPrivateState, VeilPrivateState, witness } from "../witness";
 import { randomBytes } from "./utils";
 
 const defaultScoreConfig: CustomStructs_ScoreConfig = {
-  baseScore: 350n,
+  baseScore: 300n,
   maxScore: 900n,
-  scale: 100n,
-  repaymentWeight: 2n,
-  protocolWeight: 10n,
-  tenureWeight: 1n,
-  liquidationWeight: 3n,
-  activeDebtPenalty: 5n,
-  riskBandWeight: 5n,
+  walletAgeWeight: 3n,
+  protocolWeight: 15n,
+  daoWeight: 20n,
+  lpWeight: 10n,
+  crossChainWeight: 25n,
+  consistencyWeight: 5n,
+  bronzeThreshold: 400n,
+  silverThreshold: 550n,
+  goldThreshold: 700n,
+  platinumThreshold: 820n,
 };
+
+export const defaultGovernanceControllerCommitment = new Uint8Array([
+  1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+]);
 
 export class VeilScoreSimulator {
   readonly contract: Contract<VeilPrivateState>;
@@ -50,7 +58,9 @@ export class VeilScoreSimulator {
     const { currentContractState, currentPrivateState, currentZswapLocalState } =
       this.contract.initialState(
         createConstructorContext(privateState, { bytes: randomBytes(32) }),
-        defaultScoreConfig
+        defaultScoreConfig,
+        defaultGovernanceControllerCommitment,
+        10n
       );
 
     this.circuitContext = {
@@ -64,13 +74,15 @@ export class VeilScoreSimulator {
     };
 
     this.userPrivateStates = {
-      admin: this.circuitContext.currentPrivateState,
+      alice: this.circuitContext.currentPrivateState,
     };
-    this.updateUserPrivateState = () => {};
+    this.updateUserPrivateState = (newPrivateState: VeilPrivateState) => {
+      this.userPrivateStates.alice = newPrivateState;
+    };
   }
 
   static deploy(): VeilScoreSimulator {
-    return new VeilScoreSimulator(createVeilPrivateState(randomBytes(32)));
+    return new VeilScoreSimulator(createVeilPrivateState());
   }
 
   as(name: string): VeilScoreSimulator {
@@ -89,7 +101,7 @@ export class VeilScoreSimulator {
   }
 
   registerUser(name: string): void {
-    this.userPrivateStates[name] = createVeilPrivateState(randomBytes(32));
+    this.userPrivateStates[name] = createVeilPrivateState();
   }
 
   getLedgerState(): Ledger {
@@ -108,212 +120,300 @@ export class VeilScoreSimulator {
     return circuitResult.result;
   }
 
-  addIssuer(): Uint8Array {
-    const result = this.contract.impureCircuits.Admin_addIssuer(
+  deriveVeilId(
+    publicKeyOrLockHash: Uint8Array,
+    chainNamespace: Uint8Array,
+    salt: Uint8Array
+  ): Uint8Array {
+    const result = this.contract.circuits.Utils_deriveVeilId(
       this.circuitContext,
-      "Aave",
-      { bytes: randomBytes(32) },
-      BigInt(Date.now())
+      publicKeyOrLockHash,
+      chainNamespace,
+      salt
     );
     return this.updateStateAndGetResult(result);
   }
 
-  removeIssuer(issuerPk: Uint8Array): void {
-    const result = this.contract.impureCircuits.Admin_removeIssuer(
-      this.circuitContext,
-      issuerPk
-    );
-    this.updateStateAndGetResult(result);
-  }
-
-  addAdmin(adminPk: Uint8Array): void {
-    const result = this.contract.impureCircuits.Admin_addAdmin(
-      this.circuitContext,
-      adminPk
-    );
-    this.updateStateAndGetResult(result);
-  }
-
-  removeAdmin(adminPk: Uint8Array): void {
-    const result = this.contract.impureCircuits.Admin_removeAdmin(
-      this.circuitContext,
-      adminPk
-    );
-    this.updateStateAndGetResult(result);
-  }
-
-  updateScoreConfig(updatedScoreConfig: CustomStructs_ScoreConfig): void {
-    const result = this.contract.impureCircuits.Admin_updatedScoreConfig(
-      this.circuitContext,
-      updatedScoreConfig
-    );
-    this.updateStateAndGetResult(result);
-  }
-
-  generateCurrentUserPk(): Uint8Array {
-    const result = this.contract.circuits.Utils_generateUserPk(
-      this.circuitContext,
-      this.circuitContext.currentPrivateState.secreteKey
-    );
-    return this.updateStateAndGetResult(result);
-  }
-
-  createScoreEntry(userPk = this.generateCurrentUserPk()): void {
-    const result = this.contract.impureCircuits.Scoring_createScoreEntry(
-      this.circuitContext,
-      userPk
-    );
-    this.updateStateAndGetResult(result);
-  }
-
-  submitRepaymentEvent(
-    userPk: Uint8Array,
-    issuerPk: Uint8Array,
-    paidOnTimeFlag: bigint,
-    amountWeight: bigint,
-    eventEpoch: bigint,
-    eventId: Uint8Array
-  ): void {
-    const result = this.contract.impureCircuits.Scoring_submitRepaymentEvent(
-      this.circuitContext,
-      userPk,
-      issuerPk,
-      paidOnTimeFlag,
-      amountWeight,
-      eventEpoch,
-      eventId
-    );
-    this.updateStateAndGetResult(result);
-  }
-
-  submitLiquidationEvent(
-    userPk: Uint8Array,
-    issuerPk: Uint8Array,
-    severity: bigint,
-    eventEpoch: bigint,
-    eventId: Uint8Array
-  ): void {
-    const result = this.contract.impureCircuits.Scoring_submitLiquidationEvent(
-      this.circuitContext,
-      userPk,
-      issuerPk,
-      severity,
-      eventEpoch,
-      eventId
-    );
-    this.updateStateAndGetResult(result);
-  }
-
-  submitProtocolUsageEvent(
-    userPk: Uint8Array,
-    issuerPk: Uint8Array,
-    protocolId: Uint8Array,
-    eventEpoch: bigint
-  ): void {
-    const result = this.contract.impureCircuits.Scoring_submitProtocolUsageEvent(
-      this.circuitContext,
-      userPk,
-      issuerPk,
-      protocolId,
-      eventEpoch
-    );
-    this.updateStateAndGetResult(result);
-  }
-
-  submitDebtStateEvent(
-    userPk: Uint8Array,
-    issuerPk: Uint8Array,
-    activeDebtFlag: bigint,
-    riskBand: bigint,
-    eventEpoch: bigint,
-    eventId: Uint8Array
-  ): void {
-    const result = this.contract.impureCircuits.Scoring_submitDebtStateEvent(
-      this.circuitContext,
-      userPk,
-      issuerPk,
-      activeDebtFlag,
-      riskBand,
-      eventEpoch,
-      eventId
-    );
-    this.updateStateAndGetResult(result);
-  }
-
-  registerDid(
-    userPk: Uint8Array,
+  registerIdentity(
     veilIdHash: Uint8Array,
-    sporeIdHash: Uint8Array,
-    ckbOwnerLockHash: Uint8Array,
-    recoveryCommitment: Uint8Array,
+    chainNamespace = randomBytes(32),
+    publicKeyOrLockHashCommitment = randomBytes(32),
+    walletSignatureHash = randomBytes(32),
+    chainProofHash?: Uint8Array,
     currentEpoch = 1n
-  ): void {
-    const result = this.contract.impureCircuits.DIDRegistry_register(
+  ): CustomStructs_VeilIdentityRecord {
+    const resolvedChainProofHash =
+      chainProofHash ??
+      this.deriveIdentityProofHash(
+        veilIdHash,
+        chainNamespace,
+        publicKeyOrLockHashCommitment,
+        walletSignatureHash
+      );
+    const result = this.contract.impureCircuits.Identity_register(
       this.circuitContext,
-      userPk,
       veilIdHash,
-      sporeIdHash,
-      ckbOwnerLockHash,
-      recoveryCommitment,
+      chainNamespace,
+      publicKeyOrLockHashCommitment,
+      walletSignatureHash,
+      resolvedChainProofHash,
       currentEpoch
-    );
-    this.updateStateAndGetResult(result);
-  }
-
-  assertDidActive(
-    veilIdHash: Uint8Array,
-    sporeIdHash: Uint8Array,
-    ckbOwnerLockHash: Uint8Array
-  ): boolean {
-    const result = this.contract.impureCircuits.DIDRegistry_assertActive(
-      this.circuitContext,
-      veilIdHash,
-      sporeIdHash,
-      ckbOwnerLockHash
     );
     return this.updateStateAndGetResult(result);
   }
 
-  rotateDidVerificationMethod(
+  deriveIdentityProofHash(
     veilIdHash: Uint8Array,
-    previousCkbOwnerLockHash: Uint8Array,
-    newSporeIdHash: Uint8Array,
-    newCkbOwnerLockHash: Uint8Array,
-    recoveryProofCommitment: Uint8Array,
-    currentEpoch = 2n
-  ): void {
-    const result = this.contract.impureCircuits.DIDRegistry_rotateVerificationMethod(
+    chainNamespace: Uint8Array,
+    publicKeyOrLockHashCommitment: Uint8Array,
+    walletSignatureHash: Uint8Array
+  ): Uint8Array {
+    const result = this.contract.circuits.Utils_deriveIdentityProofHash(
       this.circuitContext,
       veilIdHash,
-      previousCkbOwnerLockHash,
-      newSporeIdHash,
-      newCkbOwnerLockHash,
-      recoveryProofCommitment,
-      currentEpoch
+      chainNamespace,
+      publicKeyOrLockHashCommitment,
+      walletSignatureHash
     );
-    this.updateStateAndGetResult(result);
+    return this.updateStateAndGetResult(result);
   }
 
-  revokeDid(veilIdHash: Uint8Array, currentEpoch = 3n): void {
-    const result = this.contract.impureCircuits.DIDRegistry_revoke(
+  deriveReputationWitnessCommitment(args: {
+    veilIdHash: Uint8Array;
+    walletAgeInDays: bigint;
+    distinctProtocols: bigint;
+    daoVoteCount: bigint;
+    lpTenureInDays: bigint;
+    crossChainCount: bigint;
+    txConsistencyScore: bigint;
+    ethChainCommitment: Uint8Array;
+    ckbChainCommitment: Uint8Array;
+    witnessSalt: Uint8Array;
+  }): Uint8Array {
+    const result = this.contract.circuits.Utils_deriveReputationWitnessCommitment(
+      this.circuitContext,
+      args.veilIdHash,
+      args.walletAgeInDays,
+      args.distinctProtocols,
+      args.daoVoteCount,
+      args.lpTenureInDays,
+      args.crossChainCount,
+      args.txConsistencyScore,
+      args.ethChainCommitment,
+      args.ckbChainCommitment,
+      args.witnessSalt
+    );
+    return this.updateStateAndGetResult(result);
+  }
+
+  deriveReputationProofHash(
+    veilIdHash: Uint8Array,
+    witnessCommitment: Uint8Array,
+    claimedBand: bigint,
+    proofNonce: Uint8Array
+  ): Uint8Array {
+    const result = this.contract.circuits.Utils_deriveReputationProofHash(
       this.circuitContext,
       veilIdHash,
+      witnessCommitment,
+      claimedBand,
+      proofNonce
+    );
+    return this.updateStateAndGetResult(result);
+  }
+
+  deriveGovernanceActionHash(
+    actionTag: Uint8Array,
+    scoreConfigHash: Uint8Array,
+    effectiveEpoch: bigint
+  ): Uint8Array {
+    const result = this.contract.circuits.Utils_deriveGovernanceActionHash(
+      this.circuitContext,
+      actionTag,
+      scoreConfigHash,
+      effectiveEpoch
+    );
+    return this.updateStateAndGetResult(result);
+  }
+
+  deriveGovernanceProofHash(
+    controllerCommitment: Uint8Array,
+    actionHash: Uint8Array,
+    nonce: Uint8Array
+  ): Uint8Array {
+    const result = this.contract.circuits.Utils_deriveGovernanceProofHash(
+      this.circuitContext,
+      controllerCommitment,
+      actionHash,
+      nonce
+    );
+    return this.updateStateAndGetResult(result);
+  }
+
+  deriveScoreConfigCommitment(config: CustomStructs_ScoreConfig): Uint8Array {
+    const result = this.contract.circuits.Utils_deriveScoreConfigHashFor(
+      this.circuitContext,
+      config
+    );
+    return this.updateStateAndGetResult(result);
+  }
+
+  assertIdentityActive(veilIdHash: Uint8Array): boolean {
+    const result = this.contract.impureCircuits.Identity_assertActive(
+      this.circuitContext,
+      veilIdHash
+    );
+    return this.updateStateAndGetResult(result);
+  }
+
+  proveReputation(
+    veilIdHash: Uint8Array,
+    signals: {
+      walletAgeInDays: bigint;
+      distinctProtocols: bigint;
+      daoVoteCount: bigint;
+      lpTenureInDays: bigint;
+      crossChainCount: bigint;
+      txConsistencyScore: bigint;
+      claimedBand: bigint;
+      ethChainCommitment?: Uint8Array;
+      ckbChainCommitment?: Uint8Array;
+      witnessSalt?: Uint8Array;
+      witnessCommitment?: Uint8Array;
+      proofNonce?: Uint8Array;
+      proofHash?: Uint8Array;
+      currentEpoch?: bigint;
+    }
+  ): bigint {
+    const ethChainCommitment = signals.ethChainCommitment ?? randomBytes(32);
+    const ckbChainCommitment = signals.ckbChainCommitment ?? new Uint8Array(32);
+    const witnessSalt = signals.witnessSalt ?? randomBytes(32);
+    const proofNonce = signals.proofNonce ?? randomBytes(32);
+    const witnessCommitment =
+      signals.witnessCommitment ??
+      this.deriveReputationWitnessCommitment({
+        veilIdHash,
+        walletAgeInDays: signals.walletAgeInDays,
+        distinctProtocols: signals.distinctProtocols,
+        daoVoteCount: signals.daoVoteCount,
+        lpTenureInDays: signals.lpTenureInDays,
+        crossChainCount: signals.crossChainCount,
+        txConsistencyScore: signals.txConsistencyScore,
+        ethChainCommitment,
+        ckbChainCommitment,
+        witnessSalt,
+      });
+    const proofHash =
+      signals.proofHash ??
+      this.deriveReputationProofHash(
+        veilIdHash,
+        witnessCommitment,
+        signals.claimedBand,
+        proofNonce
+      );
+    const result = this.contract.impureCircuits.Reputation_prove(
+      this.circuitContext,
+      veilIdHash,
+      signals.walletAgeInDays,
+      signals.distinctProtocols,
+      signals.daoVoteCount,
+      signals.lpTenureInDays,
+      signals.crossChainCount,
+      signals.txConsistencyScore,
+      signals.claimedBand,
+      ethChainCommitment,
+      ckbChainCommitment,
+      witnessSalt,
+      witnessCommitment,
+      proofNonce,
+      proofHash,
+      signals.currentEpoch ?? 2n
+    );
+    return this.updateStateAndGetResult(result);
+  }
+
+  checkReputation(
+    veilIdHash: Uint8Array,
+    minimumBand: bigint,
+    purposeHash = randomBytes(32),
+    requesterHash = randomBytes(32),
+    currentEpoch = 3n
+  ): CustomStructs_ReputationDecision {
+    const result = this.contract.impureCircuits.Reputation_check(
+      this.circuitContext,
+      veilIdHash,
+      requesterHash,
+      purposeHash,
+      minimumBand,
       currentEpoch
     );
-    this.updateStateAndGetResult(result);
+    return this.updateStateAndGetResult(result);
   }
 
-  getDidRecord(veilIdHash: Uint8Array): CustomStructs_VeilDidRecord {
-    return this.getLedgerState().LedgerStates_didRecords.lookup(veilIdHash);
+  getIdentityRecord(veilIdHash: Uint8Array): CustomStructs_VeilIdentityRecord {
+    return this.getLedgerState().LedgerStates_identityRecords.lookup(veilIdHash);
   }
 
-
-  getUserAccumulator(userPk: Uint8Array): CustomStructs_ScoreAccumulators {
-    const key = toHex(userPk);
-    const value = this.circuitContext.currentPrivateState.scoreAmmulations[key];
+  getReputationScore(veilIdHash: Uint8Array): CustomStructs_ReputationScore {
+    const key = toHex(veilIdHash);
+    const value = this.circuitContext.currentPrivateState.reputationScores[key];
     if (!value) {
-      throw new Error("User accumulation does not exist");
+      throw new Error("Reputation score does not exist");
     }
     return value;
+  }
+
+  proposeScoreConfig(config: CustomStructs_ScoreConfig, currentEpoch = 10n): void {
+    const scoreConfigHash = this.deriveScoreConfigCommitment(config);
+    const actionHash = this.deriveGovernanceActionHash(
+      new TextEncoder().encode("score-config".padEnd(32, "\0")).slice(0, 32),
+      scoreConfigHash,
+      currentEpoch
+    );
+    const nonce = randomBytes(32);
+    const proofHash = this.deriveGovernanceProofHash(
+      defaultGovernanceControllerCommitment,
+      actionHash,
+      nonce
+    );
+    const result = this.contract.impureCircuits.Governance_proposeScoreConfig(
+      this.circuitContext,
+      config,
+      currentEpoch,
+      actionHash,
+      proofHash,
+      nonce
+    );
+    this.updateStateAndGetResult(result);
+  }
+
+  applyScoreConfig(currentEpoch = 20n): void {
+    const result = this.contract.impureCircuits.Governance_applyScoreConfig(
+      this.circuitContext,
+      currentEpoch
+    );
+    this.updateStateAndGetResult(result);
+  }
+
+  cancelScoreConfig(): void {
+    const pending = this.getLedgerState().LedgerStates_pendingScoreConfig;
+    const actionHash = this.deriveGovernanceActionHash(
+      new TextEncoder().encode("cancel-config".padEnd(32, "\0")).slice(0, 32),
+      new Uint8Array(32),
+      pending.executableAtEpoch
+    );
+    const nonce = randomBytes(32);
+    const proofHash = this.deriveGovernanceProofHash(
+      defaultGovernanceControllerCommitment,
+      actionHash,
+      nonce
+    );
+    const result = this.contract.impureCircuits.Governance_cancelScoreConfig(
+      this.circuitContext,
+      actionHash,
+      proofHash,
+      nonce
+    );
+    this.updateStateAndGetResult(result);
   }
 }
