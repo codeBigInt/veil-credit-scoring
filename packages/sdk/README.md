@@ -51,8 +51,6 @@ Lower-level contract tooling is also exported for CLIs and deployment systems:
 import {
   PRIVATE_STATE_ID,
   FULL_CONTRACT_CIRCUITS,
-  BOOTSTRAP_CONTRACT_CIRCUITS,
-  POST_BOOTSTRAP_CONTRACT_CIRCUITS,
   makeFullCompiledContract,
   submitIdentityRegistration,
   submitReputationProof,

@@ -53,6 +53,14 @@ const optionalBigIntString = (value: unknown, key: string): bigint | undefined =
   return BigInt(text);
 };
 
+const optionalString = (value: unknown): string | undefined =>
+  typeof value === 'string' && value.trim() !== '' ? value.trim() : undefined;
+
+const clientIp = (req: Request): string => {
+  const forwardedFor = req.header('x-forwarded-for')?.split(',')[0]?.trim();
+  return forwardedFor || req.ip || req.socket.remoteAddress || 'unknown';
+};
+
 const requireEncryptedPayload = (body: Record<string, unknown>): unknown => {
   const payload = body.payload;
   if (payload == null) {
@@ -98,24 +106,6 @@ export const buildRouter = (contract: ContractService, db: Db): Router => {
     }
   });
 
-  router.post('/contract/deploy', async (_req: Request, res: Response) => {
-    if (!contract.deploymentEnabled()) {
-      sendError(res, 403, 'Backend contract deployment is disabled. Set VEIL_AUTO_DEPLOY=true to enable it.');
-      return;
-    }
-
-    try {
-      const contractAddress = await contract.deployContract();
-      res.status(200).json({
-        success: true,
-        contractAddress,
-        deployed: true,
-      });
-    } catch (error) {
-      sendError(res, 500, errorMessage(error));
-    }
-  });
-
   router.get('/sponsor/status', async (_req: Request, res: Response) => {
     try {
       res.status(200).json({
@@ -139,6 +129,10 @@ export const buildRouter = (contract: ContractService, db: Db): Router => {
       const sponsorship = await contract.sponsorDust(
         dustAddress,
         optionalBigIntString(body.requiredDust, 'requiredDust'),
+        {
+          scope: optionalString(body.scope),
+          ip: clientIp(req),
+        },
       );
       if (sponsorship == null) {
         res.status(200).json({
@@ -153,6 +147,15 @@ export const buildRouter = (contract: ContractService, db: Db): Router => {
 
       res.status(200).json({ success: true, sponsored: true, ...sponsorship });
     } catch (error) {
+      const message = errorMessage(error);
+      if (message.includes('rate limit')) {
+        sendError(res, 429, message);
+        return;
+      }
+      if (message.includes('only available for identity registration')) {
+        sendError(res, 400, message);
+        return;
+      }
       sendError(res, 500, errorMessage(error));
     }
   };

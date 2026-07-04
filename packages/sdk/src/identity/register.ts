@@ -1,9 +1,11 @@
 import type { CCCSigner, RegistrationResult, VeilIdentity, VeilMidnightProvider } from '../types';
 import type { VeilConfig } from '../config';
-import { toBytes32, bytesToHex } from '../utils/bytes';
+import { toBytes32 } from '../utils/bytes';
+import type { BytesLike } from '../types';
 import { sha256Bytes32 } from '../utils/hash';
-import { deriveIdentityProofHash, submitIdentityRegistration } from '../contract';
+import { submitIdentityRegistration } from '../contract';
 import { padStringToBytes32 } from '../utils/bytes';
+import { extractTxId } from '../utils/tx';
 
 export const buildRegistrationMessage = (veilId: string, network: VeilConfig['network']): string =>
   [
@@ -16,6 +18,11 @@ export const buildRegistrationMessage = (veilId: string, network: VeilConfig['ne
 
 const signatureToString = (signature: string | { signature: string }): string =>
   typeof signature === 'string' ? signature : signature.signature;
+
+export type RegisterIdentityOptions = {
+  signature?: string | { signature: string };
+  walletSignatureHash?: BytesLike;
+};
 
 /**
  * Registers the user's identity on the Midnight Veil contract.
@@ -32,39 +39,32 @@ export const registerIdentity = async (
   signer: CCCSigner,
   config: VeilConfig,
   midnightProvider: VeilMidnightProvider,
+  options: RegisterIdentityOptions = {},
 ): Promise<RegistrationResult> => {
-  const message = buildRegistrationMessage(identity.veilId, config.network);
-  const signature = signatureToString(await signer.signMessage(message));
-  const walletSignatureHash = await sha256Bytes32(signature);
+  const walletSignatureHash = options.walletSignatureHash
+    ? toBytes32(options.walletSignatureHash, 'walletSignatureHash')
+    : await sha256Bytes32(
+        signatureToString(
+          options.signature ??
+          await signer.signMessage(buildRegistrationMessage(identity.veilId, config.network)),
+        ),
+      );
 
   const veilIdHash = toBytes32(identity.veilId, 'identity.veilId');
   const chainNamespace = padStringToBytes32(identity.sourceChain);
   const publicKeyOrLockHashCommitment = toBytes32(identity.ckbLockHash, 'identity.ckbLockHash');
-
-  const chainProofHash = await deriveIdentityProofHash(midnightProvider, {
-    veilIdHash,
-    chainNamespace,
-    publicKeyOrLockHashCommitment,
-    walletSignatureHash,
-  });
 
   const tx = await submitIdentityRegistration(midnightProvider, {
     veilIdHash,
     chainNamespace,
     publicKeyOrLockHashCommitment,
     walletSignatureHash,
-    chainProofHash,
     currentEpoch: BigInt(Date.now()),
   });
 
-  const txHash =
-    (tx as { txHash?: string })?.txHash ??
-    (tx as { hash?: string })?.hash ??
-    bytesToHex(chainProofHash);
-
   return {
     veilId: identity.veilId,
-    txHash,
+    txHash: extractTxId(tx) ?? '',
     sponsored: false,
   };
 };

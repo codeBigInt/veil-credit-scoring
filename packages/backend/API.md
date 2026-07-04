@@ -46,8 +46,7 @@ from MongoDB's saved backend deployment record, or from a backend deployment.
 
 ### `POST /contract/deploy`
 
-Deploys the staged bootstrap contract and installs the missing full-contract verifier keys. This
-route is idempotent: if an address is already active, it returns that address.
+Deploys the single Veil v2 contract. This route is idempotent: if an address is already active, it returns that address.
 
 The route is disabled unless `VEIL_AUTO_DEPLOY=true`.
 
@@ -74,9 +73,17 @@ an entire day.
 ```json
 {
   "dustAddress": "mn_dust_preview1...",
-  "requiredDust": "123456"
+  "requiredDust": "123456",
+  "scope": "Identity_register"
 }
 ```
+
+`scope` is required by SDK clients and must be one of:
+
+- `Identity_register`
+- `Reputation_prove`
+
+The backend intentionally does not sponsor governance/admin traffic or general contract writes.
 
 Response:
 
@@ -113,7 +120,10 @@ If no free NIGHT UTxOs are available:
       "skippedNonNightUtxos": 0
     },
     "activeAllocations": 10,
-    "expiringSoon": 10
+    "expiringSoon": 10,
+    "expiredAllocations": 0,
+    "reclaimingAllocations": 0,
+    "failedReclaimAllocations": 0
   }
 }
 ```
@@ -124,6 +134,10 @@ Successful sponsorships are recorded by the backend and reclaimed automatically 
 ### `GET /sponsor/status`
 
 Returns current sponsor-pool capacity so clients can display a clear temporary-unavailable message
+before the user attempts an on-chain write.
+
+The sponsor pool can also be rate-limited. Rate-limited requests return HTTP `429` with a public
+message telling the user to retry later or use their own DUST.
 before starting a registration flow.
 
 ```json

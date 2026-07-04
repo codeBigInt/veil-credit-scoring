@@ -16,18 +16,36 @@ module Reputation {
         _ethChainCommitment: Bytes<32>,
         _ckbChainCommitment: Bytes<32>,
         _witnessSalt: Bytes<32>,
-        _witnessCommitment: Bytes<32>,
         _proofNonce: Bytes<32>,
-        _proofHash: Bytes<32>,
         _currentEpoch: Uint<64>
     ): Uint<8> {
         const veilIdHash = disclose(_veilIdHash);
+        const witnessCommitment = Utils_deriveReputationWitnessCommitment(
+            _veilIdHash,
+            _walletAgeInDays,
+            _distinctProtocols,
+            _daoVoteCount,
+            _lpTenureInDays,
+            _crossChainCount,
+            _txConsistencyScore,
+            _ethChainCommitment,
+            _ckbChainCommitment,
+            _witnessSalt
+        );
+        const proofHash = Utils_deriveReputationProofHash(
+            _veilIdHash,
+            witnessCommitment,
+            _claimedBand,
+            _proofNonce,
+            Utils_deriveScoreConfigHash()
+        );
+
         assert (LedgerStates_identityRecords.member(veilIdHash), "Identity not registered");
         assert (LedgerStates_identityRecords.lookup(veilIdHash).status == 1, "Identity is not active");
         assert (disclose(_ethChainCommitment) != default<Bytes<32>> || disclose(_ckbChainCommitment) != default<Bytes<32>>, "Missing chain data commitment");
         assert (disclose(_witnessSalt) != default<Bytes<32>>, "Invalid witness salt");
-        assert (disclose(_witnessCommitment) != default<Bytes<32>>, "Invalid witness commitment");
-        assert (disclose(_proofHash) != default<Bytes<32>>, "Invalid proof hash");
+        assert (witnessCommitment != default<Bytes<32>>, "Invalid witness commitment");
+        assert (proofHash != default<Bytes<32>>, "Invalid proof hash");
         Utils_assertSignalBounds(
             _walletAgeInDays,
             _distinctProtocols,
@@ -48,7 +66,7 @@ module Reputation {
         const proofReplayKey = persistentHash<Vector<4, Bytes<32>>>([
             pad(32, "veil:v2:reputation:proof"),
             veilIdHash,
-            disclose(_proofHash),
+            proofHash,
             kernel.self().bytes
         ]);
         assert (!LedgerStates_processedProofs.member(proofReplayKey), "Reputation proof already used");
@@ -56,30 +74,6 @@ module Reputation {
         LedgerStates_processedProofs.insert(proofReplayKey);
 
         assert (disclose(_claimedBand) <= 4, "Invalid claimed band");
-        assert (
-            disclose(_witnessCommitment) == Utils_deriveReputationWitnessCommitment(
-                _veilIdHash,
-                _walletAgeInDays,
-                _distinctProtocols,
-                _daoVoteCount,
-                _lpTenureInDays,
-                _crossChainCount,
-                _txConsistencyScore,
-                _ethChainCommitment,
-                _ckbChainCommitment,
-                _witnessSalt
-            ),
-            "Invalid witness commitment"
-        );
-        assert (
-            disclose(_proofHash) == Utils_deriveReputationProofHash(
-                _veilIdHash,
-                _witnessCommitment,
-                _claimedBand,
-                _proofNonce
-            ),
-            "Invalid proof binding"
-        );
 
         const maybeExisting = Utils_getReputationByVeilId(veilIdHash);
         if (disclose(maybeExisting.is_some)) {
@@ -116,8 +110,8 @@ module Reputation {
             txConsistencyScore: _txConsistencyScore,
             ethChainCommitment: disclose(_ethChainCommitment),
             ckbChainCommitment: disclose(_ckbChainCommitment),
-            witnessCommitment: disclose(_witnessCommitment),
-            proofHash: disclose(_proofHash),
+            witnessCommitment: witnessCommitment,
+            proofHash: proofHash,
             lastUpdatedEpoch: disclose(_currentEpoch),
             mtIndex: disclose(Utils_getFirstFreeReputationIndex())
         };

@@ -11,7 +11,7 @@ import { VeilError, type SponsoredFee } from '../types';
 export const requestSponsorship = async (
   dustAddress: string,
   sponsorUrl: string,
-  options: { requiredDust?: bigint | string } = {},
+  options: { requiredDust?: bigint | string; scope?: string } = {},
 ): Promise<SponsoredFee> => {
   const endpoint = `${sponsorUrl.replace(/\/$/, '')}/sponsor/dust`;
   const response = await fetch(endpoint, {
@@ -20,6 +20,7 @@ export const requestSponsorship = async (
     body: JSON.stringify({
       dustAddress,
       ...(options.requiredDust != null ? { requiredDust: options.requiredDust.toString() } : {}),
+      ...(options.scope ? { scope: options.scope } : {}),
     }),
   });
   if (!response.ok) {

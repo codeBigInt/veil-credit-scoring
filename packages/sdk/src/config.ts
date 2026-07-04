@@ -12,6 +12,10 @@ export interface VeilConfig {
   proofServerUrl?: string;
   /** Veil fee-sponsor service URL for DUST sponsorship. */
   feeSponsorUrl?: string;
+  /** Maximum time to wait for sponsored DUST to appear in the derived wallet. Default: 10 minutes. */
+  dustSponsorSyncTimeoutMs?: number;
+  /** Maximum time to wait for a Midnight contract transaction to settle. Default: 10 minutes. */
+  transactionTimeoutMs?: number;
   chains: {
     ethereum?: ChainRpcConfig;
     arbitrum?: ChainRpcConfig;

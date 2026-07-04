@@ -15,13 +15,8 @@ import {
   buildIdentityRegistrationArgs,
   buildReputationCheckArgs,
   buildReputationProofArgs,
-  deriveReputationWitnessCommitment,
-  extractCircuitResult,
-  BAND_ORDER,
-  bandMeetsMinimum,
   checkReputation,
   batchCheckReputation,
-  toBytes32,
   padStringToBytes32,
   bytesToHex,
 } from '@veil-protocol/sdk';
@@ -34,22 +29,13 @@ class SimulatorProvider implements VeilMidnightProvider {
 
   async callTx(circuit: string, ...args: unknown[]): Promise<unknown> {
     switch (circuit) {
-      case 'Utils_deriveIdentityProofHash':
-        return this.sim.deriveIdentityProofHash(
-          args[0] as Uint8Array,
-          args[1] as Uint8Array,
-          args[2] as Uint8Array,
-          args[3] as Uint8Array,
-        );
-
       case 'Identity_register':
         return this.sim.registerIdentity(
           args[0] as Uint8Array,
           args[1] as Uint8Array,
           args[2] as Uint8Array,
           args[3] as Uint8Array,
-          args[4] as Uint8Array,
-          args[5] as bigint,
+          args[4] as bigint,
         );
 
       case 'Identity_assertActive': {
@@ -58,19 +44,10 @@ class SimulatorProvider implements VeilMidnightProvider {
         return ok;
       }
 
-      case 'Utils_deriveReputationProofHash':
-        return this.sim.deriveReputationProofHash(
-          args[0] as Uint8Array,
-          args[1] as Uint8Array,
-          args[2] as bigint,
-          args[3] as Uint8Array,
-        );
-
       case 'Reputation_prove':
         // buildReputationProofArgs order:
         // [veilId, age, protocols, votes, lp, crossChain, consistency,
-        //  claimedBand, ethCommitment, ckbCommitment, salt,
-        //  witnessCommitment, proofNonce, proofHash, epoch]
+        //  claimedBand, ethCommitment, ckbCommitment, salt, proofNonce, epoch]
         return this.sim.proveReputation(args[0] as Uint8Array, {
           walletAgeInDays:   args[1] as bigint,
           distinctProtocols: args[2] as bigint,
@@ -82,10 +59,8 @@ class SimulatorProvider implements VeilMidnightProvider {
           ethChainCommitment: args[8] as Uint8Array,
           ckbChainCommitment: args[9] as Uint8Array,
           witnessSalt:       args[10] as Uint8Array,
-          witnessCommitment: args[11] as Uint8Array,
-          proofNonce:        args[12] as Uint8Array,
-          proofHash:         args[13] as Uint8Array,
-          currentEpoch:      args[14] as bigint,
+          proofNonce:        args[11] as Uint8Array,
+          currentEpoch:      args[12] as bigint,
         });
 
       case 'Reputation_check':
@@ -133,15 +108,6 @@ describe('SDK × Contract E2E', () => {
       const lockHashCommitment = randomBytes(32);
       const walletSignatureHash = randomBytes(32);
 
-      // Derive proof hash via the contract (as the SDK does internally)
-      const chainProofHash = await provider.callTx(
-        'Utils_deriveIdentityProofHash',
-        veilIdHash,
-        chainNamespace,
-        lockHashCommitment,
-        walletSignatureHash,
-      ) as Uint8Array;
-
       await provider.callTx(
         'Identity_register',
         ...buildIdentityRegistrationArgs({
@@ -149,7 +115,6 @@ describe('SDK × Contract E2E', () => {
           chainNamespace,
           publicKeyOrLockHashCommitment: lockHashCommitment,
           walletSignatureHash,
-          chainProofHash,
           currentEpoch: 1n,
         }),
       );
@@ -168,17 +133,16 @@ describe('SDK × Contract E2E', () => {
       const ns = padStringToBytes32('evm');
       const lock = randomBytes(32);
       const sig = randomBytes(32);
-      const proofHash = await provider.callTx('Utils_deriveIdentityProofHash', veilIdHash, ns, lock, sig) as Uint8Array;
 
       await provider.callTx(
         'Identity_register',
-        ...buildIdentityRegistrationArgs({ veilIdHash, chainNamespace: ns, publicKeyOrLockHashCommitment: lock, walletSignatureHash: sig, chainProofHash: proofHash, currentEpoch: 1n }),
+        ...buildIdentityRegistrationArgs({ veilIdHash, chainNamespace: ns, publicKeyOrLockHashCommitment: lock, walletSignatureHash: sig, currentEpoch: 1n }),
       );
 
       await expect(
         provider.callTx(
           'Identity_register',
-          ...buildIdentityRegistrationArgs({ veilIdHash, chainNamespace: ns, publicKeyOrLockHashCommitment: lock, walletSignatureHash: sig, chainProofHash: proofHash, currentEpoch: 2n }),
+          ...buildIdentityRegistrationArgs({ veilIdHash, chainNamespace: ns, publicKeyOrLockHashCommitment: lock, walletSignatureHash: sig, currentEpoch: 2n }),
         ),
       ).rejects.toThrow(/already registered/i);
     });
@@ -202,10 +166,9 @@ describe('SDK × Contract E2E', () => {
       const ns = padStringToBytes32('evm');
       const lock = randomBytes(32);
       const sig = randomBytes(32);
-      const proofHash = await provider.callTx('Utils_deriveIdentityProofHash', veilIdHash, ns, lock, sig) as Uint8Array;
       await provider.callTx(
         'Identity_register',
-        ...buildIdentityRegistrationArgs({ veilIdHash, chainNamespace: ns, publicKeyOrLockHashCommitment: lock, walletSignatureHash: sig, chainProofHash: proofHash, currentEpoch: 1n }),
+        ...buildIdentityRegistrationArgs({ veilIdHash, chainNamespace: ns, publicKeyOrLockHashCommitment: lock, walletSignatureHash: sig, currentEpoch: 1n }),
       );
     });
 
@@ -215,27 +178,6 @@ describe('SDK × Contract E2E', () => {
       const witnessSalt   = randomBytes(32);
       const proofNonce    = randomBytes(32);
 
-      const witnessCommitment = deriveReputationWitnessCommitment(
-        veilIdHash,
-        signals.walletAgeInDays,
-        signals.distinctProtocols,
-        signals.daoVoteCount,
-        signals.lpTenureInDays,
-        signals.crossChainCount,
-        signals.txConsistencyScore,
-        ethCommitment,
-        ckbCommitment,
-        witnessSalt,
-      );
-
-      const proofHash = await provider.callTx(
-        'Utils_deriveReputationProofHash',
-        veilIdHash,
-        witnessCommitment,
-        signals.claimedBand,
-        proofNonce,
-      ) as Uint8Array;
-
       const band = await provider.callTx(
         'Reputation_prove',
         ...buildReputationProofArgs({
@@ -244,9 +186,7 @@ describe('SDK × Contract E2E', () => {
           ethChainCommitment: ethCommitment,
           ckbChainCommitment: ckbCommitment,
           witnessSalt,
-          witnessCommitment,
           proofNonce,
-          proofHash,
           currentEpoch: 2n,
         }),
       );
@@ -261,9 +201,7 @@ describe('SDK × Contract E2E', () => {
       const ckbC = randomBytes(32);
       const salt = randomBytes(32);
       const nonce = randomBytes(32);
-      const wc = deriveReputationWitnessCommitment(veilIdHash, signals.walletAgeInDays, signals.distinctProtocols, signals.daoVoteCount, signals.lpTenureInDays, signals.crossChainCount, signals.txConsistencyScore, ethC, ckbC, salt);
-      const ph = await provider.callTx('Utils_deriveReputationProofHash', veilIdHash, wc, signals.claimedBand, nonce) as Uint8Array;
-      await provider.callTx('Reputation_prove', ...buildReputationProofArgs({ veilIdHash, ...signals, ethChainCommitment: ethC, ckbChainCommitment: ckbC, witnessSalt: salt, witnessCommitment: wc, proofNonce: nonce, proofHash: ph, currentEpoch: 2n }));
+      await provider.callTx('Reputation_prove', ...buildReputationProofArgs({ veilIdHash, ...signals, ethChainCommitment: ethC, ckbChainCommitment: ckbC, witnessSalt: salt, proofNonce: nonce, currentEpoch: 2n }));
 
       // Now check via SDK
       const decision = await checkReputation(bytesToHex(veilIdHash), {
@@ -285,9 +223,7 @@ describe('SDK × Contract E2E', () => {
       const ckbC = randomBytes(32);
       const salt = randomBytes(32);
       const nonce = randomBytes(32);
-      const wc = deriveReputationWitnessCommitment(veilIdHash, signals.walletAgeInDays, signals.distinctProtocols, signals.daoVoteCount, signals.lpTenureInDays, signals.crossChainCount, signals.txConsistencyScore, ethC, ckbC, salt);
-      const ph = await provider.callTx('Utils_deriveReputationProofHash', veilIdHash, wc, signals.claimedBand, nonce) as Uint8Array;
-      await provider.callTx('Reputation_prove', ...buildReputationProofArgs({ veilIdHash, ...signals, ethChainCommitment: ethC, ckbChainCommitment: ckbC, witnessSalt: salt, witnessCommitment: wc, proofNonce: nonce, proofHash: ph, currentEpoch: 2n }));
+      await provider.callTx('Reputation_prove', ...buildReputationProofArgs({ veilIdHash, ...signals, ethChainCommitment: ethC, ckbChainCommitment: ckbC, witnessSalt: salt, proofNonce: nonce, currentEpoch: 2n }));
 
       const decision = await checkReputation(bytesToHex(veilIdHash), {
         minimumBand: 'platinum',
@@ -310,16 +246,13 @@ describe('SDK × Contract E2E', () => {
         const ns = padStringToBytes32('evm');
         const lock = randomBytes(32);
         const sig = randomBytes(32);
-        const ph = await provider.callTx('Utils_deriveIdentityProofHash', id, ns, lock, sig) as Uint8Array;
-        await provider.callTx('Identity_register', ...buildIdentityRegistrationArgs({ veilIdHash: id, chainNamespace: ns, publicKeyOrLockHashCommitment: lock, walletSignatureHash: sig, chainProofHash: ph, currentEpoch: 1n }));
+        await provider.callTx('Identity_register', ...buildIdentityRegistrationArgs({ veilIdHash: id, chainNamespace: ns, publicKeyOrLockHashCommitment: lock, walletSignatureHash: sig, currentEpoch: 1n }));
 
         const ethC = randomBytes(32);
         const ckbC = randomBytes(32);
         const salt = randomBytes(32);
         const nonce = randomBytes(32);
-        const wc = deriveReputationWitnessCommitment(id, 50n, 5n, 3n, 10n, 1n, 10n, ethC, ckbC, salt);
-        const proofHash = await provider.callTx('Utils_deriveReputationProofHash', id, wc, 3n, nonce) as Uint8Array;
-        await provider.callTx('Reputation_prove', ...buildReputationProofArgs({ veilIdHash: id, walletAgeInDays: 50n, distinctProtocols: 5n, daoVoteCount: 3n, lpTenureInDays: 10n, crossChainCount: 1n, txConsistencyScore: 10n, claimedBand: 3n, ethChainCommitment: ethC, ckbChainCommitment: ckbC, witnessSalt: salt, witnessCommitment: wc, proofNonce: nonce, proofHash: proofHash, currentEpoch: 2n }));
+        await provider.callTx('Reputation_prove', ...buildReputationProofArgs({ veilIdHash: id, walletAgeInDays: 50n, distinctProtocols: 5n, daoVoteCount: 3n, lpTenureInDays: 10n, crossChainCount: 1n, txConsistencyScore: 10n, claimedBand: 3n, ethChainCommitment: ethC, ckbChainCommitment: ckbC, witnessSalt: salt, proofNonce: nonce, currentEpoch: 2n }));
       }
 
       const map = await batchCheckReputation(

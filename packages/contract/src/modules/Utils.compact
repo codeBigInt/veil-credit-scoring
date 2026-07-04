@@ -26,7 +26,8 @@ module Utils {
         _veilIdHash: Bytes<32>,
         _chainNamespace: Bytes<32>,
         _publicKeyOrLockHashCommitment: Bytes<32>,
-        _walletSignatureHash: Bytes<32>
+        _walletSignatureHash: Bytes<32>,
+        _contractAddress: Bytes<32>
     ): Bytes<32> {
         return persistentHash<Vector<6, Bytes<32>>>([
             pad(32, "veil:v2:identity-proof"),
@@ -34,7 +35,7 @@ module Utils {
             disclose(_chainNamespace),
             disclose(_publicKeyOrLockHashCommitment),
             disclose(_walletSignatureHash),
-            kernel.self().bytes
+            disclose(_contractAddress)
         ]);
     }
 
@@ -66,13 +67,13 @@ module Utils {
     }
 
     export circuit deriveScoreConfigHash(): Bytes<32> {
-        return deriveScoreConfigHashFor(LedgerStates_scoreConfig);
+        return deriveScoreConfigHashFor(LedgerStates_scoreConfig, kernel.self().bytes);
     }
 
-    export circuit deriveScoreConfigHashFor(_scoreConfig: CustomStructs_ScoreConfig): Bytes<32> {
+    export circuit deriveScoreConfigHashFor(_scoreConfig: CustomStructs_ScoreConfig, _contractAddress: Bytes<32>): Bytes<32> {
         return persistentCommit<CustomStructs_ScoreConfig>(
             _scoreConfig,
-            kernel.self().bytes
+            disclose(_contractAddress)
         );
     }
 
@@ -80,13 +81,14 @@ module Utils {
         _veilIdHash: Bytes<32>,
         _witnessCommitment: Bytes<32>,
         _claimedBand: Uint<8>,
-        _proofNonce: Bytes<32>
+        _proofNonce: Bytes<32>,
+        _scoreConfigHash: Bytes<32>
     ): Bytes<32> {
         const proofBinding = CustomStructs_ReputationProofBinding {
             veilIdHash: disclose(_veilIdHash),
             witnessCommitment: disclose(_witnessCommitment),
             claimedBand: disclose(_claimedBand),
-            scoreConfigHash: deriveScoreConfigHash(),
+            scoreConfigHash: disclose(_scoreConfigHash),
             proofNonce: disclose(_proofNonce)
         };
 
@@ -99,31 +101,56 @@ module Utils {
     export circuit deriveGovernanceActionHash(
         _actionTag: Bytes<32>,
         _scoreConfigHash: Bytes<32>,
-        _effectiveEpoch: Uint<64>
+        _operationId: Bytes<32>,
+        _effectiveEpoch: Uint<64>,
+        _contractAddress: Bytes<32>
     ): Bytes<32> {
         const action = CustomStructs_GovernanceAction {
             actionTag: disclose(_actionTag),
             scoreConfigHash: disclose(_scoreConfigHash),
+            operationId: disclose(_operationId),
             effectiveEpoch: disclose(_effectiveEpoch)
         };
 
         return persistentCommit<CustomStructs_GovernanceAction>(
             action,
-            kernel.self().bytes
+            disclose(_contractAddress)
+        );
+    }
+
+    export circuit deriveGuardianControllerCommitment(
+        _guardianSetHash: Bytes<32>,
+        _threshold: Uint<8>,
+        _controllerVersion: Uint<64>
+    ): Bytes<32> {
+        const controller = CustomStructs_GuardianController {
+            guardianSetHash: disclose(_guardianSetHash),
+            threshold: disclose(_threshold),
+            controllerVersion: disclose(_controllerVersion)
+        };
+
+        return persistentCommit<CustomStructs_GuardianController>(
+            controller,
+            pad(32, "veil:v2:guardian")
         );
     }
 
     export circuit deriveGovernanceProofHash(
         _controllerCommitment: Bytes<32>,
         _actionHash: Bytes<32>,
-        _nonce: Bytes<32>
+        _operationId: Bytes<32>,
+        _signatureBundleHash: Bytes<32>,
+        _nonce: Bytes<32>,
+        _contractAddress: Bytes<32>
     ): Bytes<32> {
-        return persistentHash<Vector<5, Bytes<32>>>([
+        return persistentHash<Vector<7, Bytes<32>>>([
             pad(32, "veil:v2:governance-proof"),
             disclose(_controllerCommitment),
             disclose(_actionHash),
+            disclose(_operationId),
+            disclose(_signatureBundleHash),
             disclose(_nonce),
-            kernel.self().bytes
+            disclose(_contractAddress)
         ]);
     }
 

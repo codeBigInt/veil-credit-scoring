@@ -18,10 +18,13 @@ module GlobalLedgerStates {
     /** Replay protection for registration and reputation updates. */
     export ledger processedProofs: Set<Bytes<32>>;
 
-    /** On-chain scoring parameters controlled by timelocked governance. */
+    /** On-chain scoring parameters controlled by timelocked guardian-council governance. */
     export ledger scoreConfig: CustomStructs_ScoreConfig;
  
     export ledger governanceControllerCommitment: Bytes<32>;
+    export ledger governanceGuardianSetHash: Bytes<32>;
+    export ledger governanceGuardianThreshold: Uint<8>;
+    export ledger governanceControllerVersion: Uint<64>;
     export ledger configTimelockEpochs: Uint<64>;
     export ledger pendingScoreConfig: CustomStructs_PendingScoreConfig;
     export ledger hasPendingScoreConfig: Boolean;

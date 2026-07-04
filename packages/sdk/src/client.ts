@@ -14,7 +14,7 @@ import type {
 } from './types';
 import type { VeilConfig } from './config';
 import { buildIdentityFromSigner } from './identity/derive';
-import { registerIdentity } from './identity/register';
+import { registerIdentity, type RegisterIdentityOptions } from './identity/register';
 import { resolveIdentityState, type IdentityState } from './identity/resolve';
 import type { ReputationReaderOptions } from './types';
 import { collectReputationWitness, collectReputationWitnessFromAddresses } from './reputation/reader';
@@ -57,9 +57,9 @@ export class VeilClient {
    * Registers the user's identity on Midnight. Idempotent.
    * Prompts one wallet signature and submits the Identity_register circuit.
    */
-  async register(signer: CCCSigner): Promise<RegistrationResult> {
+  async register(signer: CCCSigner, options: RegisterIdentityOptions = {}): Promise<RegistrationResult> {
     const identity = await this.deriveIdentity(signer);
-    return registerIdentity(identity, signer, this.config, this.midnightProvider);
+    return registerIdentity(identity, signer, this.config, this.midnightProvider, options);
   }
 
   /**

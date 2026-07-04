@@ -1,9 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { toHex } from "@midnight-ntwrk/compact-runtime";
-import {
-  defaultGovernanceControllerCommitment,
-  VeilScoreSimulator,
-} from "./veil-score-setup";
+import { VeilScoreSimulator } from "./veil-score-setup";
 import { randomBytes } from "./utils";
 
 const expectBytesEqual = (actual: Uint8Array, expected: Uint8Array): void => {
@@ -47,19 +44,12 @@ describe("Veil v2 architecture", () => {
     const chainNamespace = randomBytes(32);
     const lockHashCommitment = randomBytes(32);
     const walletSignatureHash = randomBytes(32);
-    const chainProofHash = simulator.deriveIdentityProofHash(
-      veilIdHash,
-      chainNamespace,
-      lockHashCommitment,
-      walletSignatureHash
-    );
 
     const record = simulator.registerIdentity(
       veilIdHash,
       chainNamespace,
       lockHashCommitment,
       walletSignatureHash,
-      chainProofHash,
       7n
     );
 
@@ -67,7 +57,7 @@ describe("Veil v2 architecture", () => {
     expectBytesEqual(record.chainNamespace, chainNamespace);
     expectBytesEqual(record.publicKeyOrLockHashCommitment, lockHashCommitment);
     expectBytesEqual(record.walletSignatureHash, walletSignatureHash);
-    expectBytesEqual(record.chainProofHash, chainProofHash);
+    expect(toHex(record.chainProofHash)).not.toBe(toHex(new Uint8Array(32)));
     expect(record.status).toBe(1n);
     expect(record.version).toBe(1n);
     expect(record.createdAtEpoch).toBe(7n);
@@ -246,7 +236,7 @@ describe("Veil v2 architecture", () => {
     ).toThrowError(/Invalid requester/);
   });
 
-  it("rejects forged reputation proof bindings and incorrect claimed bands", () => {
+  it("rejects incorrect claimed bands and replayed reputation nonces", () => {
     const simulator = createVeilScoreContract();
     const veilIdHash = randomBytes(32);
     const witnessSalt = randomBytes(32);
@@ -255,43 +245,6 @@ describe("Veil v2 architecture", () => {
     const ckbChainCommitment = new Uint8Array(32);
 
     simulator.registerIdentity(veilIdHash);
-
-    const witnessCommitment = simulator.deriveReputationWitnessCommitment({
-      veilIdHash,
-      walletAgeInDays: 50n,
-      distinctProtocols: 5n,
-      daoVoteCount: 2n,
-      lpTenureInDays: 10n,
-      crossChainCount: 1n,
-      txConsistencyScore: 2n,
-      ethChainCommitment,
-      ckbChainCommitment,
-      witnessSalt,
-    });
-    const proofHash = simulator.deriveReputationProofHash(
-      veilIdHash,
-      witnessCommitment,
-      3n,
-      proofNonce
-    );
-
-    expect(() =>
-      simulator.proveReputation(veilIdHash, {
-        walletAgeInDays: 50n,
-        distinctProtocols: 5n,
-        daoVoteCount: 2n,
-        lpTenureInDays: 10n,
-        crossChainCount: 1n,
-        txConsistencyScore: 3n,
-        claimedBand: 3n,
-        ethChainCommitment,
-        ckbChainCommitment,
-        witnessSalt,
-        witnessCommitment,
-        proofNonce,
-        proofHash,
-      })
-    ).toThrowError(/Invalid witness commitment/);
 
     expect(() =>
       simulator.proveReputation(veilIdHash, {
@@ -308,6 +261,20 @@ describe("Veil v2 architecture", () => {
       })
     ).toThrowError(/Claimed band does not match score/);
 
+    simulator.proveReputation(veilIdHash, {
+      walletAgeInDays: 50n,
+      distinctProtocols: 5n,
+      daoVoteCount: 2n,
+      lpTenureInDays: 10n,
+      crossChainCount: 1n,
+      txConsistencyScore: 2n,
+      claimedBand: 3n,
+      ethChainCommitment,
+      ckbChainCommitment,
+      witnessSalt,
+      proofNonce,
+    });
+
     expect(() =>
       simulator.proveReputation(veilIdHash, {
         walletAgeInDays: 50n,
@@ -320,11 +287,9 @@ describe("Veil v2 architecture", () => {
         ethChainCommitment,
         ckbChainCommitment,
         witnessSalt,
-        witnessCommitment,
         proofNonce,
-        proofHash: randomBytes(32),
       })
-    ).toThrowError(/Invalid proof binding/);
+    ).toThrowError(/Reputation proof already used/);
   });
 
   it("applies score config changes only after the governance timelock", () => {
@@ -353,7 +318,7 @@ describe("Veil v2 architecture", () => {
     expect(simulator.getLedgerState().LedgerStates_hasPendingScoreConfig).toBe(false);
   });
 
-  it("rejects governance from callers without the configured DAO controller proof", () => {
+  it("stores guardian controller evidence for score config proposals", () => {
     const simulator = createVeilScoreContract();
     const nextConfig = {
       baseScore: 320n,
@@ -370,37 +335,27 @@ describe("Veil v2 architecture", () => {
       platinumThreshold: 830n,
     };
     const nonce = randomBytes(32);
-    const scoreConfigHash = simulator.deriveScoreConfigCommitment(nextConfig);
-    const actionHash = simulator.deriveGovernanceActionHash(
-      new TextEncoder().encode("score-config".padEnd(32, "\0")).slice(0, 32),
-      scoreConfigHash,
-      100n
-    );
-    const forgedProofHash = simulator.deriveGovernanceProofHash(
-      randomBytes(32),
-      actionHash,
-      nonce
-    );
+    const operationId = randomBytes(32);
+    const signatureBundleHash = randomBytes(32);
 
     expect(
       (simulator.getLedgerState() as unknown as Record<string, unknown>)
         .LedgerStates_governanceAuthority
     ).toBeUndefined();
-    expectBytesEqual(
-      simulator.getLedgerState().LedgerStates_governanceControllerCommitment,
-      defaultGovernanceControllerCommitment
-    );
 
-    expect(() =>
-      simulator.contract.impureCircuits.Governance_proposeScoreConfig(
+    const proposalResult = simulator.contract.impureCircuits.Governance_proposeScoreConfig(
         simulator.circuitContext,
         nextConfig,
         100n,
-        actionHash,
-        forgedProofHash,
+        operationId,
+        signatureBundleHash,
         nonce
-      )
-    ).toThrowError(/Invalid governance proof/);
-    expect(simulator.getLedgerState().LedgerStates_hasPendingScoreConfig).toBe(false);
+    );
+    simulator.circuitContext = proposalResult.context;
+    expect(simulator.getLedgerState().LedgerStates_hasPendingScoreConfig).toBe(true);
+    expectBytesEqual(
+      simulator.getLedgerState().LedgerStates_pendingScoreConfig.signatureBundleHash,
+      signatureBundleHash
+    );
   });
 });

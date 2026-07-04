@@ -8,8 +8,10 @@ import {
   DEFAULT_SCORE_CONFIG,
   deriveReputationProofHash,
   deriveReputationWitnessCommitmentFromSignals,
+  deriveScoreConfigHashFor,
   submitReputationProof,
 } from '../contract';
+import { extractTxId } from '../utils/tx';
 
 /**
  * Derives the expected score band from the collected witness signals.
@@ -41,10 +43,8 @@ const computeBandFromWitness = (w: ReputationWitness): ScoreBand => {
  * The complete flow — all local to the user's environment:
  *
  *  1. Compute band locally by scoring the witness signals
- *  2. Derive witnessCommitment via pureCircuits (runs Compact circuit in-process, no network)
- *  3. Generate a fresh proofNonce (prevents replay)
- *  4. Derive proofHash via the contract's Utils_deriveReputationProofHash circuit
- *  5. Call Reputation_prove — from here the Midnight JS layer takes over:
+ *  2. Generate a fresh proofNonce (prevents replay)
+ *  3. Call Reputation_prove — from here the Midnight JS layer takes over:
  *       • nite-api calls witness.ts functions to read VeilPrivateState (stays local, leveldb)
  *       • nite-api sends the execution trace to the proof server (localhost:6300 Docker container)
  *       • proof server generates ZK proof using the contract's prover key
@@ -64,9 +64,9 @@ export const proveReputation = async (
   const band = computeBandFromWitness(reputationWitness);
   const claimedBand = BigInt(BAND_ORDER[band]);
 
-  // deriveReputationWitnessCommitmentFromSignals calls pureCircuits internally.
-  // pureCircuits execute the circuit logic in-process — no proof server, no network.
-  const witnessCommitment = deriveReputationWitnessCommitmentFromSignals(veilIdHash, {
+  // The contract derives and stores the witness commitment internally. The SDK
+  // keeps a local copy only for integrator logs and developer diagnostics.
+  const localWitnessCommitment = deriveReputationWitnessCommitmentFromSignals(veilIdHash, {
     walletAgeInDays: BigInt(reputationWitness.walletAgeInDays),
     distinctProtocols: BigInt(reputationWitness.distinctProtocols),
     daoVoteCount: BigInt(reputationWitness.daoVoteCount),
@@ -79,14 +79,13 @@ export const proveReputation = async (
   });
 
   const proofNonce = randomBytes32();
-
-  // Utils_deriveReputationProofHash runs as a pure circuit call through callTx.
-  // No state mutation — the contract computes the hash deterministically.
-  const proofHash = await deriveReputationProofHash(midnightProvider, {
+  const scoreConfigHash = deriveScoreConfigHashFor(DEFAULT_SCORE_CONFIG, _config.contractAddress);
+  const proofHash = deriveReputationProofHash({
     veilIdHash,
-    witnessCommitment,
+    witnessCommitment: localWitnessCommitment,
     claimedBand,
     proofNonce,
+    scoreConfigHash,
   });
 
   // ZK proof generation and tx submission happen entirely inside this callTx call.
@@ -103,18 +102,13 @@ export const proveReputation = async (
     ethChainCommitment: reputationWitness.ethChainCommitment,
     ckbChainCommitment: reputationWitness.ckbChainCommitment,
     witnessSalt: reputationWitness.salt,
-    witnessCommitment,
     proofNonce,
-    proofHash,
     currentEpoch: BigInt(Date.now()),
   });
 
   return {
     proofHash: bytesToHex(proofHash),
-    txHash:
-      (tx as { txHash?: string })?.txHash ??
-      (tx as { hash?: string })?.hash ??
-      '',
+    txHash: extractTxId(tx) ?? '',
     band,
     validAt: 0,
   };

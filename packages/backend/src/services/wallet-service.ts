@@ -76,6 +76,21 @@ export type SponsorCapacity = {
   skippedNonNightUtxos: number;
 };
 
+export type SponsorPoolSplitResult = {
+  txId: string | null;
+  skippedReason?: string;
+  outputsCreated: number;
+  splitAmount: string;
+  freeNightUtxosBefore: number;
+  registeredUtxosBefore: number;
+};
+
+type SponsorPoolSplitOptions = {
+  targetFreeUtxos: number;
+  splitAmount: bigint;
+  maxOutputs: number;
+};
+
 type SponsorDustOptions = {
   requiredDust?: bigint;
   waitTimeoutMs?: number;
@@ -86,8 +101,21 @@ type WaitForReadyFundsOptions = {
   requireFunds?: boolean;
 };
 
+// Minimum backend DUST required before attempting a deregistration TX.
+// The deregistration fee is paid from DUST; submitting with less will produce
+// a BalanceCheckOverspend (error 138) from the Midnight node.
+const MINIMUM_RECLAIM_DUST = 5_000n;
+
 const utxoId = (coin: { utxo: { intentHash: string; outputNo: number } }): string =>
   `${coin.utxo.intentHash}#${coin.utxo.outputNo}`;
+
+const registeredNativeUtxoIds = (coins: readonly {
+  meta: { registeredForDustGeneration: boolean };
+  utxo: { intentHash: string; outputNo: number; type: string };
+}[]): string[] =>
+  coins
+    .filter((coin) => coin.meta.registeredForDustGeneration && coin.utxo.type === nativeToken().raw)
+    .map(utxoId);
 
 const parseDustAddress = (address: string, networkId: string): DustAddress =>
   DustAddress.codec.decode(networkId, MidnightBech32m.parse(address));
@@ -271,7 +299,7 @@ export class BackendWalletProvider implements MidnightProvider, WalletProvider {
     const previousDustBalance = state.dust.balance(new Date());
 
     const utxos = state.unshielded.availableCoins.filter(
-      (coin) => !coin.meta.registeredForDustGeneration,
+      (coin) => !coin.meta.registeredForDustGeneration && coin.utxo.type === nativeToken().raw,
     );
 
     if (utxos.length === 0) {
@@ -336,6 +364,7 @@ export class BackendWalletProvider implements MidnightProvider, WalletProvider {
     try {
       const state = await this.wallet.waitForSyncedState();
       const availableCoins = state.unshielded.availableCoins;
+      const beforeRegisteredIds = new Set(registeredNativeUtxoIds(availableCoins));
       const registeredUtxos = availableCoins.filter(
         (coin) => coin.meta.registeredForDustGeneration,
       );
@@ -415,10 +444,15 @@ export class BackendWalletProvider implements MidnightProvider, WalletProvider {
       const transaction = await this.wallet.finalizeRecipe(recipe);
       const txId = await this.wallet.submitTransaction(transaction);
       this.logger.info(`DUST sponsorship tx submitted: ${txId} → ${dustAddressStr}`);
+      const registeredUtxoIds = await this.waitForRegisteredUtxoIds(
+        beforeRegisteredIds,
+        selected.length,
+        options.waitTimeoutMs ?? 120_000,
+      );
       return {
         txId,
         selectedUtxos: selected.length,
-        utxoIds: selected.map(utxoId),
+        utxoIds: registeredUtxoIds.length > 0 ? registeredUtxoIds : selected.map(utxoId),
         requiredDust: requiredDust.toString(),
         estimatedGeneratedDust: estimatedGeneratedDust.toString(),
         registrationFee: registrationEstimate.fee.toString(),
@@ -429,6 +463,39 @@ export class BackendWalletProvider implements MidnightProvider, WalletProvider {
         `DUST sponsorship failed for ${dustAddressStr}`,
       );
       return null;
+    }
+  }
+
+  private async waitForRegisteredUtxoIds(
+    beforeRegisteredIds: ReadonlySet<string>,
+    expectedCount: number,
+    timeoutMs: number,
+  ): Promise<string[]> {
+    const findNewRegisteredIds = (coins: readonly {
+      meta: { registeredForDustGeneration: boolean };
+      utxo: { intentHash: string; outputNo: number; type: string };
+    }[]): string[] =>
+      registeredNativeUtxoIds(coins).filter((id) => !beforeRegisteredIds.has(id));
+
+    try {
+      const ids = await Rx.firstValueFrom(
+        this.wallet.state().pipe(
+          Rx.map((state) => findNewRegisteredIds(state.unshielded.availableCoins)),
+          Rx.filter((ids) => ids.length >= Math.max(1, expectedCount)),
+          Rx.timeout({ first: timeoutMs }),
+        ),
+      );
+      this.logger.info(`DUST sponsorship registered UTXO id(s): ${ids.join(",")}`);
+      return ids;
+    } catch {
+      const state = await this.wallet.waitForSyncedState();
+      const ids = findNewRegisteredIds(state.unshielded.availableCoins);
+      if (ids.length > 0) {
+        this.logger.info(`DUST sponsorship registered UTXO id(s) after sync: ${ids.join(",")}`);
+      } else {
+        this.logger.warn("DUST sponsorship submitted, but registered UTXO id was not visible before timeout; falling back to selected input id(s)");
+      }
+      return ids;
     }
   }
 
@@ -453,6 +520,176 @@ export class BackendWalletProvider implements MidnightProvider, WalletProvider {
     };
   }
 
+  async splitSponsorNightPool(options: SponsorPoolSplitOptions): Promise<SponsorPoolSplitResult> {
+    const state = await this.wallet.waitForSyncedState();
+    const availableCoins = state.unshielded.availableCoins;
+    const freeNightUtxos = availableCoins.filter(
+      (coin) => !coin.meta.registeredForDustGeneration && coin.utxo.type === nativeToken().raw,
+    );
+    const registeredUtxos = availableCoins.filter(
+      (coin) => coin.meta.registeredForDustGeneration,
+    );
+    const freeNightBalance = state.unshielded.balances[unshieldedToken().raw] ?? 0n;
+
+    const baseResult = {
+      txId: null,
+      outputsCreated: 0,
+      splitAmount: options.splitAmount.toString(),
+      freeNightUtxosBefore: freeNightUtxos.length,
+      registeredUtxosBefore: registeredUtxos.length,
+    };
+
+    if (options.targetFreeUtxos <= 0 || options.splitAmount <= 0n || options.maxOutputs <= 0) {
+      return { ...baseResult, skippedReason: "pool splitting disabled" };
+    }
+
+    if (freeNightUtxos.length >= options.targetFreeUtxos) {
+      return { ...baseResult, skippedReason: "target free UTXO count already satisfied" };
+    }
+
+    if (registeredUtxos.length > 0) {
+      return {
+        ...baseResult,
+        skippedReason:
+          "registered sponsor UTXOs are active; skipping split because wallet transfer coin selection cannot pin inputs",
+      };
+    }
+
+    const maxFundedOutputs = Number(freeNightBalance / options.splitAmount);
+    if (maxFundedOutputs <= 0) {
+      return {
+        ...baseResult,
+        skippedReason: `insufficient free NIGHT for one split output; balance=${freeNightBalance.toString()}`,
+      };
+    }
+
+    const outputsCreated = Math.min(
+      options.maxOutputs,
+      maxFundedOutputs,
+      Math.max(0, options.targetFreeUtxos - freeNightUtxos.length),
+    );
+    if (outputsCreated === 0) return { ...baseResult, skippedReason: "no outputs needed" };
+
+    const receiverAddress = await this.wallet.unshielded.getAddress();
+    const outputs = Array.from({ length: outputsCreated }, () => ({
+      type: nativeToken().raw,
+      receiverAddress,
+      amount: options.splitAmount,
+    }));
+
+    this.logger.info(
+      `Splitting sponsor NIGHT pool | outputs=${outputsCreated} | splitAmount=${options.splitAmount.toString()} | freeBefore=${freeNightUtxos.length}`,
+    );
+
+    const recipe = await this.wallet.transferTransaction(
+      [{ type: "unshielded", outputs }],
+      {
+        shieldedSecretKeys: this.zswapSecretKeys,
+        dustSecretKey: this.dustSecretKey,
+      },
+      { ttl: ttlOneHour(), payFees: true },
+    );
+    const signedRecipe = await this.wallet.signRecipe(
+      recipe,
+      (payload: Uint8Array) => this.unshieldedKeystore.signData(payload),
+    );
+    const tx = await this.wallet.finalizeRecipe(signedRecipe);
+    const txId = await this.wallet.submitTransaction(tx);
+    this.logger.info(`Sponsor NIGHT pool split tx submitted: ${txId}`);
+
+    return {
+      ...baseResult,
+      txId,
+      outputsCreated,
+    };
+  }
+
+  private isBalanceCheckOverspend(error: unknown): boolean {
+    // The node error (Custom error: 138 / BalanceCheckOverspend) is wrapped by
+    // FiberFailure → SubmissionError → RpcError. Walk the cause chain so we
+    // detect it regardless of how many wrappers are present.
+    let cur: unknown = error;
+    for (let depth = 0; depth < 8 && cur != null; depth++) {
+      const msg = typeof cur === 'object' && 'message' in cur
+        ? String((cur as { message: unknown }).message)
+        : String(cur);
+      if (msg.includes('Custom error: 138') || msg.includes('BalanceCheckOverspend')) return true;
+      cur = typeof cur === 'object' ? (cur as Record<string, unknown>).cause : undefined;
+    }
+    return false;
+  }
+
+  private async buildAndSubmitDeregister(
+    reclaimable: Parameters<typeof this.wallet.deregisterFromDustGeneration>[0],
+  ): Promise<string> {
+    const recipe = await this.wallet.deregisterFromDustGeneration(
+      reclaimable,
+      this.unshieldedKeystore.getPublicKey(),
+      (payload: Uint8Array) => this.unshieldedKeystore.signData(payload),
+    );
+    // deregisterFromDustGeneration returns an unbalanced recipe: the DUST fee
+    // is declared but no DUST inputs are selected. Calling finalizeRecipe on it
+    // directly causes error 138 (BalanceCheckOverspend). balanceUnprovenTransaction
+    // with tokenKindsToBalance: ['dust'] selects actual DUST inputs from the
+    // wallet's synced coin view before finalization.
+    const balancedRecipe = await this.wallet.balanceUnprovenTransaction(
+      recipe.transaction,
+      { shieldedSecretKeys: this.zswapSecretKeys, dustSecretKey: this.dustSecretKey },
+      { ttl: ttlOneHour(), tokenKindsToBalance: ['dust'] },
+    );
+    const transaction = await this.wallet.finalizeRecipe(balancedRecipe);
+    return this.wallet.submitTransaction(transaction);
+  }
+
+  // Registers a fresh NIGHT UTXO for the backend's own DUST address and waits
+  // for it to generate at least MINIMUM_RECLAIM_DUST. Returns true if DUST is
+  // now available, false if we should defer to the next cycle.
+  private async ensureFreshDustForReclaim(
+    state: Awaited<ReturnType<typeof this.wallet.waitForSyncedState>>,
+    idSet: Set<string>,
+  ): Promise<boolean> {
+    const freeNight = state.unshielded.availableCoins.filter(
+      (c) => !c.meta.registeredForDustGeneration && c.utxo.type === nativeToken().raw,
+    );
+    if (freeNight.length === 0) {
+      this.logger.warn(`No free NIGHT UTXOs to generate DUST for reclaim; deferring`);
+      return false;
+    }
+
+    this.logger.info(`Generating fresh operating DUST before reclaim attempt`);
+    const prevAvailableCount = state.dust.availableCoins.length;
+
+    // Register a new NIGHT UTXO for the backend's own DUST address and wait
+    // for it to generate at least MINIMUM_RECLAIM_DUST before proceeding.
+    await this.generateDustFromUnshieldedNight();
+
+    // Wait for a NEW DUST coin to appear in availableCoins (not just the
+    // time-based balance to increase), then verify it has sufficient value.
+    const freshState = await Rx.firstValueFrom(
+      this.wallet.state().pipe(
+        Rx.filter((s) => s.dust.availableCoins.length > prevAvailableCount),
+        Rx.timeout({ first: 120_000 }),
+      ),
+    ).catch(async () => this.wallet.waitForSyncedState());
+
+    const freshSpendable = this.spendableDust(freshState);
+    this.logger.info(`Fresh DUST after generation: spendable=${freshSpendable.toString()} | newCoins=${freshState.dust.availableCoins.length - prevAvailableCount}`);
+
+    if (freshSpendable < MINIMUM_RECLAIM_DUST) {
+      this.logger.warn(`Fresh DUST (${freshSpendable.toString()}) still below minimum; deferring reclaim`);
+      return false;
+    }
+
+    return true;
+  }
+
+  // Sum the generatedNow field across all available (unspent) DUST coins.
+  // This is the actual spendable DUST — unlike dust.balance(new Date()) which
+  // is a time-based projection that stays high even after all coins are spent.
+  private spendableDust(state: Awaited<ReturnType<typeof this.wallet.waitForSyncedState>>): bigint {
+    return state.dust.availableCoins.reduce((sum, c) => sum + c.generatedNow, 0n);
+  }
+
   async reclaimDustForUtxoIds(utxoIds: readonly string[]): Promise<string | null> {
     const idSet = new Set(utxoIds);
     if (idSet.size === 0) return null;
@@ -467,16 +704,48 @@ export class BackendWalletProvider implements MidnightProvider, WalletProvider {
       return null;
     }
 
-    this.logger.info(`Reclaiming ${reclaimable.length} expired sponsor UTXO(s)`);
-    const recipe = await this.wallet.deregisterFromDustGeneration(
-      reclaimable,
-      this.unshieldedKeystore.getPublicKey(),
-      (payload: Uint8Array) => this.unshieldedKeystore.signData(payload),
-    );
-    const transaction = await this.wallet.finalizeRecipe(recipe);
-    const txId = await this.wallet.submitTransaction(transaction);
-    this.logger.info(`Sponsor UTXO reclaim tx submitted: ${txId}`);
-    return txId;
+    const spendable = this.spendableDust(state);
+    this.logger.info(`Reclaiming ${reclaimable.length} expired sponsor UTXO(s) | spendableDust=${spendable.toString()} | projectedDust=${state.dust.balance(new Date()).toString()}`);
+
+    // If the wallet has no actually-spendable DUST coins, generate fresh ones
+    // before attempting the deregistration TX (which pays its fee from DUST).
+    if (spendable < MINIMUM_RECLAIM_DUST) {
+      this.logger.info(`Spendable DUST (${spendable.toString()}) below minimum — generating fresh DUST before reclaim`);
+      const canGenerate = await this.ensureFreshDustForReclaim(state, idSet);
+      if (!canGenerate) return null;
+      // Fall through: buildAndSubmitDeregister will use the fresh state.
+    }
+
+    try {
+      const txId = await this.buildAndSubmitDeregister(reclaimable);
+      this.logger.info(`Sponsor UTXO reclaim tx submitted: ${txId}`);
+      return txId;
+    } catch (firstError) {
+      // Catch-all for error 138: the spendable-DUST pre-check above uses the
+      // wallet's local view; the node may still reject if the wallet's coins are
+      // stale (nullifiers not yet seen). Generate fresh DUST and retry once.
+      if (!this.isBalanceCheckOverspend(firstError)) throw firstError;
+
+      this.logger.warn(`Reclaim hit BalanceCheckOverspend (138) despite pre-check; refreshing DUST and retrying`);
+
+      const canRetry = await this.ensureFreshDustForReclaim(state, idSet);
+      if (!canRetry) return null;
+
+      // canRetry means ensureFreshDustForReclaim already re-synced; retrieve the
+      // fresh reclaimable set from inside that method via a second sync here.
+      const freshState = await this.wallet.waitForSyncedState();
+      const freshReclaimable = freshState.unshielded.availableCoins.filter(
+        (coin) => coin.meta.registeredForDustGeneration && idSet.has(utxoId(coin)),
+      );
+      if (freshReclaimable.length === 0) {
+        this.logger.warn(`Reclaimable UTXOs no longer visible after DUST refresh; will retry next cycle`);
+        return null;
+      }
+
+      const txId = await this.buildAndSubmitDeregister(freshReclaimable);
+      this.logger.info(`Sponsor UTXO reclaim tx submitted (retry): ${txId}`);
+      return txId;
+    }
   }
 
   async waitForReadyFunds(options: WaitForReadyFundsOptions = {}): Promise<void> {

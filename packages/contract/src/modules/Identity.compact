@@ -9,25 +9,21 @@ module Identity {
         _chainNamespace: Bytes<32>,
         _publicKeyOrLockHashCommitment: Bytes<32>,
         _walletSignatureHash: Bytes<32>,
-        _chainProofHash: Bytes<32>,
         _currentEpoch: Uint<64>
     ): CustomStructs_VeilIdentityRecord {
         const veilIdHash = disclose(_veilIdHash);
-        const chainProofHash = disclose(_chainProofHash);
+        const chainProofHash = Utils_deriveIdentityProofHash(
+            _veilIdHash,
+            _chainNamespace,
+            _publicKeyOrLockHashCommitment,
+            _walletSignatureHash,
+            kernel.self().bytes
+        );
 
         assert (veilIdHash != default<Bytes<32>>, "Invalid Veil ID hash");
         assert (disclose(_publicKeyOrLockHashCommitment) != default<Bytes<32>>, "Invalid public key commitment");
         assert (disclose(_walletSignatureHash) != default<Bytes<32>>, "Invalid wallet signature");
         assert (chainProofHash != default<Bytes<32>>, "Invalid chain proof");
-        assert (
-            chainProofHash == Utils_deriveIdentityProofHash(
-                _veilIdHash,
-                _chainNamespace,
-                _publicKeyOrLockHashCommitment,
-                _walletSignatureHash
-            ),
-            "Invalid identity proof binding"
-        );
         assert (!LedgerStates_identityRecords.member(veilIdHash), "Identity already registered");
 
         const replayKey = persistentHash<Vector<4, Bytes<32>>>([

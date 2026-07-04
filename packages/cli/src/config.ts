@@ -28,7 +28,6 @@ export interface Config {
   readonly privateStateStoreName: string;
   readonly logDir: string;
   readonly zkConfigPath: string;
-  readonly bootstrapZkConfigPath: string;
   getEnvironment(logger: Logger): TestEnvironment;
   readonly requestFaucetTokens: boolean;
   readonly generateDust: boolean;
@@ -37,7 +36,6 @@ export interface Config {
 export const currentDir = path.resolve(new URL(import.meta.url).pathname, '..');
 
 const contractZkPath = path.resolve(currentDir, '..', '..', 'contract', 'src', 'managed', 'veil-protocol');
-const contractBootstrapZkPath = path.resolve(currentDir, '..', '..', 'contract', 'src', 'managed', 'veil-protocol-bootstrap');
 const defaultPrivateStateDbName = 'veil-private-state-level-db';
 
 export class StandaloneConfig implements Config {
@@ -46,7 +44,6 @@ export class StandaloneConfig implements Config {
   privateStateStoreName = 'veil-credit-private-state';
   logDir = path.resolve(currentDir, '..', 'logs', 'standalone', `${new Date().toISOString()}.log`);
   zkConfigPath = contractZkPath;
-  bootstrapZkConfigPath = contractBootstrapZkPath;
   requestFaucetTokens = false;
   generateDust = false;
 
@@ -78,7 +75,6 @@ export class PreviewConfig implements Config {
   privateStateStoreName = 'veil-credit-private-state';
   logDir = path.resolve(currentDir, '..', 'logs', 'preview-remote', `${new Date().toISOString()}.log`);
   zkConfigPath = contractZkPath;
-  bootstrapZkConfigPath = contractBootstrapZkPath;
   requestFaucetTokens = false;
   generateDust = true;
 
@@ -94,7 +90,6 @@ export class PreProdConfig implements Config {
   privateStateStoreName = 'veil-credit-private-state';
   logDir = path.resolve(currentDir, '..', 'logs', 'preprod-remote', `${new Date().toISOString()}.log`);
   zkConfigPath = contractZkPath;
-  bootstrapZkConfigPath = contractBootstrapZkPath;
   requestFaucetTokens = false;
   generateDust = true;
 

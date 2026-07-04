@@ -8,7 +8,6 @@ import { Logger } from 'pino';
 import { Contract as CompactContract, CompiledContract } from '@midnight-ntwrk/compact-js';
 import { fromHex, toHex, type ContractState } from '@midnight-ntwrk/compact-runtime';
 import { nativeToken, unshieldedToken } from '@midnight-ntwrk/ledger-v8';
-import { createCircuitMaintenanceTxInterface } from '@midnight-ntwrk/midnight-js-contracts';
 import { levelPrivateStateProvider } from '@midnight-ntwrk/midnight-js-level-private-state-provider';
 import { indexerPublicDataProvider } from '@midnight-ntwrk/midnight-js-indexer-public-data-provider';
 import { NodeZkConfigProvider } from '@midnight-ntwrk/midnight-js-node-zk-config-provider';
@@ -30,12 +29,7 @@ import {
   type Ledger,
   type Witnesses as VeilWitnesses,
   type CustomStructs_ScoreConfig,
-  pureCircuits,
 } from '../../contract/src/managed/veil-protocol/contract/index.js';
-import {
-  Contract as VeilBootstrapContractClass,
-  type Witnesses as VeilBootstrapWitnesses,
-} from '../../contract/src/managed/veil-protocol-bootstrap/contract/index.js';
 
 (globalThis as unknown as { WebSocket: unknown }).WebSocket = WebSocket;
 
@@ -48,7 +42,6 @@ const GOVERNANCE_TIMELOCK_EPOCHS = 10n;
 
 type VeilContract = VeilContractClass<VeilPrivateState, VeilWitnesses<VeilPrivateState>>;
 type VeilAPI = DynamicContractAPI<VeilContract, typeof PRIVATE_STATE_ID>;
-type VeilBootstrapContract = VeilBootstrapContractClass<VeilPrivateState, VeilBootstrapWitnesses<VeilPrivateState>>;
 
 const randomBytes = (length: number): Uint8Array => new Uint8Array(nodeRandomBytes(length));
 
@@ -67,10 +60,12 @@ const DEFAULT_SCORE_CONFIG: CustomStructs_ScoreConfig = {
   platinumThreshold: 820n,
 };
 
-const DEFAULT_GOVERNANCE_CONTROLLER_COMMITMENT = new Uint8Array([
+const DEFAULT_GOVERNANCE_GUARDIAN_SET_HASH = new Uint8Array([
   1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
 ]);
+const DEFAULT_GOVERNANCE_GUARDIAN_THRESHOLD = 3n;
+const DEFAULT_GOVERNANCE_CONTROLLER_VERSION = 1n;
 
 const isIterable = (value: unknown): value is Iterable<unknown> =>
   value != null && typeof value === 'object' && Symbol.iterator in value;
@@ -98,14 +93,6 @@ const formatContractState = (value: unknown): unknown => {
 
 const compiledVeilContract = (zkConfigPath: string): CompiledContract.CompiledContract<any, any> =>
   utils.createCompiledContract<VeilContract>('veil-protocol', VeilContractClass as any, witness as any, zkConfigPath) as any;
-
-const compiledVeilBootstrapContract = (zkConfigPath: string): CompiledContract.CompiledContract<any, any> =>
-  utils.createCompiledContract<VeilBootstrapContract>(
-    'veil-protocol-bootstrap',
-    VeilBootstrapContractClass as any,
-    witness as any,
-    zkConfigPath,
-  ) as any;
 
 const serializePrivateStateProvider = <T extends Record<string, any>>(provider: T, logger: Logger): T => {
   let queue: Promise<unknown> = Promise.resolve();
@@ -173,19 +160,6 @@ const configureProviders = async (
     proofProvider: httpClientProofProvider(env.proofServer, zkConfigProvider),
     walletProvider,
     midnightProvider: walletProvider,
-  };
-};
-
-const withZkConfigPath = (
-  providers: DynamicProviders<VeilContract, typeof PRIVATE_STATE_ID>,
-  env: EnvironmentConfiguration,
-  zkConfigPath: string,
-): DynamicProviders<VeilContract, typeof PRIVATE_STATE_ID> => {
-  const zkConfigProvider = new NodeZkConfigProvider<CompactContract.ProvableCircuitId<VeilContract>>(zkConfigPath);
-  return {
-    ...providers,
-    zkConfigProvider,
-    proofProvider: httpClientProofProvider(env.proofServer, zkConfigProvider),
   };
 };
 
@@ -263,7 +237,7 @@ const logLevelDbLockRecovery = (logger: Logger, config: Config, error: unknown):
     [
       `Local Midnight private-state database is locked: ${config.midnightDbName}`,
       'Close any other running CLI/process using this database and retry.',
-      'The staged deploy path stores the contract maintenance signing key in this database.',
+      'Deployment stores the contract maintenance signing key in this database.',
       'For a brand-new independent deployment only, choose a different database with VEIL_MIDNIGHT_DB_NAME.',
     ].join(' '),
   );
@@ -294,13 +268,6 @@ const prompt = async (rli: Interface, question: string): Promise<string> => {
 
 const FULL_CONTRACT_CIRCUITS = [
   'Utils_deriveVeilId',
-  'Utils_deriveIdentityProofHash',
-  'Utils_deriveScoreConfigHash',
-  'Utils_deriveScoreConfigHashFor',
-  'Utils_deriveReputationProofHash',
-  'Utils_deriveGovernanceActionHash',
-  'Utils_deriveGovernanceProofHash',
-  'Utils_deriveBand',
   'Identity_register',
   'Identity_assertActive',
   'Reputation_prove',
@@ -308,27 +275,6 @@ const FULL_CONTRACT_CIRCUITS = [
   'Governance_proposeScoreConfig',
   'Governance_applyScoreConfig',
   'Governance_cancelScoreConfig',
-] as const;
-
-const BOOTSTRAP_CONTRACT_CIRCUITS = [
-  'Utils_deriveVeilId',
-  'Utils_deriveIdentityProofHash',
-  'Identity_register',
-  'Identity_assertActive',
-  'Reputation_prove',
-  'Reputation_check',
-  'Governance_proposeScoreConfig',
-  'Governance_applyScoreConfig',
-  'Governance_cancelScoreConfig',
-] as const;
-
-const POST_BOOTSTRAP_CONTRACT_CIRCUITS = [
-  'Utils_deriveScoreConfigHash',
-  'Utils_deriveScoreConfigHashFor',
-  'Utils_deriveReputationProofHash',
-  'Utils_deriveGovernanceActionHash',
-  'Utils_deriveGovernanceProofHash',
-  'Utils_deriveBand',
 ] as const;
 
 const assertZkArtifacts = async (
@@ -366,64 +312,28 @@ const assertZkArtifacts = async (
   }
 };
 
-const installMissingFullContractVerifierKeys = async (
-  providers: DynamicProviders<VeilContract, typeof PRIVATE_STATE_ID>,
-  compiledContract: CompiledContract.CompiledContract<any, any>,
-  contractAddress: string,
-  logger: Logger,
-): Promise<void> => {
-  for (const circuitId of POST_BOOTSTRAP_CONTRACT_CIRCUITS) {
-    const contractState = await providers.publicDataProvider.queryContractState(contractAddress);
-
-    if (contractState?.operation(circuitId) != null) {
-      logger.info(`Verifier key already present for ${circuitId}; skipping`);
-      continue;
-    }
-
-    const [[, verifierKey]] = await providers.zkConfigProvider.getVerifierKeys([circuitId]);
-    const maintenanceTx = createCircuitMaintenanceTxInterface(
-      providers as any,
-      circuitId as any,
-      compiledContract,
-      contractAddress,
-    );
-
-    logger.info(`Installing missing verifier key for ${circuitId}`);
-    await withLevelDbLockRetry(`Installing verifier key for ${circuitId}`, logger, () =>
-      maintenanceTx.insertVerifierKey(verifierKey),
-    );
-  }
-};
-
-const deployStagedContract = async (
+const deployVeilContract = async (
   providers: DynamicProviders<VeilContract, typeof PRIVATE_STATE_ID>,
   config: Config,
-  env: EnvironmentConfiguration,
   logger: Logger,
 ): Promise<string> => {
-  const initialPrivateState = createVeilPrivateState();
-  const bootstrapProviders = withZkConfigPath(providers, env, config.bootstrapZkConfigPath);
-  const fullCompiledContract = compiledVeilContract(config.zkConfigPath);
-
-  const bootstrapApi = await DynamicContractAPI.deploy<VeilBootstrapContract, typeof PRIVATE_STATE_ID>({
-    providers: bootstrapProviders as any,
-    compiledContract: compiledVeilBootstrapContract(config.bootstrapZkConfigPath),
+  const api = await DynamicContractAPI.deploy<VeilContract, typeof PRIVATE_STATE_ID>({
+    providers,
+    compiledContract: compiledVeilContract(config.zkConfigPath),
     privateStateId: PRIVATE_STATE_ID,
-    initialPrivateState,
-    args: [DEFAULT_SCORE_CONFIG, DEFAULT_GOVERNANCE_CONTROLLER_COMMITMENT, GOVERNANCE_TIMELOCK_EPOCHS],
+    initialPrivateState: createVeilPrivateState(),
+    args: [
+      DEFAULT_SCORE_CONFIG,
+      DEFAULT_GOVERNANCE_GUARDIAN_SET_HASH,
+      DEFAULT_GOVERNANCE_GUARDIAN_THRESHOLD,
+      DEFAULT_GOVERNANCE_CONTROLLER_VERSION,
+      GOVERNANCE_TIMELOCK_EPOCHS,
+    ],
     logger,
   });
 
-  logger.info(`Bootstrap contract deployed at ${bootstrapApi.deployedContractAddress}`);
-  await installMissingFullContractVerifierKeys(
-    providers,
-    fullCompiledContract,
-    bootstrapApi.deployedContractAddress,
-    logger,
-  );
-
-  logger.info(`Full contract verifier keys installed at ${bootstrapApi.deployedContractAddress}`);
-  return bootstrapApi.deployedContractAddress;
+  logger.info(`Veil contract deployed at ${api.deployedContractAddress}`);
+  return api.deployedContractAddress;
 };
 
 const joinVeilContract = async (
@@ -452,7 +362,7 @@ const joinVeilContract = async (
 const deployOrJoin = async (
   providers: DynamicProviders<VeilContract, typeof PRIVATE_STATE_ID>,
   config: Config,
-  env: EnvironmentConfiguration,
+  _env: EnvironmentConfiguration,
   rli: Interface,
   logger: Logger,
 ): Promise<VeilAPI | null> => {
@@ -463,9 +373,8 @@ const deployOrJoin = async (
     );
 
     if (choice === '1') {
-      await assertZkArtifacts(config.bootstrapZkConfigPath, BOOTSTRAP_CONTRACT_CIRCUITS, 'bootstrap contract');
-      await assertZkArtifacts(config.zkConfigPath, FULL_CONTRACT_CIRCUITS, 'full contract');
-      const contractAddress = await deployStagedContract(providers, config, env, logger);
+      await assertZkArtifacts(config.zkConfigPath, FULL_CONTRACT_CIRCUITS, 'Veil contract');
+      const contractAddress = await deployVeilContract(providers, config, logger);
       logger.info(`Deploy complete. Join this contract when ready: ${contractAddress}`);
       console.log(`\nContract deployed: ${contractAddress}\nChoose "Join deployed Veil contract" to interact with it.\n`);
       continue;
@@ -567,84 +476,6 @@ const tryResolveVeilIdFromPrivateState = async (api: VeilAPI, logger: Logger): P
     return null;
   }
 };
-
-const extractCircuitResult = <T>(value: unknown, circuitName: string): T => {
-  if (value && typeof value === 'object') {
-    const result = (value as { result?: unknown }).result;
-    if (result !== undefined) return result as T;
-
-    const privateResult = (value as { private?: { result?: unknown } }).private?.result;
-    if (privateResult !== undefined) return privateResult as T;
-  }
-
-  if (value !== undefined) return value as T;
-  throw new Error(`${circuitName} did not return a circuit result.`);
-};
-
-const deriveVeilId = async (api: VeilAPI, rawPublicKeyOrLockHash: Uint8Array, chainNamespace: Uint8Array, salt: Uint8Array): Promise<Uint8Array> =>
-  extractCircuitResult<Uint8Array>(
-    await callTx<unknown>(api, 'Utils_deriveVeilId', rawPublicKeyOrLockHash, chainNamespace, salt),
-    'Utils_deriveVeilId',
-  );
-
-const deriveIdentityProofHash = async (
-  api: VeilAPI,
-  veilIdHash: Uint8Array,
-  chainNamespace: Uint8Array,
-  publicKeyOrLockHashCommitment: Uint8Array,
-  walletSignatureHash: Uint8Array,
-): Promise<Uint8Array> =>
-  extractCircuitResult<Uint8Array>(
-    await callTx<unknown>(
-      api,
-      'Utils_deriveIdentityProofHash',
-      veilIdHash,
-      chainNamespace,
-      publicKeyOrLockHashCommitment,
-      walletSignatureHash,
-    ),
-    'Utils_deriveIdentityProofHash',
-  );
-
-const deriveReputationProofHash = async (
-  api: VeilAPI,
-  veilIdHash: Uint8Array,
-  witnessCommitment: Uint8Array,
-  claimedBand: bigint,
-  proofNonce: Uint8Array,
-): Promise<Uint8Array> =>
-  extractCircuitResult<Uint8Array>(
-    await callTx<unknown>(api, 'Utils_deriveReputationProofHash', veilIdHash, witnessCommitment, claimedBand, proofNonce),
-    'Utils_deriveReputationProofHash',
-  );
-
-const deriveScoreConfigHashFor = async (api: VeilAPI, scoreConfig: CustomStructs_ScoreConfig): Promise<Uint8Array> =>
-  extractCircuitResult<Uint8Array>(
-    await callTx<unknown>(api, 'Utils_deriveScoreConfigHashFor', scoreConfig),
-    'Utils_deriveScoreConfigHashFor',
-  );
-
-const deriveGovernanceActionHash = async (
-  api: VeilAPI,
-  actionTag: Uint8Array,
-  scoreConfigHash: Uint8Array,
-  effectiveEpoch: bigint,
-): Promise<Uint8Array> =>
-  extractCircuitResult<Uint8Array>(
-    await callTx<unknown>(api, 'Utils_deriveGovernanceActionHash', actionTag, scoreConfigHash, effectiveEpoch),
-    'Utils_deriveGovernanceActionHash',
-  );
-
-const deriveGovernanceProofHash = async (
-  api: VeilAPI,
-  controllerCommitment: Uint8Array,
-  actionHash: Uint8Array,
-  nonce: Uint8Array,
-): Promise<Uint8Array> =>
-  extractCircuitResult<Uint8Array>(
-    await callTx<unknown>(api, 'Utils_deriveGovernanceProofHash', controllerCommitment, actionHash, nonce),
-    'Utils_deriveGovernanceProofHash',
-  );
 
 const printLedger = async (api: VeilAPI): Promise<void> => {
   const state = await api.providers.publicDataProvider.queryContractState(api.deployedContractAddress);
@@ -750,21 +581,11 @@ const menuLoop = async (
 
     try {
       if (choice === '1') {
-        const rawPublicKeyOrLockHash = await askBytes32OrRandom(rli, 'raw public key or CKB lock hash (hex)');
+        const veilIdHash = await askBytes32OrRandom(rli, 'veilIdHash (hex)');
         const chainNamespace = (await askOptionalBytes32(rli, 'chain namespace bytes32 (hex)')) ?? pad('ckb', 32);
-        const veilSalt = await askBytes32OrRandom(rli, 'Veil ID salt (hex)');
         const publicKeyOrLockHashCommitment = await askBytes32OrRandom(rli, 'public key / lock hash commitment (hex)');
         const walletSignatureHash = await askBytes32OrRandom(rli, 'wallet signature hash (hex)');
         const currentEpoch = await askBigInt(rli, 'current epoch', BigInt(Date.now()));
-
-        const veilIdHash = await deriveVeilId(api, rawPublicKeyOrLockHash, chainNamespace, veilSalt);
-        const chainProofHash = await deriveIdentityProofHash(
-          api,
-          veilIdHash,
-          chainNamespace,
-          publicKeyOrLockHashCommitment,
-          walletSignatureHash,
-        );
 
         await callTx(
           api,
@@ -773,7 +594,6 @@ const menuLoop = async (
           chainNamespace,
           publicKeyOrLockHashCommitment,
           walletSignatureHash,
-          chainProofHash,
           currentEpoch,
         );
 
@@ -797,20 +617,6 @@ const menuLoop = async (
         const proofNonce = await askBytes32OrRandom(rli, 'proof nonce (hex)');
         const currentEpoch = await askBigInt(rli, 'current epoch', BigInt(Date.now()));
 
-        const witnessCommitment = pureCircuits.Utils_deriveReputationWitnessCommitment(
-          veilIdHash,
-          walletAgeInDays,
-          distinctProtocols,
-          daoVoteCount,
-          lpTenureInDays,
-          crossChainCount,
-          txConsistencyScore,
-          ethChainCommitment,
-          ckbChainCommitment,
-          witnessSalt,
-        );
-        const proofHash = await deriveReputationProofHash(api, veilIdHash, witnessCommitment, claimedBand, proofNonce);
-
         await callTx(
           api,
           'Reputation_prove',
@@ -825,14 +631,12 @@ const menuLoop = async (
           ethChainCommitment,
           ckbChainCommitment,
           witnessSalt,
-          witnessCommitment,
           proofNonce,
-          proofHash,
           currentEpoch,
         );
 
         cachedVeilIdHash = veilIdHash;
-        logger.info(`Reputation proof accepted. band=${claimedBand.toString()} proofHash=${toHex(proofHash)}`);
+        logger.info(`Reputation proof accepted. band=${claimedBand.toString()}`);
         continue;
       }
 
@@ -867,23 +671,17 @@ const menuLoop = async (
           goldThreshold: await askBigInt(rli, 'new goldThreshold', 710n),
           platinumThreshold: await askBigInt(rli, 'new platinumThreshold', 830n),
         };
-        const scoreConfigHash = await deriveScoreConfigHashFor(api, nextConfig);
-        const actionHash = await deriveGovernanceActionHash(api, pad('score-config', 32), scoreConfigHash, currentEpoch);
+        const operationId = await askBytes32OrRandom(rli, 'guardian operation id (hex)');
+        const signatureBundleHash = await askBytes32OrRandom(rli, 'guardian signature bundle hash (hex)');
         const governanceNonce = await askBytes32OrRandom(rli, 'governance nonce (hex)');
-        const governanceProofHash = await deriveGovernanceProofHash(
-          api,
-          DEFAULT_GOVERNANCE_CONTROLLER_COMMITMENT,
-          actionHash,
-          governanceNonce,
-        );
 
         await callTx(
           api,
           'Governance_proposeScoreConfig',
           nextConfig,
           currentEpoch,
-          actionHash,
-          governanceProofHash,
+          operationId,
+          signatureBundleHash,
           governanceNonce,
         );
         logger.info(`Score config proposed. executableAt=${(currentEpoch + GOVERNANCE_TIMELOCK_EPOCHS).toString()}`);

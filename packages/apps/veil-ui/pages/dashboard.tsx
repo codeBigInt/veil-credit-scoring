@@ -23,6 +23,7 @@ type EthereumWindow = Window & typeof globalThis & {
   ethereum?: EthereumProvider;
 };
 
+
 type RegistrationState =
   | 'idle'
   | 'connecting'
@@ -37,7 +38,7 @@ type RegistrationState =
   | 'error';
 
 type DashboardCache = {
-  version: 2;
+  version: 3;
   address: string;
   veilId: string;
   lockHash: string;
@@ -69,6 +70,19 @@ type VeilDashboardBackup = {
   indexedDb: IndexedDbBackup[];
 };
 
+type SponsorStatus = {
+  available: boolean;
+  activeAllocations?: number;
+  expiringSoon?: number;
+  expiredAllocations?: number;
+  reclaimingAllocations?: number;
+  failedReclaimAllocations?: number;
+  capacity?: {
+    freeNightUtxos?: number;
+    registeredUtxos?: number;
+  };
+};
+
 const CONTRACT_ADDRESS = process.env.NEXT_PUBLIC_CONTRACT_ADDRESS ?? '';
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? '';
 const PROOF_SERVER_URL = process.env.NEXT_PUBLIC_PROOF_SERVER_URL;
@@ -76,12 +90,19 @@ const ZK_CONFIG_BASE_URL = process.env.NEXT_PUBLIC_ZK_CONFIG_BASE_URL;
 const ETHEREUM_RPC_URL = process.env.NEXT_PUBLIC_ETHEREUM_RPC_URL ?? '';
 const MIDNIGHT_EXPLORER_URL = process.env.NEXT_PUBLIC_MIDNIGHT_EXPLORER_URL ?? '';
 const MIDNIGHT_TX_URL_TEMPLATE = process.env.NEXT_PUBLIC_MIDNIGHT_TX_URL_TEMPLATE ?? '';
+const DUST_SPONSOR_SYNC_TIMEOUT_MS = Number.parseInt(
+  process.env.NEXT_PUBLIC_DUST_SPONSOR_SYNC_TIMEOUT_MS ?? '',
+  10,
+);
 
 const config: VeilConfig = {
   contractAddress: CONTRACT_ADDRESS,
   network: (process.env.NEXT_PUBLIC_MIDNIGHT_NETWORK as VeilConfig['network']) ?? 'preview',
   proofServerUrl: PROOF_SERVER_URL,
   feeSponsorUrl: BACKEND_URL || undefined,
+  dustSponsorSyncTimeoutMs: Number.isFinite(DUST_SPONSOR_SYNC_TIMEOUT_MS)
+    ? DUST_SPONSOR_SYNC_TIMEOUT_MS
+    : undefined,
   zkArtifactsBaseUrl: ZK_CONFIG_BASE_URL,
   midnightRpc: process.env.NEXT_PUBLIC_INDEXER_URL,
   midnightIndexerWsUrl: process.env.NEXT_PUBLIC_INDEXER_WS_URL,
@@ -99,15 +120,20 @@ const short = (value: string, head = 8, tail = 6): string =>
   value.length > head + tail ? `${value.slice(0, head)}...${value.slice(-tail)}` : value;
 
 const dashboardCacheKey = (address: string): string =>
-  `veil-dashboard:v2:${config.network}:${CONTRACT_ADDRESS || 'no-contract'}:${address.toLowerCase()}`;
+  `veil-dashboard:v3:${config.network}:${CONTRACT_ADDRESS || 'no-contract'}:${address.toLowerCase()}`;
+
+const isMidnightTxId = (value: string): boolean =>
+  /^[0-9a-fA-F]{64}$/.test(value.replace(/^0x/i, ''));
 
 const midnightTxUrl = (txHash: string): string | null => {
   if (txHash === 'already-registered') return null;
+  if (!isMidnightTxId(txHash)) return null;
+  const normalizedTxHash = txHash.replace(/^0x/i, '');
   if (MIDNIGHT_TX_URL_TEMPLATE) {
-    return MIDNIGHT_TX_URL_TEMPLATE.replace('{txHash}', encodeURIComponent(txHash));
+    return MIDNIGHT_TX_URL_TEMPLATE.replace('{txHash}', encodeURIComponent(normalizedTxHash));
   }
   if (!MIDNIGHT_EXPLORER_URL) return null;
-  return `${MIDNIGHT_EXPLORER_URL.replace(/\/+$/, '')}/tx/${txHash}`;
+  return `${MIDNIGHT_EXPLORER_URL.replace(/\/+$/, '')}/tx/${normalizedTxHash}`;
 };
 
 const statusLabel = (state: RegistrationState, proved: boolean, registered: boolean, signed: boolean, connected: boolean): string => {
@@ -122,6 +148,21 @@ const statusLabel = (state: RegistrationState, proved: boolean, registered: bool
 const formatUserError = (error: unknown): string => {
   const raw = error instanceof Error ? error.message : String(error);
   const lower = raw.toLowerCase();
+  if (lower.includes('invalid transaction') || lower.includes('submissionerror') || lower.includes('transaction submission error')) {
+    return 'Midnight rejected the transaction. Check the browser console or backend logs for the submission reason.';
+  }
+  if (lower.includes('timed out submitting')) {
+    return 'The transaction was prepared, but Midnight did not confirm submission in time. Try again shortly.';
+  }
+  if (lower.includes('did not see enough dust before timeout') || lower.includes('last synced dust balance')) {
+    return 'Fees were sponsored, but your browser wallet has not synced the fee balance yet. Wait a minute, then try again.';
+  }
+  if (lower.includes('missing verifier') || lower.includes('verifier key') || lower.includes('operation')) {
+    return 'The contract artifacts do not match the deployed contract. Recheck the contract address and ZK artifact URL.';
+  }
+  if (lower.includes('proof server') || lower.includes('proving server') || lower.includes('failed to fetch')) {
+    return 'The proof server or ZK artifacts are not reachable from the browser.';
+  }
   if (lower.includes('no free night utxo') || lower.includes('sponsor unavailable') || lower.includes('dust sponsorship unavailable')) {
     return 'Free fee sponsorship is busy right now. Try again in a few minutes.';
   }
@@ -138,6 +179,53 @@ const formatUserError = (error: unknown): string => {
     return 'The Midnight wallet is still syncing. Try again shortly.';
   }
   return 'Something went wrong. Try again.';
+};
+
+
+type VeilTransactionStage = {
+  circuit?: string;
+  stage?: string;
+  requiredDust?: string;
+  txId?: string;
+  error?: string;
+};
+
+const stageMessage = (event: VeilTransactionStage): string | null => {
+  const circuit = event.circuit ?? 'transaction';
+  const action = circuit === 'Identity_register'
+    ? 'identity registration'
+    : circuit === 'Reputation_prove'
+      ? 'band proof'
+      : 'transaction';
+
+  switch (event.stage) {
+    case 'fee-estimate':
+      return `Estimating the ${action} fee.`;
+    case 'fee-estimate-skipped':
+      return `Preparing the ${action} fee.`;
+    case 'dust-check':
+      return `Checking sponsored DUST for ${action}.`;
+    case 'dust-sponsored':
+      return 'Fee sponsorship submitted. Waiting for DUST to sync.';
+    case 'dust-refresh':
+      return 'Checking the sponsored fee balance.';
+    case 'dust-visible':
+      return `Sponsored DUST is visible. Balancing ${action}.`;
+    case 'balance':
+      return `Balancing the ${action} transaction.`;
+    case 'sign':
+      return `Signing the ${action} transaction locally.`;
+    case 'finalize':
+      return `Finalizing the ${action} transaction.`;
+    case 'submit':
+      return `Submitting ${action} to Midnight.`;
+    case 'submitted':
+      return `${action[0]?.toUpperCase() ?? 'T'}${action.slice(1)} submitted.`;
+    case 'failed':
+      return `${action[0]?.toUpperCase() ?? 'T'}${action.slice(1)} failed before confirmation.`;
+    default:
+      return null;
+  }
 };
 
 const encodeValue = (value: unknown): EncodedValue => {
@@ -326,6 +414,7 @@ export default function DashboardPage() {
   const [message, setMessage] = useState('Connect your wallet to create a private Veil identity.');
   const [detailError, setDetailError] = useState('');
   const [backupRestored, setBackupRestored] = useState(false);
+  const [sponsorStatus, setSponsorStatus] = useState<SponsorStatus | null>(null);
 
   const walletConnected = Boolean(address && veilId);
   const identitySigned = Boolean(signature) || ['signed', 'preparing', 'registering', 'registered', 'proving', 'proved'].includes(state);
@@ -365,7 +454,7 @@ export default function DashboardPage() {
       const raw = localStorage.getItem(dashboardCacheKey(walletAddress));
       if (!raw) return null;
       const cached = JSON.parse(raw) as DashboardCache;
-      if (cached.version !== 2 || cached.address.toLowerCase() !== walletAddress.toLowerCase()) return null;
+      if (cached.version !== 3 || cached.address.toLowerCase() !== walletAddress.toLowerCase()) return null;
       return cached;
     } catch {
       localStorage.removeItem(dashboardCacheKey(walletAddress));
@@ -451,10 +540,46 @@ export default function DashboardPage() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!BACKEND_URL) return;
+
+    let cancelled = false;
+    const loadSponsorStatus = async () => {
+      try {
+        const response = await fetch(`${BACKEND_URL.replace(/\/$/, '')}/sponsor/status`);
+        const json = await response.json() as { sponsor?: SponsorStatus };
+        if (!cancelled) setSponsorStatus(json.sponsor ?? null);
+      } catch {
+        if (!cancelled) setSponsorStatus(null);
+      }
+    };
+
+    void loadSponsorStatus();
+    const timer = setInterval(() => { void loadSponsorStatus(); }, 30_000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, []);
+
+  useEffect(() => {
+    const handleStage = (event: Event) => {
+      const detail = (event as CustomEvent<VeilTransactionStage>).detail;
+      const nextMessage = stageMessage(detail);
+      if (nextMessage) setMessage(nextMessage);
+      if (detail?.stage === 'failed' && detail.error) {
+        setDetailError(formatUserError(new Error(detail.error)));
+      }
+    };
+
+    window.addEventListener('veil:transaction-stage', handleStage);
+    return () => window.removeEventListener('veil:transaction-stage', handleStage);
+  }, []);
+
   const persistProgress = (updates: Partial<DashboardCache>) => {
     if (!address || !veilId || !lockHash) return;
     const cache: DashboardCache = {
-      version: 2,
+      version: 3,
       address,
       veilId,
       lockHash,
@@ -468,6 +593,7 @@ export default function DashboardPage() {
   };
 
   const showError = (error: unknown, fallbackMessage: string) => {
+    console.error('[Veil dashboard]', fallbackMessage, error);
     const userMessage = formatUserError(error);
     setState('error');
     setDetailError(userMessage);
@@ -571,14 +697,16 @@ export default function DashboardPage() {
       setState('registering');
       setMessage('Registering your Veil identity on Midnight. Fees are sponsored when available.');
       let nextRegistrationTx = registrationTx;
-      try {
-        const registration = await client.register(signer);
-        nextRegistrationTx = registration.txHash;
-        setRegistrationTx(registration.txHash);
-      } catch (registrationError) {
-        if (!isAlreadyRegisteredError(registrationError)) throw registrationError;
-        nextRegistrationTx = 'already-registered';
-        setRegistrationTx(nextRegistrationTx);
+      if (!nextRegistrationTx) {
+        try {
+          const registration = await client.register(signer, { signature });
+          nextRegistrationTx = registration.txHash;
+          setRegistrationTx(registration.txHash);
+        } catch (registrationError) {
+          if (!isAlreadyRegisteredError(registrationError)) throw registrationError;
+          nextRegistrationTx = 'already-registered';
+          setRegistrationTx(nextRegistrationTx);
+        }
       }
       persistProgress({ registrationTx: nextRegistrationTx, state: 'registered' });
 
@@ -618,7 +746,7 @@ export default function DashboardPage() {
     try {
       const liveDashboard = address && veilId && lockHash && (identityRegistered || reputationProved || backupRestored)
         ? {
-            version: 2 as const,
+            version: 3 as const,
             address,
             veilId,
             lockHash,
@@ -711,6 +839,11 @@ export default function DashboardPage() {
           </div>
 
           <p className="mt-4 text-sm leading-relaxed text-muted-foreground">{message}</p>
+          {sponsorStatus && !sponsorStatus.available && !walletConnected && (
+            <p className="mt-2 rounded-sm border border-primary/20 bg-primary/5 px-3 py-2 text-xs leading-relaxed text-muted-foreground">
+              Free fee sponsorship is currently full. You can still connect, but on-chain registration may need to wait for sponsor UTXOs to recycle.
+            </p>
+          )}
           {detailError && <p className="mt-2 text-sm text-red-400">{detailError}</p>}
 
           <div className="mt-6 rounded-sm border border-primary/20 bg-primary/5 p-4">

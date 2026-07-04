@@ -79,6 +79,8 @@ module CustomStructs {
     export struct PendingScoreConfig {
         config: ScoreConfig;
         proposedByController: Bytes<32>;
+        operationId: Bytes<32>;
+        signatureBundleHash: Bytes<32>;
         proposedAtEpoch: Uint<64>;
         executableAtEpoch: Uint<64>;
     };
@@ -86,6 +88,13 @@ module CustomStructs {
     export struct GovernanceAction {
         actionTag: Bytes<32>;
         scoreConfigHash: Bytes<32>;
+        operationId: Bytes<32>;
         effectiveEpoch: Uint<64>;
+    };
+
+    export struct GuardianController {
+        guardianSetHash: Bytes<32>;
+        threshold: Uint<8>;
+        controllerVersion: Uint<64>;
     };
 }

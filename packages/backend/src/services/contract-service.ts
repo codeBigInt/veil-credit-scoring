@@ -4,7 +4,6 @@ import {
   type CompiledContract,
   type Contract as CompactContract,
 } from "@midnight-ntwrk/compact-js";
-import { createCircuitMaintenanceTxInterface } from "@midnight-ntwrk/midnight-js-contracts";
 import { indexerPublicDataProvider } from "@midnight-ntwrk/midnight-js-indexer-public-data-provider";
 import { NodeZkConfigProvider } from "@midnight-ntwrk/midnight-js-node-zk-config-provider";
 import { httpClientProofProvider } from "@midnight-ntwrk/midnight-js-http-client-proof-provider";
@@ -20,33 +19,23 @@ import {
   type VeilPrivateState,
   type Witnesses as VeilWitnesses,
 } from "@veil/veil-contract";
-import {
-  Contract as VeilBootstrapContractClass,
-  type Witnesses as VeilBootstrapWitnesses,
-} from "@veil/veil-contract/bootstrap";
 
 import type { BackendConfig } from "../config.js";
-import { BackendWalletProvider, type SponsorCapacity, type SponsorshipResult } from "./wallet-service.js";
+import {
+  BackendWalletProvider,
+  type SponsorCapacity,
+  type SponsorPoolSplitResult,
+  type SponsorshipResult,
+} from "./wallet-service.js";
 import { MongoPrivateStateProvider } from "./mongo-private-state-provider.js";
 
 const PRIVATE_STATE_ID = "veil_ps";
 const GOVERNANCE_TIMELOCK_EPOCHS = 10n;
 
 type VeilContract = VeilContractClass<VeilPrivateState, VeilWitnesses<VeilPrivateState>>;
-type VeilBootstrapContract = VeilBootstrapContractClass<
-  VeilPrivateState,
-  VeilBootstrapWitnesses<VeilPrivateState>
->;
 
 const FULL_CONTRACT_CIRCUITS = [
   "Utils_deriveVeilId",
-  "Utils_deriveIdentityProofHash",
-  "Utils_deriveScoreConfigHash",
-  "Utils_deriveScoreConfigHashFor",
-  "Utils_deriveReputationProofHash",
-  "Utils_deriveGovernanceActionHash",
-  "Utils_deriveGovernanceProofHash",
-  "Utils_deriveBand",
   "Identity_register",
   "Identity_assertActive",
   "Reputation_prove",
@@ -54,27 +43,6 @@ const FULL_CONTRACT_CIRCUITS = [
   "Governance_proposeScoreConfig",
   "Governance_applyScoreConfig",
   "Governance_cancelScoreConfig",
-] as const;
-
-const BOOTSTRAP_CONTRACT_CIRCUITS = [
-  "Utils_deriveVeilId",
-  "Utils_deriveIdentityProofHash",
-  "Identity_register",
-  "Identity_assertActive",
-  "Reputation_prove",
-  "Reputation_check",
-  "Governance_proposeScoreConfig",
-  "Governance_applyScoreConfig",
-  "Governance_cancelScoreConfig",
-] as const;
-
-const POST_BOOTSTRAP_CONTRACT_CIRCUITS = [
-  "Utils_deriveScoreConfigHash",
-  "Utils_deriveScoreConfigHashFor",
-  "Utils_deriveReputationProofHash",
-  "Utils_deriveGovernanceActionHash",
-  "Utils_deriveGovernanceProofHash",
-  "Utils_deriveBand",
 ] as const;
 
 const DEFAULT_SCORE_CONFIG: CustomStructs_ScoreConfig = {
@@ -92,10 +60,12 @@ const DEFAULT_SCORE_CONFIG: CustomStructs_ScoreConfig = {
   platinumThreshold: 820n,
 };
 
-const DEFAULT_GOVERNANCE_CONTROLLER_COMMITMENT = new Uint8Array([
+const DEFAULT_GOVERNANCE_GUARDIAN_SET_HASH = new Uint8Array([
   1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
 ]);
+const DEFAULT_GOVERNANCE_GUARDIAN_THRESHOLD = 3n;
+const DEFAULT_GOVERNANCE_CONTROLLER_VERSION = 1n;
 
 type ContractDeploymentRecord = {
   readonly key: "active";
@@ -115,10 +85,22 @@ type DustSponsorshipRecord = {
   readonly registrationFee: string;
   readonly status: "active" | "reclaiming" | "reclaimed" | "reclaim_failed";
   readonly reclaimTxId?: string;
+  readonly reclaimAttempts?: number;
   readonly createdAt: Date;
   readonly expiresAt: Date;
   readonly updatedAt: Date;
 };
+
+type SponsorRateLimitRecord = {
+  readonly key: string;
+  readonly count: number;
+  readonly resetAt: Date;
+  readonly updatedAt: Date;
+};
+
+type SponsorScope = "Identity_register" | "Reputation_prove";
+
+const SPONSOR_SCOPES = new Set<SponsorScope>(["Identity_register", "Reputation_prove"]);
 
 const assertZkArtifacts = async (
   zkConfigPath: string,
@@ -160,7 +142,10 @@ export class ContractService {
   private deploymentPromise?: Promise<string>;
   private readonly deployments: Collection<ContractDeploymentRecord>;
   private readonly dustSponsorships: Collection<DustSponsorshipRecord>;
+  private readonly sponsorRateLimits: Collection<SponsorRateLimitRecord>;
   private reclaimTimer?: NodeJS.Timeout;
+  private sponsorMaintenancePromise?: Promise<void>;
+  private sponsorAllocationQueue: Promise<void> = Promise.resolve();
 
   private constructor(
     private readonly config: BackendConfig,
@@ -172,6 +157,7 @@ export class ContractService {
   ) {
     this.deployments = db.collection<ContractDeploymentRecord>("veil_contract_deployments");
     this.dustSponsorships = db.collection<DustSponsorshipRecord>("veil_dust_sponsorships");
+    this.sponsorRateLimits = db.collection<SponsorRateLimitRecord>("veil_sponsor_rate_limits");
   }
 
   static async build(
@@ -206,7 +192,11 @@ export class ContractService {
     const service = new ContractService(config, env, db, logger, walletProvider, sponsorWalletProvider);
     await service.initContractAddress();
     await service.initDustSponsorships();
+    await service.initSponsorRateLimits();
     service.startSponsorshipReclaimer();
+    void service.runSponsorMaintenance("startup").catch((error) => {
+      logger.warn({ err: error }, "Startup sponsor maintenance failed");
+    });
     return service;
   }
 
@@ -223,14 +213,38 @@ export class ContractService {
    * DUST cannot be transferred directly; sponsorship registers backend NIGHT
    * liquidity so generated DUST flows to the user's address.
    */
-  async sponsorDust(dustAddress: string, requiredDust?: bigint): Promise<SponsorshipResult | null> {
+  async sponsorDust(
+    dustAddress: string,
+    requiredDust?: bigint,
+    options: { scope?: string; ip?: string } = {},
+  ): Promise<SponsorshipResult | null> {
+    this.assertSponsorScope(options.scope);
+    await this.assertSponsorRateLimit(dustAddress, options.ip);
+    return this.withSponsorAllocationLock(() => this.sponsorDustLocked(dustAddress, requiredDust));
+  }
+
+  private async sponsorDustLocked(
+    dustAddress: string,
+    requiredDust?: bigint,
+  ): Promise<SponsorshipResult | null> {
     const now = new Date();
-    const existing = await this.dustSponsorships.findOne({
-      dustAddress,
-      status: "active",
-      expiresAt: { $gt: now },
-    });
+    const existing = await this.dustSponsorships.findOne(
+      {
+        dustAddress,
+        status: "active",
+      },
+      { sort: { createdAt: -1 } },
+    );
     if (existing) {
+      const expiresAt = existing.expiresAt > now
+        ? existing.expiresAt
+        : new Date(now.getTime() + this.config.sponsorAllocationTtlMs);
+      if (expiresAt !== existing.expiresAt) {
+        await this.dustSponsorships.updateOne(
+          { txId: existing.txId },
+          { $set: { expiresAt, updatedAt: now } },
+        );
+      }
       return {
         txId: existing.txId,
         selectedUtxos: existing.utxoIds.length,
@@ -238,19 +252,25 @@ export class ContractService {
         requiredDust: existing.requiredDust,
         estimatedGeneratedDust: existing.estimatedGeneratedDust,
         registrationFee: existing.registrationFee,
-        expiresAt: existing.expiresAt.toISOString(),
+        expiresAt: expiresAt.toISOString(),
         reused: true,
       };
     }
 
     await this.reclaimExpiredSponsorships(25);
+    await this.maintainSponsorPool();
 
-    const sponsorship = await this.sponsorWalletProvider.sponsorDustFor(dustAddress, this.env.walletNetworkId, {
+    let sponsorship = await this.sponsorWalletProvider.sponsorDustFor(dustAddress, this.env.walletNetworkId, {
       requiredDust: requiredDust ?? this.config.sponsorDefaultRequiredDust,
     });
     if (sponsorship == null) {
       await this.reclaimExpiredSponsorships(25);
-      return null;
+      await this.maintainSponsorPool();
+      sponsorship = await this.sponsorWalletProvider.sponsorDustFor(dustAddress, this.env.walletNetworkId, {
+        requiredDust: requiredDust ?? this.config.sponsorDefaultRequiredDust,
+      });
+
+      if (sponsorship == null) return null;
     }
 
     const expiresAt = new Date(now.getTime() + this.config.sponsorAllocationTtlMs);
@@ -274,6 +294,21 @@ export class ContractService {
     };
   }
 
+  private async withSponsorAllocationLock<T>(work: () => Promise<T>): Promise<T> {
+    const previous = this.sponsorAllocationQueue;
+    let release: () => void = () => {};
+    this.sponsorAllocationQueue = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    await previous.catch(() => undefined);
+    try {
+      return await work();
+    } finally {
+      release();
+    }
+  }
+
   async sponsorStatus(): Promise<{
     available: boolean;
     allocationTtlMs: number;
@@ -281,13 +316,26 @@ export class ContractService {
     capacity: SponsorCapacity;
     activeAllocations: number;
     expiringSoon: number;
+    expiredAllocations: number;
+    reclaimingAllocations: number;
+    failedReclaimAllocations: number;
   }> {
     const now = new Date();
     const soon = new Date(now.getTime() + this.config.sponsorAllocationTtlMs);
-    const [capacity, activeAllocations, expiringSoon] = await Promise.all([
+    const [
+      capacity,
+      activeAllocations,
+      expiringSoon,
+      expiredAllocations,
+      reclaimingAllocations,
+      failedReclaimAllocations,
+    ] = await Promise.all([
       this.sponsorWalletProvider.sponsorCapacity(),
       this.dustSponsorships.countDocuments({ status: "active", expiresAt: { $gt: now } }),
       this.dustSponsorships.countDocuments({ status: "active", expiresAt: { $gt: now, $lte: soon } }),
+      this.dustSponsorships.countDocuments({ status: "active", expiresAt: { $lte: now } }),
+      this.dustSponsorships.countDocuments({ status: "reclaiming" }),
+      this.dustSponsorships.countDocuments({ status: "reclaim_failed" }),
     ]);
 
     return {
@@ -297,6 +345,9 @@ export class ContractService {
       capacity,
       activeAllocations,
       expiringSoon,
+      expiredAllocations,
+      reclaimingAllocations,
+      failedReclaimAllocations,
     };
   }
 
@@ -341,11 +392,92 @@ export class ContractService {
     await this.dustSponsorships.createIndex({ txId: 1 }, { unique: true });
   }
 
+  private async initSponsorRateLimits(): Promise<void> {
+    await this.sponsorRateLimits.createIndex({ key: 1 }, { unique: true });
+    await this.sponsorRateLimits.createIndex({ resetAt: 1 }, { expireAfterSeconds: 0 });
+  }
+
+  private assertSponsorScope(scope: string | undefined): asserts scope is SponsorScope | undefined {
+    if (scope == null || scope === "") return;
+    if (!SPONSOR_SCOPES.has(scope as SponsorScope)) {
+      throw new Error("DUST sponsorship is only available for identity registration and first band proof.");
+    }
+  }
+
+  private async assertSponsorRateLimit(dustAddress: string, ip: string | undefined): Promise<void> {
+    const checks = [
+      { key: `dust:${dustAddress}`, max: this.config.sponsorRateLimitMaxPerDustAddress },
+      ...(ip ? [{ key: `ip:${ip}`, max: this.config.sponsorRateLimitMaxPerIp }] : []),
+    ];
+    const now = new Date();
+
+    for (const check of checks) {
+      if (check.max <= 0) continue;
+      const existing = await this.sponsorRateLimits.findOne({ key: check.key });
+      const resetAt = existing && existing.resetAt > now
+        ? existing.resetAt
+        : new Date(now.getTime() + this.config.sponsorRateLimitWindowMs);
+      const count = existing && existing.resetAt > now ? existing.count + 1 : 1;
+      if (count > check.max) {
+        throw new Error("Free DUST sponsorship rate limit reached. Please try again later or use your own DUST.");
+      }
+
+      await this.sponsorRateLimits.updateOne(
+        { key: check.key },
+        {
+          $set: { count, resetAt, updatedAt: now },
+        },
+        { upsert: true },
+      );
+    }
+  }
+
+  private async maintainSponsorPool(): Promise<SponsorPoolSplitResult | undefined> {
+    if (this.config.sponsorPoolTargetFreeUtxos <= 0 || this.config.sponsorPoolSplitAmount <= 0n) {
+      return undefined;
+    }
+
+    try {
+      const result = await this.sponsorWalletProvider.splitSponsorNightPool({
+        targetFreeUtxos: this.config.sponsorPoolTargetFreeUtxos,
+        splitAmount: this.config.sponsorPoolSplitAmount,
+        maxOutputs: this.config.sponsorPoolMaxSplitOutputs,
+      });
+      if (result.outputsCreated > 0) {
+        this.logger.info(
+          `Sponsor NIGHT pool maintenance submitted split tx ${result.txId}; outputs=${result.outputsCreated}`,
+        );
+      } else if (result.skippedReason) {
+        this.logger.info(
+          `Sponsor NIGHT pool maintenance skipped: ${result.skippedReason} | free=${result.freeNightUtxosBefore} | registered=${result.registeredUtxosBefore}`,
+        );
+      }
+      return result;
+    } catch (error) {
+      this.logger.warn({ err: error }, "Sponsor NIGHT pool maintenance failed");
+      return undefined;
+    }
+  }
+
+  private async runSponsorMaintenance(reason: string): Promise<void> {
+    if (this.sponsorMaintenancePromise) return this.sponsorMaintenancePromise;
+
+    this.sponsorMaintenancePromise = (async () => {
+      this.logger.info(`Running sponsor maintenance: ${reason}`);
+      await this.reclaimExpiredSponsorships(10);
+      await this.maintainSponsorPool();
+    })().finally(() => {
+      this.sponsorMaintenancePromise = undefined;
+    });
+
+    return this.sponsorMaintenancePromise;
+  }
+
   private startSponsorshipReclaimer(): void {
     if (this.config.sponsorReclaimIntervalMs <= 0) return;
 
     const reclaimExpired = async (): Promise<void> => {
-      await this.reclaimExpiredSponsorships(10);
+      await this.runSponsorMaintenance("interval");
     };
 
     this.reclaimTimer = setInterval(() => {
@@ -360,25 +492,59 @@ export class ContractService {
 
   private async reclaimExpiredSponsorships(limit: number): Promise<void> {
     const now = new Date();
+    const staleReclaimingBefore = new Date(now.getTime() - Math.max(this.config.sponsorReclaimIntervalMs, 60_000));
     const expired = await this.dustSponsorships
-      .find({ status: "active", expiresAt: { $lte: now } })
+      .find({
+        $and: [
+          { expiresAt: { $lte: now } },
+          {
+            $or: [
+              { status: "active" },
+              { status: "reclaim_failed" },
+              { status: "reclaiming", updatedAt: { $lte: staleReclaimingBefore } },
+            ],
+          },
+          {
+            $or: [
+              { reclaimAttempts: { $exists: false } },
+              { reclaimAttempts: { $lt: this.config.sponsorReclaimMaxAttempts } },
+            ],
+          },
+        ],
+      })
       .limit(limit)
       .toArray();
 
     for (const record of expired) {
       await this.dustSponsorships.updateOne(
-        { txId: record.txId, status: "active" },
-        { $set: { status: "reclaiming", updatedAt: new Date() } },
+        { txId: record.txId, status: { $in: ["active", "reclaim_failed", "reclaiming"] } },
+        {
+          $set: { status: "reclaiming", updatedAt: new Date() },
+          $inc: { reclaimAttempts: 1 },
+        },
       );
 
       try {
         const reclaimTxId = await this.sponsorWalletProvider.reclaimDustForUtxoIds(record.utxoIds);
+        if (!reclaimTxId) {
+          await this.dustSponsorships.updateOne(
+            { txId: record.txId },
+            {
+              $set: {
+                status: "reclaim_failed",
+                updatedAt: new Date(),
+              },
+            },
+          );
+          continue;
+        }
+
         await this.dustSponsorships.updateOne(
           { txId: record.txId },
           {
             $set: {
-              status: reclaimTxId ? "reclaimed" : "reclaim_failed",
-              reclaimTxId: reclaimTxId ?? undefined,
+              status: "reclaimed",
+              reclaimTxId,
               updatedAt: new Date(),
             },
           },
@@ -387,7 +553,12 @@ export class ContractService {
         this.logger.warn({ err: error }, `Failed to reclaim expired DUST sponsorship ${record.txId}`);
         await this.dustSponsorships.updateOne(
           { txId: record.txId },
-          { $set: { status: "reclaim_failed", updatedAt: new Date() } },
+          {
+            $set: {
+              status: "reclaim_failed",
+              updatedAt: new Date(),
+            },
+          },
         );
       }
     }
@@ -395,67 +566,34 @@ export class ContractService {
 
   private async deployAndJoin(): Promise<string> {
     await assertZkArtifacts(
-      this.config.bootstrapZkConfigPath,
-      BOOTSTRAP_CONTRACT_CIRCUITS,
-      "bootstrap contract",
-    );
-    await assertZkArtifacts(
       this.config.zkConfigPath,
       FULL_CONTRACT_CIRCUITS,
-      "full contract",
+      "Veil contract",
     );
 
     const providers = await this.providers(this.config.zkConfigPath);
-    const bootstrapProviders = await this.providers(this.config.bootstrapZkConfigPath);
-    const fullCompiledContract = this.compiledContract();
-
-    const bootstrapApi = await DynamicContractAPI.deploy<VeilBootstrapContract, typeof PRIVATE_STATE_ID>({
-      providers: bootstrapProviders as unknown as DynamicProviders<VeilBootstrapContract, typeof PRIVATE_STATE_ID>,
-      compiledContract: this.compiledBootstrapContract(),
+    const api = await DynamicContractAPI.deploy<VeilContract, typeof PRIVATE_STATE_ID>({
+      providers,
+      compiledContract: this.compiledContract(),
       privateStateId: PRIVATE_STATE_ID,
       initialPrivateState: createVeilPrivateState(),
       args: [
         DEFAULT_SCORE_CONFIG,
-        DEFAULT_GOVERNANCE_CONTROLLER_COMMITMENT,
+        DEFAULT_GOVERNANCE_GUARDIAN_SET_HASH,
+        DEFAULT_GOVERNANCE_GUARDIAN_THRESHOLD,
+        DEFAULT_GOVERNANCE_CONTROLLER_VERSION,
         GOVERNANCE_TIMELOCK_EPOCHS,
       ],
       logger: this.logger,
     });
 
-    const contractAddress = bootstrapApi.deployedContractAddress;
-    this.logger.info({ contractAddress }, "Bootstrap Veil contract deployed");
+    const contractAddress = api.deployedContractAddress;
+    this.logger.info({ contractAddress }, "Veil contract deployed");
 
     providers.privateStateProvider.setContractAddress(contractAddress);
-    await this.installMissingVerifierKeys(providers, fullCompiledContract, contractAddress);
     await this.saveDeployment(contractAddress, "backend-deploy");
     this.activeContractAddress = contractAddress;
     return contractAddress;
-  }
-
-  private async installMissingVerifierKeys(
-    providers: DynamicProviders<VeilContract, typeof PRIVATE_STATE_ID>,
-    compiledContract: CompiledContract.CompiledContract<any, any>,
-    contractAddress: string,
-  ): Promise<void> {
-    for (const circuitId of POST_BOOTSTRAP_CONTRACT_CIRCUITS) {
-      const contractState = await providers.publicDataProvider.queryContractState(contractAddress);
-
-      if (contractState?.operation(circuitId) != null) {
-        this.logger.info({ circuitId }, "Verifier key already present; skipping");
-        continue;
-      }
-
-      const [[, verifierKey]] = await providers.zkConfigProvider.getVerifierKeys([circuitId]);
-      const maintenanceTx = createCircuitMaintenanceTxInterface(
-        providers as any,
-        circuitId as any,
-        compiledContract,
-        contractAddress,
-      );
-
-      this.logger.info({ circuitId }, "Installing missing verifier key");
-      await maintenanceTx.insertVerifierKey(verifierKey);
-    }
   }
 
   private async providers(
@@ -486,15 +624,6 @@ export class ContractService {
       VeilContractClass as any,
       witness as any,
       this.config.zkConfigPath,
-    ) as any;
-  }
-
-  private compiledBootstrapContract(): CompiledContract.CompiledContract<any, any> {
-    return utils.createCompiledContract<VeilBootstrapContract>(
-      "veil-protocol-bootstrap",
-      VeilBootstrapContractClass as any,
-      witness as any,
-      this.config.bootstrapZkConfigPath,
     ) as any;
   }
 

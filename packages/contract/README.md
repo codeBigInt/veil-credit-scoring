@@ -7,10 +7,9 @@ Veil v2 is not a credit-scoring contract. It has no issuer registry, no admin is
 ## Package Layout
 
 - [`src/main.compact`](./src/main.compact): exported v2 contract entrypoint.
-- [`src/bootstrap.compact`](./src/bootstrap.compact): staged-deployment bootstrap entrypoint with a smaller circuit surface for verifier-key installation.
 - [`src/modules/Identity.compact`](./src/modules/Identity.compact): permissionless identity registration.
 - [`src/modules/Reputation.compact`](./src/modules/Reputation.compact): reputation proof submission and threshold checks.
-- [`src/modules/Governance.compact`](./src/modules/Governance.compact): timelocked score-config governance through a DAO/controller commitment.
+- [`src/modules/Governance.compact`](./src/modules/Governance.compact): timelocked score-config governance through a Phase 1 guardian-council controller commitment.
 - [`src/modules/Utils.compact`](./src/modules/Utils.compact): canonical hash derivation and internal invariants.
 - [`src/witness.ts`](./src/witness.ts): private reputation state and Merkle path witnesses.
 - [`SECURITY.md`](./SECURITY.md): security model, external verification boundary, and audit checklist.
@@ -20,20 +19,24 @@ Veil v2 is not a credit-scoring contract. It has no issuer registry, no admin is
 ```compact
 constructor(
   _scoreConfig: CustomStructs_ScoreConfig,
-  _governanceControllerCommitment: Bytes<32>,
+  _governanceGuardianSetHash: Bytes<32>,
+  _governanceGuardianThreshold: Uint<8>,
+  _governanceControllerVersion: Uint<64>,
   _configTimelockEpochs: Uint<64>,
 )
 ```
 
 - `_scoreConfig`: initial scoring weights and band thresholds.
-- `_governanceControllerCommitment`: commitment controlled by a DAO, multisig, or governance contract. This is not a single deployer wallet.
+- `_governanceGuardianSetHash`: hash of the sorted Phase 1 guardian public keys / attestor identifiers.
+- `_governanceGuardianThreshold`: minimum guardian attestations required by the off-chain/verifier path, for example `3` for a 3-of-5 council.
+- `_governanceControllerVersion`: version for rotating guardian-controller semantics without reusing old commitments.
 - `_configTimelockEpochs`: delay before a proposed score config can be applied.
 
-The constructor validates score bounds and rejects a zero governance controller.
+The constructor derives `governanceControllerCommitment` from the guardian set hash, threshold, and controller version. It validates score bounds, rejects a zero guardian set, and rejects a zero threshold.
 
 ## Exported Circuits
 
-The full contract currently exports 15 provable circuits. Because that exceeds the practical first-deploy surface used by the CLI, the package also builds `src/bootstrap.compact`; the CLI can deploy bootstrap first and then install the full verifier keys through circuit maintenance.
+The contract currently has 8 provable circuits: the 7 protocol entrypoints plus the intentionally public `Utils_deriveVeilId` utility. Other derivation helpers are generated under `pureCircuits`, so SDKs can use the canonical Compact implementation without installing verifier keys for those helpers.
 
 ### Identity
 
@@ -47,7 +50,6 @@ Parameters:
 - `_chainNamespace`
 - `_publicKeyOrLockHashCommitment`
 - `_walletSignatureHash`
-- `_chainProofHash`
 - `_currentEpoch`
 
 `Identity_assertActive(_veilIdHash) -> Boolean`
@@ -79,7 +81,7 @@ Checks whether a user meets an integrator's requested minimum band. It returns b
 
 `Governance_proposeScoreConfig(...)`
 
-Queues a score-config update if the provided governance proof matches the configured DAO/controller commitment.
+Queues a score-config update if the operation id, signature-bundle hash, and governance nonce pass the configured guardian-council controller binding.
 
 `Governance_applyScoreConfig(_currentEpoch)`
 
@@ -87,26 +89,15 @@ Applies the pending config after the timelock expires. Anyone can call this once
 
 `Governance_cancelScoreConfig(...)`
 
-Cancels a pending config if the provided governance proof matches the configured controller.
+Cancels a pending config if the guardian-council operation proof binding matches the configured controller.
 
 ## Public Helper Circuits
 
-The exported `Utils_*` circuits are canonical encoding helpers for SDKs, tests, and CLI tooling:
+The exported utility surface is intentionally small:
 
 - `Utils_deriveVeilId`
-- `Utils_deriveIdentityProofHash`
-- `Utils_deriveReputationWitnessCommitment`
-- `Utils_deriveReputationProofHash`
-- `Utils_deriveScoreConfigHash`
-- `Utils_deriveScoreConfigHashFor`
-- `Utils_deriveGovernanceActionHash`
-- `Utils_deriveGovernanceProofHash`
-- `Utils_deriveBand`
-- `Utils_deriveCommunityWeightBps`
 
-Internal assertion helpers remain unexported.
-
-`src/bootstrap.compact` exports only the circuits needed to initialize and stage the contract before the full verifier-key set is installed.
+The other derivation helpers are exported only as generated `pureCircuits` helpers. They do not require verifier-key installation and are not part of the deployable circuit surface.
 
 ## Circuit Argument Audit
 
@@ -114,17 +105,12 @@ The v2 circuit argument lists are intentionally explicit. No argument was remove
 
 | Circuit | Arguments retained because |
 |---|---|
-| `Identity_register` | `veilIdHash`, chain namespace, lock/public-key commitment, wallet signature hash, proof hash, and epoch are all stored or bound into the identity proof/replay key. |
-| `Reputation_prove` | Signal values compute the private score; chain commitments prevent empty source data; witness salt, witness commitment, proof nonce, proof hash, and claimed band are replay and proof-binding inputs; epoch records freshness. |
+| `Identity_register` | `veilIdHash`, chain namespace, lock/public-key commitment, wallet signature hash, and epoch are stored or bound into the contract-derived identity proof/replay key. |
+| `Reputation_prove` | Signal values compute the private score; chain commitments prevent empty source data; witness salt, proof nonce, and claimed band are replay and proof-binding inputs; epoch records freshness. |
 | `Reputation_check` | Requester hash, purpose hash, minimum band, and epoch bind the decision to an integrator policy request. |
-| `Governance_proposeScoreConfig` | New config, epoch, action hash, proof hash, and nonce bind the proposed config to the DAO/controller proof and timelock. |
+| `Governance_proposeScoreConfig` | New config, epoch, operation id, signature-bundle hash, and nonce bind the proposed config to the guardian-council proof and timelock. |
 | `Governance_applyScoreConfig` | Current epoch is required to enforce the timelock. |
-| `Governance_cancelScoreConfig` | Action hash identifies the pending proposal to cancel. |
-
-The only arguments that could be abstracted away are values currently computed off-chain by SDK helpers
-(`chainProofHash`, `witnessCommitment`, `proofHash`, and governance hashes). They remain explicit so
-integrators, tests, and CLI tooling can independently derive and inspect the exact binding accepted by
-the contract.
+| `Governance_cancelScoreConfig` | Operation id, signature-bundle hash, and nonce bind cancellation to a fresh guardian-council operation. |
 
 ## Private State
 
@@ -134,7 +120,7 @@ Private state is stored by `veilIdHash`:
 reputationScores: Record<string, ReputationScore>
 ```
 
-The on-chain ledger stores identity records, commitment trees, replay keys, active score config, governance controller commitment, and pending governance config.
+The on-chain ledger stores identity records, commitment trees, replay keys, active score config, guardian controller fields, the derived governance controller commitment, and pending governance config.
 
 ## Security Boundary
 
@@ -159,11 +145,10 @@ bun run test:compile
 bun run test:run
 ```
 
-`test:compile` compiles both the full and bootstrap contracts with `--skip-zk`:
+`test:compile` compiles the contract with `--skip-zk`:
 
 ```bash
 compact compile --skip-zk src/main.compact ./src/managed/veil-protocol
-compact compile --skip-zk src/bootstrap.compact ./src/managed/veil-protocol-bootstrap
 ```
 
 For deployable artifacts:
@@ -181,8 +166,7 @@ Current tests cover:
 - identity registration
 - malformed identity rejection
 - reputation update and check
-- forged witness commitment rejection
-- forged proof hash rejection
+- replayed reputation nonce rejection
 - incorrect claimed band rejection
 - replayed proof nonce/hash rejection
 - governance timelock behavior

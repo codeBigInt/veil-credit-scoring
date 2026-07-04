@@ -44,9 +44,8 @@ Useful optional values:
 | `VEIL_SPONSOR_ALLOCATION_TTL_MS` | `600000` | Short sponsorship lease window before reclaim is attempted. Keep this low so sponsor UTxOs recycle. |
 | `VEIL_SPONSOR_RECLAIM_INTERVAL_MS` | `60000` | Background reclaim interval. Set `0` to disable automatic reclaim. |
 | `VEIL_CONTRACT_ADDRESS` | unset | Existing deployed Veil contract. |
-| `VEIL_AUTO_DEPLOY` | `false` | Deploy a staged contract from the backend wallet when no address is configured or saved. Also enables `POST /contract/deploy`. |
-| `VEIL_ZK_CONFIG_PATH` | `../contract/dist/managed/veil-protocol` | Full contract ZK artifacts. |
-| `VEIL_BOOTSTRAP_ZK_CONFIG_PATH` | `../contract/dist/managed/veil-protocol-bootstrap` | Bootstrap contract ZK artifacts. |
+| `VEIL_AUTO_DEPLOY` | `false` | Deploy the Veil contract from the backend wallet when no address is configured or saved. Also enables `POST /contract/deploy`. |
+| `VEIL_ZK_CONFIG_PATH` | `../contract/dist/managed/veil-protocol` | Veil contract ZK artifacts. |
 
 ## API
 

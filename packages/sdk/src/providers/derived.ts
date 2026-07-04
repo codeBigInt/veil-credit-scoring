@@ -6,7 +6,7 @@
  * three Midnight sub-wallets (shielded NIGHT, unshielded NIGHT, DUST fees) are derived from that
  * seed — the user never installs a second wallet extension.
  *
- * Sync state is serialized to IndexedDB after every 30 s and on page unload, mirroring the CLI's
+ * Sync state is serialized to IndexedDB after every 5 s and on page unload, mirroring the CLI's
  * file-system cache.  On the next page load the wallet restores from the cache rather than
  * re-scanning from the deployment block, so subsequent loads are near-instant.
  *
@@ -50,6 +50,7 @@ import { Contract as VeilContractClass } from '@veil/veil-contract';
 import type { VeilConfig } from '../config';
 import type { CCCSigner, VeilMidnightProvider } from '../types';
 import { hexToBytes } from '../utils/bytes';
+import { extractTxId } from '../utils/tx';
 import {
   type VeilContract,
   PRIVATE_STATE_ID,
@@ -104,11 +105,42 @@ type DustBalanceSource = {
   waitForSyncedState(): Promise<{ balance(time: Date): bigint }>;
 };
 
-const DUST_SPONSOR_TIMEOUT_MS = 300_000;
+const DEFAULT_DUST_SPONSOR_TIMEOUT_MS = 300_000;
+const DEFAULT_MIN_SPONSORED_DUST = 1_001n;
 const DUST_EXISTING_BALANCE_CHECK_MS = 5_000;
-const DUST_SPONSOR_POLL_MS = 3_000;
+const WALLET_CACHE_FLUSH_MS = 5_000;
+const TX_SUBMIT_TIMEOUT_MS = 180_000;
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+type TransactionStage =
+  | 'fee-estimate'
+  | 'fee-estimate-skipped'
+  | 'dust-check'
+  | 'dust-sponsored'
+  | 'dust-refresh'
+  | 'dust-visible'
+  | 'balance'
+  | 'sign'
+  | 'finalize'
+  | 'submit'
+  | 'submitted'
+  | 'failed';
+
+const emitTransactionStage = (
+  circuit: string,
+  stage: TransactionStage,
+  detail?: Record<string, string>,
+): void => {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('veil:transaction-stage', {
+      detail: { circuit, stage, ...detail },
+    }));
+  }
+  if (typeof console !== 'undefined') {
+    console.info(`[Veil] ${circuit}: ${stage}`, detail ?? {});
+  }
+};
 
 const withTimeout = async <T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> => {
   let timeout: ReturnType<typeof setTimeout> | undefined;
@@ -133,6 +165,11 @@ const getSyncedDustBalance = async (dustWallet: DustBalanceSource, timeoutMs: nu
   return state.balance(new Date());
 };
 
+// Polls the DUST wallet's synced state. Each call to waitForSyncedState blocks
+// until the wallet has scanned to chain tip — this ensures the DUST spend proof
+// witnesses are actually available before we attempt to balance a transaction.
+// Passing the full remaining budget as the timeout means the first call will
+// block until sync completes rather than timing out after a short slice.
 const waitForSponsoredDust = async (
   dustWallet: DustBalanceSource,
   timeoutMs: number,
@@ -142,18 +179,16 @@ const waitForSponsoredDust = async (
   let lastBalance = 0n;
 
   while (Date.now() < deadline) {
-    const remaining = Math.max(1_000, deadline - Date.now());
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) break;
     try {
-      lastBalance = await getSyncedDustBalance(
-        dustWallet,
-        Math.min(DUST_SPONSOR_POLL_MS, remaining),
-      );
+      lastBalance = await getSyncedDustBalance(dustWallet, remaining);
       if (lastBalance >= requiredDust) return;
+      // Synced but still insufficient — wait briefly before rechecking.
+      await sleep(Math.min(2_000, Math.max(0, deadline - Date.now())));
     } catch {
-      // Keep polling until the overall sponsorship timeout expires. The dust
-      // wallet can be momentarily behind the indexer after a fresh sponsorship.
+      // waitForSyncedState timed out (deadline reached); exit loop.
     }
-    await sleep(Math.min(DUST_SPONSOR_POLL_MS, Math.max(0, deadline - Date.now())));
   }
 
   throw new Error(
@@ -215,40 +250,67 @@ const sha256Hex = async (data: Uint8Array): Promise<string> => {
 type UnshieldedKeystore = { signData(payload: Uint8Array): string };
 
 class BrowserWalletAdapter implements MidnightProvider, WalletProvider {
+  private activeCircuit = 'transaction';
+
   constructor(
     private readonly wallet: WalletFacade,
     private readonly zswapKeys: ZswapSecretKeys,
     private readonly dustKey: DustSecretKey,
     private readonly keystore: UnshieldedKeystore,
-    private readonly ensureDustReady?: (requiredDust?: bigint) => Promise<void>,
+    private readonly ensureDustReady?: (requiredDust: bigint | undefined, circuit: string) => Promise<void>,
+    private readonly onSubmittedTxId?: (txId: string) => void,
   ) {}
 
   getCoinPublicKey() { return this.zswapKeys.coinPublicKey; }
   getEncryptionPublicKey() { return this.zswapKeys.encryptionPublicKey; }
 
+  setActiveCircuit(circuit: string): void {
+    this.activeCircuit = circuit;
+  }
+
   async balanceTx(tx: UnboundTransaction, ttl: Date = ttlOneHour()): Promise<FinalizedTransaction> {
     let requiredDust: bigint | undefined;
     try {
+      emitTransactionStage(this.activeCircuit, 'fee-estimate');
       requiredDust = await this.wallet.estimateTransactionFee(tx as never, this.dustKey, { ttl });
-    } catch {
+    } catch (error) {
+      emitTransactionStage(this.activeCircuit, 'fee-estimate-skipped', {
+        reason: error instanceof Error ? error.message : String(error),
+      });
       requiredDust = undefined;
     }
 
     if (this.ensureDustReady) {
-      await this.ensureDustReady(requiredDust);
+      emitTransactionStage(this.activeCircuit, 'dust-check', {
+        requiredDust: requiredDust?.toString() ?? 'unknown',
+      });
+      await this.ensureDustReady(requiredDust, this.activeCircuit);
+      emitTransactionStage(this.activeCircuit, 'dust-visible');
     }
 
     const secretKeys = { shieldedSecretKeys: this.zswapKeys, dustSecretKey: this.dustKey };
+    emitTransactionStage(this.activeCircuit, 'balance');
     const recipe = await this.wallet.balanceUnboundTransaction(tx, secretKeys, { ttl });
+    emitTransactionStage(this.activeCircuit, 'sign');
     const signedRecipe = await this.wallet.signRecipe(
       recipe,
       (payload: Uint8Array) => this.keystore.signData(payload),
     );
+    emitTransactionStage(this.activeCircuit, 'finalize');
     return this.wallet.finalizeRecipe(signedRecipe);
   }
 
   submitTx(tx: FinalizedTransaction): Promise<string> {
-    return this.wallet.submitTransaction(tx);
+    emitTransactionStage(this.activeCircuit, 'submit');
+    return withTimeout(
+      this.wallet.submitTransaction(tx),
+      TX_SUBMIT_TIMEOUT_MS,
+      `Timed out submitting ${this.activeCircuit} to the Midnight relay.`,
+    ).then((txId) => {
+      this.onSubmittedTxId?.(txId);
+      emitTransactionStage(this.activeCircuit, 'submitted', { txId });
+      return txId;
+    });
   }
 }
 
@@ -337,6 +399,10 @@ export const createDerivedProvider = async (
       additionalFeeOverhead: dustOptions.additionalFeeOverhead,
       feeBlocksMargin: dustOptions.feeBlocksMargin,
     },
+    // Larger batches + no inter-batch delay cuts the first-run historical scan
+    // (SDK default: size=10, spacing=4ms). Applied to ShieldedWallet here;
+    // DustWallet overrides in dustConfig below. Does not affect live sync.
+    batchUpdates: { size: 100, timeout: 10, spacing: 0 },
   } satisfies DefaultConfiguration;
 
   const dustConfig = {
@@ -346,6 +412,7 @@ export const createDerivedProvider = async (
       additionalFeeOverhead: dustOptions.additionalFeeOverhead,
       feeBlocksMargin: dustOptions.feeBlocksMargin,
     },
+    batchUpdates: { size: 100, timeout: 10, spacing: 0 },
   };
 
   // ── Step 6: construct sub-wallets ───────────────────────────────────────────
@@ -377,13 +444,18 @@ export const createDerivedProvider = async (
   // Non-blocking: starts background sync; transactions can be signed immediately
   // because the signing keys are derived from seeds at construction time.
   await wallet.start(zswapKeys, dustKey);
+  let flushWalletCache: () => Promise<void> = async () => undefined;
 
   // ── Step 7½: DUST sponsorship gate ────────────────────────────────────────
   // DUST must be visible in the derived wallet before the Midnight wallet can
   // balance a transaction. The gate runs lazily on the first tx so read-only
   // joins remain fast, but write calls fail with a useful sponsor error.
-  const ensureSponsoredDust = async (requiredDust?: bigint): Promise<void> => {
-    if (await hasVisibleDust(dustWallet, requiredDust ?? 1n)) return;
+  const ensureSponsoredDust = async (requiredDust: bigint | undefined, circuit: string): Promise<void> => {
+    const targetDust = requiredDust != null && requiredDust > DEFAULT_MIN_SPONSORED_DUST
+      ? requiredDust
+      : DEFAULT_MIN_SPONSORED_DUST;
+
+    if (await hasVisibleDust(dustWallet, targetDust)) return;
 
     if (!config.feeSponsorUrl) {
       throw new Error(
@@ -393,7 +465,10 @@ export const createDerivedProvider = async (
     }
 
     const dustAddress = DustAddress.encodePublicKey(networkId, dustKey.publicKey);
-    const sponsorship = await requestSponsorship(dustAddress, config.feeSponsorUrl, { requiredDust });
+    const sponsorship = await requestSponsorship(dustAddress, config.feeSponsorUrl, {
+      requiredDust: targetDust,
+      scope: circuit,
+    });
     if (sponsorship.sponsored === false) {
       throw new Error(
         typeof sponsorship.reason === 'string'
@@ -401,12 +476,33 @@ export const createDerivedProvider = async (
           : 'DUST sponsorship unavailable: sponsor did not allocate DUST for this wallet.',
       );
     }
+    emitTransactionStage('dust-sponsor', 'dust-sponsored', {
+      txId: typeof sponsorship.txId === 'string' ? sponsorship.txId : '',
+      requiredDust: targetDust.toString(),
+    });
+    emitTransactionStage('dust-sponsor', 'dust-refresh');
 
-    await waitForSponsoredDust(dustWallet, DUST_SPONSOR_TIMEOUT_MS, requiredDust ?? 1n);
+    await waitForSponsoredDust(
+      dustWallet,
+      config.dustSponsorSyncTimeoutMs ?? DEFAULT_DUST_SPONSOR_TIMEOUT_MS,
+      targetDust,
+    );
+    void flushWalletCache();
   };
 
   // ── Step 8: assemble MidnightProviders ────────────────────────────────────
-  const walletAdapter = new BrowserWalletAdapter(wallet, zswapKeys, dustKey, keystore, ensureSponsoredDust);
+  let lastSubmittedTxId: string | null = null;
+  const walletAdapter = new BrowserWalletAdapter(
+    wallet,
+    zswapKeys,
+    dustKey,
+    keystore,
+    ensureSponsoredDust,
+    (txId) => {
+      lastSubmittedTxId = txId;
+      void flushWalletCache();
+    },
+  );
   const zkConfigProvider = new FetchZkConfigProvider(zkArtifactsBaseUrl);
 
   const privateStateProvider = new IdbPrivateStateProvider<typeof PRIVATE_STATE_ID, unknown>(
@@ -449,8 +545,9 @@ export const createDerivedProvider = async (
   // ── Step 10: periodic cache flush + page-unload save ──────────────────────
   const flushCache = (): Promise<void> =>
     saveIdbWalletCache(cacheKey, wallet, networkId).catch(() => undefined);
+  flushWalletCache = flushCache;
 
-  const cacheTimer = setInterval(() => { void flushCache(); }, 30_000);
+  const cacheTimer = setInterval(() => { void flushCache(); }, WALLET_CACHE_FLUSH_MS);
 
   const beforeUnload = () => { void flushCache(); };
   if (typeof window !== 'undefined') {
@@ -460,8 +557,21 @@ export const createDerivedProvider = async (
   // ── Step 11: return provider handle ───────────────────────────────────────
   return {
     async callTx(circuit: string, ...args: unknown[]): Promise<unknown> {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      return (api as any).callTx(circuit, ...args);
+      walletAdapter.setActiveCircuit(circuit);
+      lastSubmittedTxId = null;
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const result = await (api as any).callTx(circuit, ...args);
+        // lastSubmittedTxId is set by wallet.submitTransaction (authoritative).
+        // extractTxId is a fallback for edge cases where submitTx didn't fire.
+        const txId = lastSubmittedTxId ?? extractTxId(result);
+        return txId ? { result, txId } : result;
+      } catch (error) {
+        emitTransactionStage(circuit, 'failed', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+        throw error;
+      }
     },
     async stop(): Promise<void> {
       clearInterval(cacheTimer);
