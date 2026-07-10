@@ -32,8 +32,8 @@ export const defaultReputationScore: CustomStructs_ReputationScore = {
   lpTenureInDays: 0n,
   crossChainCount: 0n,
   txConsistencyScore: 0n,
-  ethChainCommitment: new Uint8Array(32),
-  ckbChainCommitment: new Uint8Array(32),
+  chainNamespace: new Uint8Array(32),
+  chainCommitment: new Uint8Array(32),
   witnessCommitment: new Uint8Array(32),
   proofHash: new Uint8Array(32),
   lastUpdatedEpoch: 0n,
@@ -92,5 +92,14 @@ export const witness = {
     ledger,
   }: WitnessContext<Ledger, VeilPrivateState>): [VeilPrivateState, bigint] => {
     return [privateState, ledger.LedgerStates_reputationCommitments.firstFree()];
+  },
+
+  getCurrentTime: (
+    { privateState }: WitnessContext<Ledger, VeilPrivateState>
+  ): [VeilPrivateState, [bigint, bigint, bigint]] => {
+    const currentTime = BigInt(Math.floor(Date.now() / 1000));
+    const validAfter = currentTime > 900n ? currentTime - 900n : 0n;
+    const validUntil = currentTime + 900n;
+    return [privateState, [currentTime, validAfter, validUntil]];
   },
 };

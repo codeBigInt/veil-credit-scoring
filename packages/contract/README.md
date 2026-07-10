@@ -36,7 +36,7 @@ The constructor derives `governanceControllerCommitment` from the guardian set h
 
 ## Exported Circuits
 
-The contract currently has 8 provable circuits: the 7 protocol entrypoints plus the intentionally public `Utils_deriveVeilId` utility. Other derivation helpers are generated under `pureCircuits`, so SDKs can use the canonical Compact implementation without installing verifier keys for those helpers.
+The contract currently has 7 provable circuits: the identity, reputation, and governance entrypoints. Derivation helpers, including `Utils_deriveVeilId`, are generated under `pureCircuits`, so SDKs can use the canonical Compact implementation without installing verifier keys for those helpers.
 
 ### Identity
 
@@ -91,13 +91,13 @@ Applies the pending config after the timelock expires. Anyone can call this once
 
 Cancels a pending config if the guardian-council operation proof binding matches the configured controller.
 
-## Public Helper Circuits
+## Pure Helper Circuits
 
-The exported utility surface is intentionally small:
+The utility surface is intentionally kept out of the deployable circuit set when the helper can be pure:
 
 - `Utils_deriveVeilId`
 
-The other derivation helpers are exported only as generated `pureCircuits` helpers. They do not require verifier-key installation and are not part of the deployable circuit surface.
+`Utils_deriveVeilId` takes the deployed contract address explicitly instead of reading `kernel.self()`, so it can be called through generated `pureCircuits`. It does not require verifier-key installation and is not part of the deployable circuit surface.
 
 ## Circuit Argument Audit
 

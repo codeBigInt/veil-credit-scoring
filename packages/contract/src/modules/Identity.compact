@@ -8,10 +8,11 @@ module Identity {
         _veilIdHash: Bytes<32>,
         _chainNamespace: Bytes<32>,
         _publicKeyOrLockHashCommitment: Bytes<32>,
-        _walletSignatureHash: Bytes<32>,
-        _currentEpoch: Uint<64>
+        _walletSignatureHash: Bytes<32>
     ): CustomStructs_VeilIdentityRecord {
         const veilIdHash = disclose(_veilIdHash);
+        const chainNamespace = disclose(_chainNamespace);
+        const currentTime = Utils_retrieveAndVerifyTime();
         const chainProofHash = Utils_deriveIdentityProofHash(
             _veilIdHash,
             _chainNamespace,
@@ -21,6 +22,7 @@ module Identity {
         );
 
         assert (veilIdHash != default<Bytes<32>>, "Invalid Veil ID hash");
+        assert (LedgerStates_supportedChainNamespaces.member(chainNamespace), "Unsupported chain namespace");
         assert (disclose(_publicKeyOrLockHashCommitment) != default<Bytes<32>>, "Invalid public key commitment");
         assert (disclose(_walletSignatureHash) != default<Bytes<32>>, "Invalid wallet signature");
         assert (chainProofHash != default<Bytes<32>>, "Invalid chain proof");
@@ -37,14 +39,14 @@ module Identity {
 
         const identityRecord = CustomStructs_VeilIdentityRecord {
             veilIdHash: veilIdHash,
-            chainNamespace: disclose(_chainNamespace),
+            chainNamespace: chainNamespace,
             publicKeyOrLockHashCommitment: disclose(_publicKeyOrLockHashCommitment),
             walletSignatureHash: disclose(_walletSignatureHash),
             chainProofHash: chainProofHash,
             version: 1,
             status: 1,
-            createdAtEpoch: disclose(_currentEpoch),
-            updatedAtEpoch: disclose(_currentEpoch)
+            createdAtEpoch: currentTime,
+            updatedAtEpoch: currentTime
         };
 
         LedgerStates_identityRecords.insert(veilIdHash, identityRecord);

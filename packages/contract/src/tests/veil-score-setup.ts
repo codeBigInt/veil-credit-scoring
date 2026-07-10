@@ -16,10 +16,11 @@ import {
   CustomStructs_VeilIdentityRecord,
   Ledger,
   ledger,
+  pureCircuits,
   Witnesses,
 } from "../managed/veil-protocol/contract";
 import { createVeilPrivateState, VeilPrivateState, witness } from "../witness";
-import { randomBytes } from "./utils";
+import { padStringToBytes32, randomBytes } from "./utils";
 
 const defaultScoreConfig: CustomStructs_ScoreConfig = {
   baseScore: 300n,
@@ -42,6 +43,16 @@ export const defaultGovernanceGuardianSetHash = new Uint8Array([
 ]);
 export const defaultGovernanceGuardianThreshold = 3n;
 export const defaultGovernanceControllerVersion = 1n;
+export const defaultSupportedChainNamespaces = [
+  padStringToBytes32("evm"),
+  padStringToBytes32("ckb"),
+  padStringToBytes32("solana"),
+  padStringToBytes32("cardano"),
+  padStringToBytes32("bitcoin"),
+  new Uint8Array(32),
+  new Uint8Array(32),
+  new Uint8Array(32),
+];
 
 export class VeilScoreSimulator {
   readonly contract: Contract<VeilPrivateState>;
@@ -53,6 +64,10 @@ export class VeilScoreSimulator {
   constructor(privateState: VeilPrivateState) {
     const testWitnesses: Witnesses<VeilPrivateState> = {
       ...witness,
+      getCurrentTime: ({ privateState }) => [
+        privateState,
+        [0n, 0n, 9_999_999_999n],
+      ],
     };
     this.contract = new Contract<VeilPrivateState>(testWitnesses);
     this.contractAddress = sampleContractAddress();
@@ -64,7 +79,8 @@ export class VeilScoreSimulator {
         defaultGovernanceGuardianSetHash,
         defaultGovernanceGuardianThreshold,
         defaultGovernanceControllerVersion,
-        10n
+        0n,
+        defaultSupportedChainNamespaces
       );
 
     this.circuitContext = {
@@ -129,29 +145,26 @@ export class VeilScoreSimulator {
     chainNamespace: Uint8Array,
     salt: Uint8Array
   ): Uint8Array {
-    const result = this.contract.circuits.Utils_deriveVeilId(
-      this.circuitContext,
+    return pureCircuits.Utils_deriveVeilId(
       publicKeyOrLockHash,
       chainNamespace,
-      salt
+      salt,
+      this.contractAddress
     );
-    return this.updateStateAndGetResult(result);
   }
 
   registerIdentity(
     veilIdHash: Uint8Array,
-    chainNamespace = randomBytes(32),
+    chainNamespace = padStringToBytes32("ckb"),
     publicKeyOrLockHashCommitment = randomBytes(32),
-    walletSignatureHash = randomBytes(32),
-    currentEpoch = 1n
+    walletSignatureHash = randomBytes(32)
   ): CustomStructs_VeilIdentityRecord {
     const result = this.contract.impureCircuits.Identity_register(
       this.circuitContext,
       veilIdHash,
       chainNamespace,
       publicKeyOrLockHashCommitment,
-      walletSignatureHash,
-      currentEpoch
+      walletSignatureHash
     );
     return this.updateStateAndGetResult(result);
   }
@@ -162,15 +175,13 @@ export class VeilScoreSimulator {
     publicKeyOrLockHashCommitment: Uint8Array,
     walletSignatureHash: Uint8Array
   ): Uint8Array {
-    const result = this.contract.circuits.Utils_deriveIdentityProofHash(
-      this.circuitContext,
+    return pureCircuits.Utils_deriveIdentityProofHash(
       veilIdHash,
       chainNamespace,
       publicKeyOrLockHashCommitment,
       walletSignatureHash,
       this.contractAddress.bytes
     );
-    return this.updateStateAndGetResult(result);
   }
 
   deriveReputationWitnessCommitment(args: {
@@ -181,12 +192,11 @@ export class VeilScoreSimulator {
     lpTenureInDays: bigint;
     crossChainCount: bigint;
     txConsistencyScore: bigint;
-    ethChainCommitment: Uint8Array;
-    ckbChainCommitment: Uint8Array;
+    chainNamespace: Uint8Array;
+    chainCommitment: Uint8Array;
     witnessSalt: Uint8Array;
   }): Uint8Array {
-    const result = this.contract.circuits.Utils_deriveReputationWitnessCommitment(
-      this.circuitContext,
+    return pureCircuits.Utils_deriveReputationWitnessCommitment(
       args.veilIdHash,
       args.walletAgeInDays,
       args.distinctProtocols,
@@ -194,11 +204,10 @@ export class VeilScoreSimulator {
       args.lpTenureInDays,
       args.crossChainCount,
       args.txConsistencyScore,
-      args.ethChainCommitment,
-      args.ckbChainCommitment,
+      args.chainNamespace,
+      args.chainCommitment,
       args.witnessSalt
     );
-    return this.updateStateAndGetResult(result);
   }
 
   deriveReputationProofHash(
@@ -207,32 +216,28 @@ export class VeilScoreSimulator {
     claimedBand: bigint,
     proofNonce: Uint8Array
   ): Uint8Array {
-    const result = this.contract.circuits.Utils_deriveReputationProofHash(
-      this.circuitContext,
+    return pureCircuits.Utils_deriveReputationProofHash(
       veilIdHash,
       witnessCommitment,
       claimedBand,
       proofNonce,
       this.deriveScoreConfigCommitment(defaultScoreConfig)
     );
-    return this.updateStateAndGetResult(result);
   }
 
   deriveGovernanceActionHash(
     actionTag: Uint8Array,
-    scoreConfigHash: Uint8Array,
+    payloadHash: Uint8Array,
     operationId: Uint8Array,
     effectiveEpoch: bigint
   ): Uint8Array {
-    const result = this.contract.circuits.Utils_deriveGovernanceActionHash(
-      this.circuitContext,
+    return pureCircuits.Utils_deriveGovernanceActionHash(
       actionTag,
-      scoreConfigHash,
+      payloadHash,
       operationId,
       effectiveEpoch,
       this.contractAddress.bytes
     );
-    return this.updateStateAndGetResult(result);
   }
 
   deriveGuardianControllerCommitment(
@@ -240,13 +245,11 @@ export class VeilScoreSimulator {
     threshold = defaultGovernanceGuardianThreshold,
     controllerVersion = defaultGovernanceControllerVersion
   ): Uint8Array {
-    const result = this.contract.circuits.Utils_deriveGuardianControllerCommitment(
-      this.circuitContext,
+    return pureCircuits.Utils_deriveGuardianControllerCommitment(
       guardianSetHash,
       threshold,
       controllerVersion
     );
-    return this.updateStateAndGetResult(result);
   }
 
   deriveGovernanceProofHash(
@@ -256,8 +259,7 @@ export class VeilScoreSimulator {
     signatureBundleHash: Uint8Array,
     nonce: Uint8Array
   ): Uint8Array {
-    const result = this.contract.circuits.Utils_deriveGovernanceProofHash(
-      this.circuitContext,
+    return pureCircuits.Utils_deriveGovernanceProofHash(
       controllerCommitment,
       actionHash,
       operationId,
@@ -265,16 +267,13 @@ export class VeilScoreSimulator {
       nonce,
       this.contractAddress.bytes
     );
-    return this.updateStateAndGetResult(result);
   }
 
   deriveScoreConfigCommitment(config: CustomStructs_ScoreConfig): Uint8Array {
-    const result = this.contract.circuits.Utils_deriveScoreConfigHashFor(
-      this.circuitContext,
+    return pureCircuits.Utils_deriveScoreConfigHashFor(
       config,
       this.contractAddress.bytes
     );
-    return this.updateStateAndGetResult(result);
   }
 
   assertIdentityActive(veilIdHash: Uint8Array): boolean {
@@ -295,15 +294,14 @@ export class VeilScoreSimulator {
       crossChainCount: bigint;
       txConsistencyScore: bigint;
       claimedBand: bigint;
-      ethChainCommitment?: Uint8Array;
-      ckbChainCommitment?: Uint8Array;
+      chainNamespace?: Uint8Array;
+      chainCommitment?: Uint8Array;
       witnessSalt?: Uint8Array;
       proofNonce?: Uint8Array;
-      currentEpoch?: bigint;
     }
   ): bigint {
-    const ethChainCommitment = signals.ethChainCommitment ?? randomBytes(32);
-    const ckbChainCommitment = signals.ckbChainCommitment ?? new Uint8Array(32);
+    const chainNamespace = signals.chainNamespace ?? padStringToBytes32("evm");
+    const chainCommitment = signals.chainCommitment ?? randomBytes(32);
     const witnessSalt = signals.witnessSalt ?? randomBytes(32);
     const proofNonce = signals.proofNonce ?? randomBytes(32);
     const result = this.contract.impureCircuits.Reputation_prove(
@@ -316,11 +314,10 @@ export class VeilScoreSimulator {
       signals.crossChainCount,
       signals.txConsistencyScore,
       signals.claimedBand,
-      ethChainCommitment,
-      ckbChainCommitment,
+      chainNamespace,
+      chainCommitment,
       witnessSalt,
-      proofNonce,
-      signals.currentEpoch ?? 2n
+      proofNonce
     );
     return this.updateStateAndGetResult(result);
   }
@@ -329,16 +326,14 @@ export class VeilScoreSimulator {
     veilIdHash: Uint8Array,
     minimumBand: bigint,
     purposeHash = randomBytes(32),
-    requesterHash = randomBytes(32),
-    currentEpoch = 3n
+    requesterHash = randomBytes(32)
   ): CustomStructs_ReputationDecision {
     const result = this.contract.impureCircuits.Reputation_check(
       this.circuitContext,
       veilIdHash,
       requesterHash,
       purposeHash,
-      minimumBand,
-      currentEpoch
+      minimumBand
     );
     return this.updateStateAndGetResult(result);
   }
@@ -356,14 +351,13 @@ export class VeilScoreSimulator {
     return value;
   }
 
-  proposeScoreConfig(config: CustomStructs_ScoreConfig, currentEpoch = 10n): void {
+  proposeScoreConfig(config: CustomStructs_ScoreConfig): void {
     const operationId = randomBytes(32);
     const signatureBundleHash = randomBytes(32);
     const nonce = randomBytes(32);
     const result = this.contract.impureCircuits.Governance_proposeScoreConfig(
       this.circuitContext,
       config,
-      currentEpoch,
       operationId,
       signatureBundleHash,
       nonce
@@ -371,10 +365,9 @@ export class VeilScoreSimulator {
     this.updateStateAndGetResult(result);
   }
 
-  applyScoreConfig(currentEpoch = 20n): void {
+  applyScoreConfig(): void {
     const result = this.contract.impureCircuits.Governance_applyScoreConfig(
-      this.circuitContext,
-      currentEpoch
+      this.circuitContext
     );
     this.updateStateAndGetResult(result);
   }
@@ -385,6 +378,20 @@ export class VeilScoreSimulator {
     const nonce = randomBytes(32);
     const result = this.contract.impureCircuits.Governance_cancelScoreConfig(
       this.circuitContext,
+      operationId,
+      signatureBundleHash,
+      nonce
+    );
+    this.updateStateAndGetResult(result);
+  }
+
+  addSupportedChainNamespace(chainNamespace = padStringToBytes32("evm")): void {
+    const operationId = randomBytes(32);
+    const signatureBundleHash = randomBytes(32);
+    const nonce = randomBytes(32);
+    const result = this.contract.impureCircuits.Governance_addSupportedChainNamespace(
+      this.circuitContext,
+      chainNamespace,
       operationId,
       signatureBundleHash,
       nonce

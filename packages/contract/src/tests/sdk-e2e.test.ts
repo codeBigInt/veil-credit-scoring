@@ -35,7 +35,6 @@ class SimulatorProvider implements VeilMidnightProvider {
           args[1] as Uint8Array,
           args[2] as Uint8Array,
           args[3] as Uint8Array,
-          args[4] as bigint,
         );
 
       case 'Identity_assertActive': {
@@ -47,7 +46,7 @@ class SimulatorProvider implements VeilMidnightProvider {
       case 'Reputation_prove':
         // buildReputationProofArgs order:
         // [veilId, age, protocols, votes, lp, crossChain, consistency,
-        //  claimedBand, ethCommitment, ckbCommitment, salt, proofNonce, epoch]
+        //  claimedBand, chainNamespace, chainCommitment, salt, proofNonce]
         return this.sim.proveReputation(args[0] as Uint8Array, {
           walletAgeInDays:   args[1] as bigint,
           distinctProtocols: args[2] as bigint,
@@ -56,22 +55,20 @@ class SimulatorProvider implements VeilMidnightProvider {
           crossChainCount:   args[5] as bigint,
           txConsistencyScore: args[6] as bigint,
           claimedBand:       args[7] as bigint,
-          ethChainCommitment: args[8] as Uint8Array,
-          ckbChainCommitment: args[9] as Uint8Array,
+          chainNamespace:     args[8] as Uint8Array,
+          chainCommitment:    args[9] as Uint8Array,
           witnessSalt:       args[10] as Uint8Array,
           proofNonce:        args[11] as Uint8Array,
-          currentEpoch:      args[12] as bigint,
         });
 
       case 'Reputation_check':
         // buildReputationCheckArgs order:
-        // [veilId, requesterHash, purposeHash, minimumBand, epoch]
+        // [veilId, requesterHash, purposeHash, minimumBand]
         return this.sim.checkReputation(
           args[0] as Uint8Array, // veilIdHash
           args[3] as bigint,     // minimumBand
           args[2] as Uint8Array, // purposeHash
           args[1] as Uint8Array, // requesterAddressHash
-          args[4] as bigint,     // currentEpoch
         );
 
       default:
@@ -115,7 +112,6 @@ describe('SDK × Contract E2E', () => {
           chainNamespace,
           publicKeyOrLockHashCommitment: lockHashCommitment,
           walletSignatureHash,
-          currentEpoch: 1n,
         }),
       );
 
@@ -136,13 +132,13 @@ describe('SDK × Contract E2E', () => {
 
       await provider.callTx(
         'Identity_register',
-        ...buildIdentityRegistrationArgs({ veilIdHash, chainNamespace: ns, publicKeyOrLockHashCommitment: lock, walletSignatureHash: sig, currentEpoch: 1n }),
+        ...buildIdentityRegistrationArgs({ veilIdHash, chainNamespace: ns, publicKeyOrLockHashCommitment: lock, walletSignatureHash: sig }),
       );
 
       await expect(
         provider.callTx(
           'Identity_register',
-          ...buildIdentityRegistrationArgs({ veilIdHash, chainNamespace: ns, publicKeyOrLockHashCommitment: lock, walletSignatureHash: sig, currentEpoch: 2n }),
+          ...buildIdentityRegistrationArgs({ veilIdHash, chainNamespace: ns, publicKeyOrLockHashCommitment: lock, walletSignatureHash: sig }),
         ),
       ).rejects.toThrow(/already registered/i);
     });
@@ -168,13 +164,13 @@ describe('SDK × Contract E2E', () => {
       const sig = randomBytes(32);
       await provider.callTx(
         'Identity_register',
-        ...buildIdentityRegistrationArgs({ veilIdHash, chainNamespace: ns, publicKeyOrLockHashCommitment: lock, walletSignatureHash: sig, currentEpoch: 1n }),
+        ...buildIdentityRegistrationArgs({ veilIdHash, chainNamespace: ns, publicKeyOrLockHashCommitment: lock, walletSignatureHash: sig }),
       );
     });
 
     it('proves reputation and stores band commitment on-chain', async () => {
-      const ethCommitment = randomBytes(32);
-      const ckbCommitment = randomBytes(32);
+      const chainNamespace = padStringToBytes32('evm');
+      const chainCommitment = randomBytes(32);
       const witnessSalt   = randomBytes(32);
       const proofNonce    = randomBytes(32);
 
@@ -183,11 +179,10 @@ describe('SDK × Contract E2E', () => {
         ...buildReputationProofArgs({
           veilIdHash,
           ...signals,
-          ethChainCommitment: ethCommitment,
-          ckbChainCommitment: ckbCommitment,
+          chainNamespace,
+          chainCommitment,
           witnessSalt,
           proofNonce,
-          currentEpoch: 2n,
         }),
       );
 
@@ -197,11 +192,11 @@ describe('SDK × Contract E2E', () => {
 
     it('checkReputation SDK function correctly interprets a gold decision', async () => {
       // Prove first
-      const ethC = randomBytes(32);
-      const ckbC = randomBytes(32);
+      const chainNamespace = padStringToBytes32('evm');
+      const chainCommitment = randomBytes(32);
       const salt = randomBytes(32);
       const nonce = randomBytes(32);
-      await provider.callTx('Reputation_prove', ...buildReputationProofArgs({ veilIdHash, ...signals, ethChainCommitment: ethC, ckbChainCommitment: ckbC, witnessSalt: salt, proofNonce: nonce, currentEpoch: 2n }));
+      await provider.callTx('Reputation_prove', ...buildReputationProofArgs({ veilIdHash, ...signals, chainNamespace, chainCommitment, witnessSalt: salt, proofNonce: nonce }));
 
       // Now check via SDK
       const decision = await checkReputation(bytesToHex(veilIdHash), {
@@ -209,7 +204,6 @@ describe('SDK × Contract E2E', () => {
         purpose: 'governance',
         midnightProvider: provider,
         config,
-        currentEpoch: 3n,
       });
 
       expect(decision.band).toBe('gold');
@@ -219,18 +213,17 @@ describe('SDK × Contract E2E', () => {
     });
 
     it('fails check for a higher band requirement', async () => {
-      const ethC = randomBytes(32);
-      const ckbC = randomBytes(32);
+      const chainNamespace = padStringToBytes32('evm');
+      const chainCommitment = randomBytes(32);
       const salt = randomBytes(32);
       const nonce = randomBytes(32);
-      await provider.callTx('Reputation_prove', ...buildReputationProofArgs({ veilIdHash, ...signals, ethChainCommitment: ethC, ckbChainCommitment: ckbC, witnessSalt: salt, proofNonce: nonce, currentEpoch: 2n }));
+      await provider.callTx('Reputation_prove', ...buildReputationProofArgs({ veilIdHash, ...signals, chainNamespace, chainCommitment, witnessSalt: salt, proofNonce: nonce }));
 
       const decision = await checkReputation(bytesToHex(veilIdHash), {
         minimumBand: 'platinum',
         purpose: 'airdrop',
         midnightProvider: provider,
         config,
-        currentEpoch: 3n,
       });
 
       expect(decision.band).toBe('gold');
@@ -246,13 +239,13 @@ describe('SDK × Contract E2E', () => {
         const ns = padStringToBytes32('evm');
         const lock = randomBytes(32);
         const sig = randomBytes(32);
-        await provider.callTx('Identity_register', ...buildIdentityRegistrationArgs({ veilIdHash: id, chainNamespace: ns, publicKeyOrLockHashCommitment: lock, walletSignatureHash: sig, currentEpoch: 1n }));
+        await provider.callTx('Identity_register', ...buildIdentityRegistrationArgs({ veilIdHash: id, chainNamespace: ns, publicKeyOrLockHashCommitment: lock, walletSignatureHash: sig }));
 
-        const ethC = randomBytes(32);
-        const ckbC = randomBytes(32);
+        const chainNamespace = padStringToBytes32('evm');
+        const chainCommitment = randomBytes(32);
         const salt = randomBytes(32);
         const nonce = randomBytes(32);
-        await provider.callTx('Reputation_prove', ...buildReputationProofArgs({ veilIdHash: id, walletAgeInDays: 50n, distinctProtocols: 5n, daoVoteCount: 3n, lpTenureInDays: 10n, crossChainCount: 1n, txConsistencyScore: 10n, claimedBand: 3n, ethChainCommitment: ethC, ckbChainCommitment: ckbC, witnessSalt: salt, proofNonce: nonce, currentEpoch: 2n }));
+        await provider.callTx('Reputation_prove', ...buildReputationProofArgs({ veilIdHash: id, walletAgeInDays: 50n, distinctProtocols: 5n, daoVoteCount: 3n, lpTenureInDays: 10n, crossChainCount: 1n, txConsistencyScore: 10n, claimedBand: 3n, chainNamespace, chainCommitment, witnessSalt: salt, proofNonce: nonce }));
       }
 
       const map = await batchCheckReputation(
@@ -262,7 +255,6 @@ describe('SDK × Contract E2E', () => {
           purpose: 'governance',
           midnightProvider: provider,
           config,
-          currentEpoch: 3n,
         },
       );
 

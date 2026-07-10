@@ -16,6 +16,7 @@ export {
 
     /** Governance entrypoints */
     Governance_proposeScoreConfig, Governance_applyScoreConfig, Governance_cancelScoreConfig,
+    Governance_addSupportedChainNamespace,
 
     /** Custom struct definitions */
     CustomStructs_VeilIdentityRecord, CustomStructs_ReputationScore,
@@ -27,16 +28,15 @@ export {
     /** Ledger states */
     LedgerStates_identityRecords, LedgerStates_identityCommitments,
     LedgerStates_reputationCommitments, LedgerStates_processedProofs,
+    LedgerStates_supportedChainNamespaces,
     LedgerStates_scoreConfig, LedgerStates_governanceControllerCommitment,
     LedgerStates_governanceGuardianSetHash, LedgerStates_governanceGuardianThreshold,
     LedgerStates_governanceControllerVersion,
     LedgerStates_configTimelockEpochs, LedgerStates_pendingScoreConfig,
     LedgerStates_hasPendingScoreConfig,
 
-    /** Utility circuits */
+    /** SDK-facing pure helper derivations */
     Utils_deriveVeilId,
-
-    /** Generated pureCircuits helpers */
     Utils_deriveIdentityProofHash,
     Utils_deriveReputationWitnessCommitment,
     Utils_deriveReputationProofHash,
@@ -53,12 +53,20 @@ constructor(
     _governanceGuardianThreshold: Uint<8>,
     _governanceControllerVersion: Uint<64>,
     _configTimelockEpochs: Uint<64>,
+    _initSupportedChainNameSpaces: Vector<8, Bytes<32>>
 ) {
     const scoreConfig = disclose(_scoreConfig);
     Utils_assertScoreConfigValid(scoreConfig);
     assert (disclose(_governanceGuardianSetHash) != default<Bytes<32>>, "Invalid guardian set");
     assert (disclose(_governanceGuardianThreshold) > 0, "Invalid guardian threshold");
     LedgerStates_scoreConfig = scoreConfig;
+    
+    /**Add intial supported chains */
+    map(
+        Utils_addInitialSupportedChainNameSpaces,
+        disclose(_initSupportedChainNameSpaces)
+    );
+
     LedgerStates_governanceGuardianSetHash = disclose(_governanceGuardianSetHash);
     LedgerStates_governanceGuardianThreshold = disclose(_governanceGuardianThreshold);
     LedgerStates_governanceControllerVersion = disclose(_governanceControllerVersion);

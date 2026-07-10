@@ -13,13 +13,14 @@ module Reputation {
         _crossChainCount: Uint<32>,
         _txConsistencyScore: Uint<32>,
         _claimedBand: Uint<8>,
-        _ethChainCommitment: Bytes<32>,
-        _ckbChainCommitment: Bytes<32>,
+        _chainNamespace: Bytes<32>,
+        _chainCommitment: Bytes<32>,
         _witnessSalt: Bytes<32>,
-        _proofNonce: Bytes<32>,
-        _currentEpoch: Uint<64>
+        _proofNonce: Bytes<32>
     ): Uint<8> {
         const veilIdHash = disclose(_veilIdHash);
+        const chainNamespace = disclose(_chainNamespace);
+        const currentTime = Utils_retrieveAndVerifyTime();
         const witnessCommitment = Utils_deriveReputationWitnessCommitment(
             _veilIdHash,
             _walletAgeInDays,
@@ -28,8 +29,8 @@ module Reputation {
             _lpTenureInDays,
             _crossChainCount,
             _txConsistencyScore,
-            _ethChainCommitment,
-            _ckbChainCommitment,
+            _chainNamespace,
+            _chainCommitment,
             _witnessSalt
         );
         const proofHash = Utils_deriveReputationProofHash(
@@ -42,7 +43,8 @@ module Reputation {
 
         assert (LedgerStates_identityRecords.member(veilIdHash), "Identity not registered");
         assert (LedgerStates_identityRecords.lookup(veilIdHash).status == 1, "Identity is not active");
-        assert (disclose(_ethChainCommitment) != default<Bytes<32>> || disclose(_ckbChainCommitment) != default<Bytes<32>>, "Missing chain data commitment");
+        assert (LedgerStates_supportedChainNamespaces.member(chainNamespace), "Unsupported chain namespace");
+        assert (disclose(_chainCommitment) != default<Bytes<32>>, "Missing chain data commitment");
         assert (disclose(_witnessSalt) != default<Bytes<32>>, "Invalid witness salt");
         assert (witnessCommitment != default<Bytes<32>>, "Invalid witness commitment");
         assert (proofHash != default<Bytes<32>>, "Invalid proof hash");
@@ -108,11 +110,11 @@ module Reputation {
             lpTenureInDays: _lpTenureInDays,
             crossChainCount: _crossChainCount,
             txConsistencyScore: _txConsistencyScore,
-            ethChainCommitment: disclose(_ethChainCommitment),
-            ckbChainCommitment: disclose(_ckbChainCommitment),
+            chainNamespace: chainNamespace,
+            chainCommitment: disclose(_chainCommitment),
             witnessCommitment: witnessCommitment,
             proofHash: proofHash,
-            lastUpdatedEpoch: disclose(_currentEpoch),
+            lastUpdatedEpoch: currentTime,
             mtIndex: disclose(Utils_getFirstFreeReputationIndex())
         };
 
@@ -128,10 +130,10 @@ module Reputation {
         _veilIdHash: Bytes<32>,
         _requesterAddressHash: Bytes<32>,
         _purposeHash: Bytes<32>,
-        _minimumBand: Uint<8>,
-        _currentEpoch: Uint<64>
+        _minimumBand: Uint<8>
     ): CustomStructs_ReputationDecision {
         const veilIdHash = disclose(_veilIdHash);
+        const currentTime = Utils_retrieveAndVerifyTime();
         assert (LedgerStates_identityRecords.member(veilIdHash), "Identity not registered");
         assert (LedgerStates_identityRecords.lookup(veilIdHash).status == 1, "Identity is not active");
         assert (disclose(_minimumBand) <= 4, "Invalid minimum band");
@@ -153,7 +155,7 @@ module Reputation {
             band: band,
             communityWeightBps: Utils_deriveCommunityWeightBps(band),
             accessTier: band,
-            validAtEpoch: disclose(_currentEpoch),
+            validAtEpoch: currentTime,
             purposeHash: disclose(_purposeHash)
         };
     }

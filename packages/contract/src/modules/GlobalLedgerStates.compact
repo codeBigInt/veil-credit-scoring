@@ -18,6 +18,9 @@ module GlobalLedgerStates {
     /** Replay protection for registration and reputation updates. */
     export ledger processedProofs: Set<Bytes<32>>;
 
+    /** Chain namespaces accepted as reputation evidence sources. */
+    export ledger supportedChainNamespaces: Set<Bytes<32>>;
+
     /** On-chain scoring parameters controlled by timelocked guardian-council governance. */
     export ledger scoreConfig: CustomStructs_ScoreConfig;
  

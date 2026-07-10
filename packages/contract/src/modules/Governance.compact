@@ -6,11 +6,11 @@ module Governance {
 
     export circuit proposeScoreConfig(
         _updatedScoreConfig: CustomStructs_ScoreConfig,
-        _currentEpoch: Uint<64>,
         _operationId: Bytes<32>,
         _signatureBundleHash: Bytes<32>,
         _governanceNonce: Bytes<32>
     ): [] {
+        const currentTime = Utils_retrieveAndVerifyTime();
         const updatedScoreConfig = disclose(_updatedScoreConfig);
         Utils_assertScoreConfigValid(updatedScoreConfig);
         assert (LedgerStates_governanceControllerCommitment != default<Bytes<32>>, "Governance controller not configured");
@@ -25,7 +25,7 @@ module Governance {
             pad(32, "score-config"),
             updatedConfigHash,
             _operationId,
-            _currentEpoch,
+            currentTime,
             kernel.self().bytes
         );
         const governanceProofHash = Utils_deriveGovernanceProofHash(
@@ -57,21 +57,21 @@ module Governance {
         assert (!LedgerStates_processedProofs.member(nonceReplayKey), "Governance proof already used");
         LedgerStates_processedProofs.insert(nonceReplayKey);
 
-        const executableAtEpoch = (disclose(_currentEpoch) + LedgerStates_configTimelockEpochs) as Uint<64>;
+        const executableAtEpoch = (currentTime + LedgerStates_configTimelockEpochs) as Uint<64>;
         LedgerStates_pendingScoreConfig = CustomStructs_PendingScoreConfig {
             config: updatedScoreConfig,
             proposedByController: LedgerStates_governanceControllerCommitment,
             operationId: disclose(_operationId),
             signatureBundleHash: disclose(_signatureBundleHash),
-            proposedAtEpoch: disclose(_currentEpoch),
+            proposedAtEpoch: currentTime,
             executableAtEpoch: executableAtEpoch
         };
         LedgerStates_hasPendingScoreConfig = true;
     }
 
-    export circuit applyScoreConfig(_currentEpoch: Uint<64>): [] {
+    export circuit applyScoreConfig(): [] {
         assert (LedgerStates_hasPendingScoreConfig, "No pending score config");
-        assert (disclose(_currentEpoch) >= LedgerStates_pendingScoreConfig.executableAtEpoch, "Score config timelock active");
+        assert (blockTimeGte(LedgerStates_pendingScoreConfig.executableAtEpoch), "Score config timelock active");
 
         Utils_assertScoreConfigValid(LedgerStates_pendingScoreConfig.config);
         LedgerStates_scoreConfig = LedgerStates_pendingScoreConfig.config;
@@ -126,5 +126,59 @@ module Governance {
         LedgerStates_processedProofs.insert(nonceReplayKey);
 
         LedgerStates_hasPendingScoreConfig = false;
+    }
+
+    export circuit addSupportedChainNamespace(
+        _chainNamespace: Bytes<32>,
+        _operationId: Bytes<32>,
+        _signatureBundleHash: Bytes<32>,
+        _governanceNonce: Bytes<32>
+    ): [] {
+        const chainNamespace = disclose(_chainNamespace);
+        const currentTime = Utils_retrieveAndVerifyTime();
+        assert (LedgerStates_governanceControllerCommitment != default<Bytes<32>>, "Governance controller not configured");
+        assert (chainNamespace != default<Bytes<32>>, "Invalid chain namespace");
+        assert (!LedgerStates_supportedChainNamespaces.member(chainNamespace), "Chain namespace already supported");
+        assert (disclose(_operationId) != default<Bytes<32>>, "Invalid governance operation");
+        assert (disclose(_signatureBundleHash) != default<Bytes<32>>, "Invalid signature bundle");
+        assert (disclose(_governanceNonce) != default<Bytes<32>>, "Invalid governance nonce");
+
+        const governanceActionHash = Utils_deriveGovernanceActionHash(
+            pad(32, "add-chain"),
+            chainNamespace,
+            _operationId,
+            currentTime,
+            kernel.self().bytes
+        );
+        const governanceProofHash = Utils_deriveGovernanceProofHash(
+            LedgerStates_governanceControllerCommitment,
+            governanceActionHash,
+            _operationId,
+            _signatureBundleHash,
+            _governanceNonce,
+            kernel.self().bytes
+        );
+        assert (governanceActionHash != default<Bytes<32>>, "Invalid governance action");
+        assert (governanceProofHash != default<Bytes<32>>, "Invalid governance proof");
+
+        const operationReplayKey = persistentHash<Vector<4, Bytes<32>>>([
+            pad(32, "veil:v2:governance:operation"),
+            LedgerStates_governanceControllerCommitment,
+            disclose(_operationId),
+            kernel.self().bytes
+        ]);
+        assert (!LedgerStates_processedProofs.member(operationReplayKey), "Governance operation already used");
+        LedgerStates_processedProofs.insert(operationReplayKey);
+
+        const nonceReplayKey = persistentHash<Vector<4, Bytes<32>>>([
+            pad(32, "veil:v2:governance:nonce"),
+            LedgerStates_governanceControllerCommitment,
+            disclose(_governanceNonce),
+            kernel.self().bytes
+        ]);
+        assert (!LedgerStates_processedProofs.member(nonceReplayKey), "Governance proof already used");
+        LedgerStates_processedProofs.insert(nonceReplayKey);
+
+        LedgerStates_supportedChainNamespaces.insert(chainNamespace);
     }
 }

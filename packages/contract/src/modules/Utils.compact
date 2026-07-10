@@ -7,18 +7,20 @@ module Utils {
     export witness updatedReputation(_veilIdHash: Bytes<32>, reputation: CustomStructs_ReputationScore): [];
     export witness verifyReputationCommitment(commitmentHash: Bytes<32>): Maybe<MerkleTreePath<32, Bytes<32>>>;
     export witness getFirstFreeReputationIndex(): Uint<64>;
+    export witness getCurrentTime(): [Uint<64>, Uint<64>, Uint<64>];
 
     export circuit deriveVeilId(
         _rawPublicKeyOrLockHash: Bytes<32>,
         _chainNamespace: Bytes<32>,
-        _salt: Bytes<32>
+        _salt: Bytes<32>,
+        _contractAddress: ContractAddress
     ): Bytes<32> {
         return persistentHash<Vector<5, Bytes<32>>>([
             pad(32, "veil:v2:id"),
             disclose(_rawPublicKeyOrLockHash),
             disclose(_chainNamespace),
             disclose(_salt),
-            kernel.self().bytes
+            disclose(_contractAddress).bytes
         ]);
     }
 
@@ -47,8 +49,8 @@ module Utils {
         _lpTenureInDays: Uint<32>,
         _crossChainCount: Uint<32>,
         _txConsistencyScore: Uint<32>,
-        _ethChainCommitment: Bytes<32>,
-        _ckbChainCommitment: Bytes<32>,
+        _chainNamespace: Bytes<32>,
+        _chainCommitment: Bytes<32>,
         _witnessSalt: Bytes<32>
     ): Bytes<32> {
         const signals = CustomStructs_ReputationSignals {
@@ -58,8 +60,8 @@ module Utils {
             lpTenureInDays: _lpTenureInDays,
             crossChainCount: _crossChainCount,
             txConsistencyScore: _txConsistencyScore,
-            ethChainCommitment: disclose(_ethChainCommitment),
-            ckbChainCommitment: disclose(_ckbChainCommitment),
+            chainNamespace: disclose(_chainNamespace),
+            chainCommitment: disclose(_chainCommitment),
             witnessSalt: disclose(_witnessSalt)
         };
 
@@ -98,16 +100,27 @@ module Utils {
         );
     }
 
+    export circuit retrieveAndVerifyTime(): Uint<64> {
+        const [currentTime, validAfter, validUntil] = disclose(getCurrentTime());
+        assert (blockTimeGte(validAfter), "Current time is not yet valid");
+        assert (blockTimeLte(validUntil), "Current time expired");
+        return currentTime;
+    }
+
+    export circuit addInitialSupportedChainNameSpaces(_chainNameSpace: Bytes<32>): []{
+        LedgerStates_supportedChainNamespaces.insert(disclose(_chainNameSpace));
+    }
+
     export circuit deriveGovernanceActionHash(
         _actionTag: Bytes<32>,
-        _scoreConfigHash: Bytes<32>,
+        _payloadHash: Bytes<32>,
         _operationId: Bytes<32>,
         _effectiveEpoch: Uint<64>,
         _contractAddress: Bytes<32>
     ): Bytes<32> {
         const action = CustomStructs_GovernanceAction {
             actionTag: disclose(_actionTag),
-            scoreConfigHash: disclose(_scoreConfigHash),
+            payloadHash: disclose(_payloadHash),
             operationId: disclose(_operationId),
             effectiveEpoch: disclose(_effectiveEpoch)
         };

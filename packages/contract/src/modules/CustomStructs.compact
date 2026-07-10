@@ -23,8 +23,8 @@ module CustomStructs {
         lpTenureInDays: Uint<32>;
         crossChainCount: Uint<32>;
         txConsistencyScore: Uint<32>;
-        ethChainCommitment: Bytes<32>;
-        ckbChainCommitment: Bytes<32>;
+        chainNamespace: Bytes<32>;
+        chainCommitment: Bytes<32>;
         witnessCommitment: Bytes<32>;
         proofHash: Bytes<32>;
         lastUpdatedEpoch: Uint<64>;
@@ -38,8 +38,8 @@ module CustomStructs {
         lpTenureInDays: Uint<32>;
         crossChainCount: Uint<32>;
         txConsistencyScore: Uint<32>;
-        ethChainCommitment: Bytes<32>;
-        ckbChainCommitment: Bytes<32>;
+        chainNamespace: Bytes<32>;
+        chainCommitment: Bytes<32>;
         witnessSalt: Bytes<32>;
     };
 
@@ -87,7 +87,7 @@ module CustomStructs {
 
     export struct GovernanceAction {
         actionTag: Bytes<32>;
-        scoreConfigHash: Bytes<32>;
+        payloadHash: Bytes<32>;
         operationId: Bytes<32>;
         effectiveEpoch: Uint<64>;
     };
