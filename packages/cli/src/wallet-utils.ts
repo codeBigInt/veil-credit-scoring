@@ -14,13 +14,13 @@
  */
 
 import { UnshieldedTokenType } from '@midnight-ntwrk/ledger-v8';
-import { type FacadeState, type WalletFacade } from '@midnight-ntwrk/wallet-sdk-facade';
-import { type ShieldedWalletAPI, type ShieldedWalletState } from '@midnight-ntwrk/wallet-sdk-shielded';
-import { type UnshieldedWalletAPI, type UnshieldedWalletState } from '@midnight-ntwrk/wallet-sdk-unshielded-wallet';
+import { type FacadeState, type WalletFacade } from '@midnightntwrk/wallet-sdk-facade';
+import { type ShieldedWalletAPI, type ShieldedWalletState } from '@midnightntwrk/wallet-sdk-shielded';
+import { type UnshieldedWalletAPI, type UnshieldedWalletState } from '@midnightntwrk/wallet-sdk-unshielded-wallet';
 import * as Rx from 'rxjs';
 import { FaucetClient, type EnvironmentConfiguration } from '@midnight-ntwrk/testkit-js';
 import { Logger } from 'pino';
-import { UnshieldedAddress } from '@midnight-ntwrk/wallet-sdk-address-format';
+import { UnshieldedAddress } from '@midnightntwrk/wallet-sdk-address-format';
 import { getNetworkId } from '@midnight-ntwrk/midnight-js-network-id';
 
 /**

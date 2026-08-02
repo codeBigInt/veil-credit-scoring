@@ -33,29 +33,29 @@ export default function UseCasesSection() {
   const useCases = [
     {
       number: "01",
-      title: "Lending Apps",
-      description: "Lending apps can use Veil to offer better rates and limits based on a private credit band, without seeing the user's raw score.",
+      title: "Airdrops",
+      description: "Filter campaigns by private band without exposing raw wallet histories or linking addresses.",
       icon: <BarChartIcon />,
       tag: "Ethereum · Solana · CKB"
     },
     {
       number: "02",
-      title: "Stablecoin Systems",
-      description: "Check whether a user is trusted enough to provide collateral, without asking for KYC or exposing their wallet history.",
+      title: "DAOs",
+      description: "Apply private standing multipliers for governance, delegation, and community roles.",
       icon: <ShieldIcon />,
       tag: "Any EVM · Midnight"
     },
     {
       number: "03",
       title: "DEX & Yield Apps",
-      description: "Give better fees and APYs to high-credit users without linking their activity across chains.",
+      description: "Offer fee, reward, or vault tiers to trusted users without linking their activity across chains.",
       icon: <ArrowSwapIcon />,
       tag: "Midnight · Ethereum"
     },
     {
       number: "04",
-      title: "Cross-Chain Bridges",
-      description: "Reduce fraud on large transfers by checking a user's credit band without exposing their wallet data.",
+      title: "Communities",
+      description: "Gate private groups, quests, and early access with a band check instead of KYC.",
       icon: <ChainLinkIcon />,
       tag: "Multi-chain"
     },

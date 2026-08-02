@@ -26,16 +26,16 @@ export default function TradeYieldSection() {
 
         {/* Section label + heading — full width at top */}
         <div className="mb-12">
-          <span className="section-label block mb-4">Cap. 01 · Private Credit</span>
+          <span className="section-label block mb-4">Cap. 01 · Private Signal</span>
           <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
             <h2 className="font-black uppercase leading-none tracking-tight" style={{ fontSize: 'clamp(2.5rem, 5vw, 4rem)' }}>
               Private
               <br />
-              <span style={{ WebkitTextStroke: '2px var(--color-primary)', color: 'transparent' }}>Credit Scores</span>
+              <span style={{ WebkitTextStroke: '2px var(--color-primary)', color: 'transparent' }}>Band Signals</span>
             </h2>
             <div className="max-w-sm space-y-4">
               <p className="text-muted-foreground text-base leading-relaxed">
-                Veil turns your on-chain history into a credit score that apps can trust, without showing your raw score or wallet history.
+                Veil turns on-chain participation into a private band that apps can trust without seeing raw wallet history.
               </p>
               <a href="https://docs-veil-credit-scoring.netlify.app/docs/concepts" target="_blank" className="inline-block bg-primary text-primary-foreground px-5 py-2.5 rounded-sm font-bold hover:opacity-90 transition-opacity uppercase tracking-wide text-xs no-underline">
                 Learn How It Works
@@ -46,10 +46,10 @@ export default function TradeYieldSection() {
 
         {/* Full-width visual row */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-px bg-border/20">
-          {/* Credit Score central card */}
+          {/* Band central card */}
           <div className="flat-card p-8 flex flex-col items-center justify-center gap-4 text-center md:col-span-1">
-            <p className="section-label">Veil Credit Score</p>
-            <p className="font-black text-foreground" style={{ fontSize: 'clamp(4rem, 8vw, 6rem)', lineHeight: 1 }}>750</p>
+            <p className="section-label">Veil Band</p>
+            <p className="font-black text-foreground" style={{ fontSize: 'clamp(4rem, 8vw, 6rem)', lineHeight: 1 }}>Gold</p>
             <div className="w-full h-1 bg-border/30 rounded-full overflow-hidden">
               <div className="h-full bg-primary rounded-full" style={{ width: '75%' }} />
             </div>
@@ -65,7 +65,7 @@ export default function TradeYieldSection() {
                 </div>
                 <div>
                   <p className="text-sm font-bold text-foreground uppercase tracking-wide">Verified</p>
-                  <p className="section-label">On-chain behaviour</p>
+                  <p className="section-label">On-chain participation</p>
                 </div>
               </div>
               <div className="flex items-center gap-3">
@@ -74,7 +74,7 @@ export default function TradeYieldSection() {
                 </div>
                 <div>
                   <p className="text-sm font-bold text-foreground uppercase tracking-wide">History</p>
-                  <p className="section-label">Tracked privately 24/7</p>
+                  <p className="section-label">Committed privately</p>
                 </div>
               </div>
               <div className="flex items-center gap-3">
@@ -83,7 +83,7 @@ export default function TradeYieldSection() {
                 </div>
                 <div>
                   <p className="text-sm font-bold text-foreground uppercase tracking-wide">Private</p>
-                  <p className="section-label">Identity shielded always</p>
+                  <p className="section-label">Wallet history hidden</p>
                 </div>
               </div>
             </div>

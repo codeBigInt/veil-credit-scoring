@@ -1,35 +1,39 @@
 {
-  "name": "@veil/veil-contract",
+  "name": "@veil-reputation-protocol/contract",
+  "version": "0.1.0",
+  "description": "Internal workspace package: Compact contract source + compiled artifacts for Veil Protocol v2. Never published to npm — @veil-reputation-protocol/sdk vendors the compiled contract + witness directly (see packages/sdk/src/vendor). Consumed inside this monorepo only, by backend and cli via workspace:*.",
+  "private": true,
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "private": true,
+  "license": "MIT",
+  "sideEffects": false,
+  "files": [
+    "dist",
+    "README.md",
+    "SECURITY.md"
+  ],
   "exports": {
     ".": {
       "default": "./dist/index.js",
       "import": "./dist/index.js",
       "require": "./dist/index.js",
       "types": "./dist/index.d.ts"
-    },
-    "./bootstrap": {
-      "default": "./dist/managed/veil-protocol-bootstrap/contract/index.js",
-      "import": "./dist/managed/veil-protocol-bootstrap/contract/index.js",
-      "require": "./dist/managed/veil-protocol-bootstrap/contract/index.js",
-      "types": "./dist/managed/veil-protocol-bootstrap/contract/index.d.ts"
     }
   },
   "scripts": {
-    "test:compile": "compact compile --skip-zk src/main.compact ./src/managed/veil-protocol && compact compile --skip-zk src/bootstrap.compact ./src/managed/veil-protocol-bootstrap",
+    "test:compile": "compact compile --skip-zk src/main.compact ./src/managed/veil-protocol",
     "test": "vitest",
     "test:run": "vitest run",
-    "compile": "compact compile src/main.compact ./src/managed/veil-protocol && compact compile src/bootstrap.compact ./src/managed/veil-protocol-bootstrap",
-    "build": "rm -rf dist && tsc --project tsconfig.build.json && mkdir -p dist && cp -Rf ./src/managed ./dist/managed && cp ./src/main.compact ./dist && cp ./src/bootstrap.compact ./dist && cp -Rf ./src/modules ./dist"
+    "compile": "compact compile src/main.compact ./src/managed/veil-protocol",
+    "build": "rm -rf dist && tsc --project tsconfig.build.json && mkdir -p dist/managed && cp -Rf ./src/managed/veil-protocol ./dist/managed/veil-protocol && cp ./src/main.compact ./dist && cp -Rf ./src/modules ./dist"
   },
   "devDependencies": {
     "@types/node": "^24.8.1",
     "@types/bun": "latest",
-    "vitest": "^4.0.2"
+    "vitest": "^4.0.2",
+    "@veil-reputation-protocol/sdk": "workspace:*"
   },
   "peerDependencies": {
     "typescript": "^5"

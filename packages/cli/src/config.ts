@@ -24,10 +24,10 @@ const checkUrl = async (url: string, logger: { warn: (msg: string) => void }): P
 
 export interface Config {
   readonly midnightDbName: string;
+  readonly privateStatePassword: string;
   readonly privateStateStoreName: string;
   readonly logDir: string;
   readonly zkConfigPath: string;
-  readonly bootstrapZkConfigPath: string;
   getEnvironment(logger: Logger): TestEnvironment;
   readonly requestFaucetTokens: boolean;
   readonly generateDust: boolean;
@@ -36,14 +36,14 @@ export interface Config {
 export const currentDir = path.resolve(new URL(import.meta.url).pathname, '..');
 
 const contractZkPath = path.resolve(currentDir, '..', '..', 'contract', 'src', 'managed', 'veil-protocol');
-const contractBootstrapZkPath = path.resolve(currentDir, '..', '..', 'contract', 'src', 'managed', 'veil-protocol-bootstrap');
+const defaultPrivateStateDbName = 'veil-private-state-level-db';
 
 export class StandaloneConfig implements Config {
-  midnightDbName = process.env.VEIL_MIDNIGHT_DB_NAME ?? 'midnight-level-db';
+  midnightDbName = process.env.VEIL_MIDNIGHT_DB_NAME ?? defaultPrivateStateDbName;
+  privateStatePassword = process.env.VEIL_PRIVATE_STATE_PASSWORD ?? 'veil-credit-Test-2026!';
   privateStateStoreName = 'veil-credit-private-state';
   logDir = path.resolve(currentDir, '..', 'logs', 'standalone', `${new Date().toISOString()}.log`);
   zkConfigPath = contractZkPath;
-  bootstrapZkConfigPath = contractBootstrapZkPath;
   requestFaucetTokens = false;
   generateDust = false;
 
@@ -70,11 +70,11 @@ export class StandaloneConfig implements Config {
 }
 
 export class PreviewConfig implements Config {
-  midnightDbName = process.env.VEIL_MIDNIGHT_DB_NAME ?? 'midnight-level-db';
+  midnightDbName = process.env.VEIL_MIDNIGHT_DB_NAME ?? defaultPrivateStateDbName;
+  privateStatePassword = process.env.VEIL_PRIVATE_STATE_PASSWORD ?? 'veil-credit-Test-2026!';
   privateStateStoreName = 'veil-credit-private-state';
   logDir = path.resolve(currentDir, '..', 'logs', 'preview-remote', `${new Date().toISOString()}.log`);
   zkConfigPath = contractZkPath;
-  bootstrapZkConfigPath = contractBootstrapZkPath;
   requestFaucetTokens = false;
   generateDust = true;
 
@@ -85,11 +85,11 @@ export class PreviewConfig implements Config {
 }
 
 export class PreProdConfig implements Config {
-  midnightDbName = process.env.VEIL_MIDNIGHT_DB_NAME ?? 'midnight-level-db';
+  midnightDbName = process.env.VEIL_MIDNIGHT_DB_NAME ?? defaultPrivateStateDbName;
+  privateStatePassword = process.env.VEIL_PRIVATE_STATE_PASSWORD ?? 'veil-credit-Test-2026!';
   privateStateStoreName = 'veil-credit-private-state';
   logDir = path.resolve(currentDir, '..', 'logs', 'preprod-remote', `${new Date().toISOString()}.log`);
   zkConfigPath = contractZkPath;
-  bootstrapZkConfigPath = contractBootstrapZkPath;
   requestFaucetTokens = false;
   generateDust = true;
 
@@ -99,18 +99,12 @@ export class PreProdConfig implements Config {
   }
 }
 
+const resolvedProofServerUrl = (): string =>
+  (process.env.VEIL_PROOF_SERVER_URL ?? 'http://127.0.0.1:6300').replace(/\/$/, '');
+
 export class PreviewTestEnvironment extends RemoteTestEnvironment {
   constructor(logger: Logger) {
     super(logger);
-  }
-
-  private getProofServerUrl(): string {
-    const self = this as unknown as { proofServerContainer?: { getUrl(): string } };
-    const container = self.proofServerContainer;
-    if (!container) {
-      throw new Error('Proof server container is not available.');
-    }
-    return container.getUrl();
   }
 
   getEnvironmentConfiguration(): EnvironmentConfiguration {
@@ -122,7 +116,7 @@ export class PreviewTestEnvironment extends RemoteTestEnvironment {
       node: 'https://rpc.preview.midnight.network',
       nodeWS: 'wss://rpc.preview.midnight.network',
       faucet: 'https://faucet.preview.midnight.network/api/request-tokens',
-      proofServer: this.getProofServerUrl(),
+      proofServer: resolvedProofServerUrl(),
     };
   }
 
@@ -144,15 +138,6 @@ export class PreprodTestEnvironment extends RemoteTestEnvironment {
     super(logger);
   }
 
-  private getProofServerUrl(): string {
-    const self = this as unknown as { proofServerContainer?: { getUrl(): string } };
-    const container = self.proofServerContainer;
-    if (!container) {
-      throw new Error('Proof server container is not available.');
-    }
-    return container.getUrl();
-  }
-
   getEnvironmentConfiguration(): EnvironmentConfiguration {
     return {
       walletNetworkId: 'preprod',
@@ -162,7 +147,7 @@ export class PreprodTestEnvironment extends RemoteTestEnvironment {
       node: 'https://rpc.preprod.midnight.network',
       nodeWS: 'wss://rpc.preprod.midnight.network',
       faucet: 'https://faucet.preprod.midnight.network/api/request-tokens',
-      proofServer: this.getProofServerUrl(),
+      proofServer: resolvedProofServerUrl(),
     };
   }
 

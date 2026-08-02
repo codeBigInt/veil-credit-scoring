@@ -46,7 +46,7 @@ export default function Footer() {
             </div>
 
             <p className="text-muted-foreground text-sm leading-relaxed max-w-xs">
-              Private credit checks for DeFi. Your score stays hidden, and your CKB identity pass proves the result is yours.
+              Private band checks for DeFi, DAOs, airdrops, and access systems. Your raw activity stays hidden.
             </p>
 
             {/* Chain badges */}
@@ -101,7 +101,7 @@ export default function Footer() {
               <p className="section-label text-foreground" style={{ color: 'oklch(0.7 0 0)' }}>Developers</p>
               <div className="space-y-3">
                 {[
-                  { label: 'API Guide', href: 'https://docs-veil-credit-scoring.netlify.app/docs/integration/api-reference' },
+                  { label: 'Backend API', href: 'https://docs-veil-credit-scoring.netlify.app/docs/integration/api-reference' },
                   { label: 'Integration', href: 'https://docs-veil-credit-scoring.netlify.app/docs/integration' },
                   { label: 'Whitepaper', href: 'https://docs-veil-credit-scoring.netlify.app/docs/introduction' },
                   { label: 'GitHub', href: 'https://github.com/codeBigInt/veil-credit-scoring/tree/dev' },
