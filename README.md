@@ -12,7 +12,7 @@ surface is private reputation for DeFi, DAOs, airdrops, incentives, and access s
 ```text
 packages/
   contract/       Midnight Compact v2 reputation contract
-  sdk/            @veil-protocol/sdk for protocol integrators and apps
+  sdk/            @veil-reputation-protocol/sdk for protocol integrators and apps
   cli/            Deployment and smoke-test CLI
   backend/        DUST sponsorship and optional encrypted backup API
   apps/
@@ -48,7 +48,7 @@ Deprecated v1 credit-decision, issuer-event, DID, DOB, and score-entry endpoints
 
 ## SDK
 
-`@veil-protocol/sdk` is the main integration surface for cross-chain protocols:
+`@veil-reputation-protocol/sdk` is the main integration surface for cross-chain protocols:
 
 - identity derivation and registration
 - reputation witness collection

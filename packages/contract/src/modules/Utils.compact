@@ -51,6 +51,7 @@ module Utils {
         _txConsistencyScore: Uint<32>,
         _chainNamespace: Bytes<32>,
         _chainCommitment: Bytes<32>,
+        _readerPolicyHash: Bytes<32>,
         _witnessSalt: Bytes<32>
     ): Bytes<32> {
         const signals = CustomStructs_ReputationSignals {
@@ -62,6 +63,7 @@ module Utils {
             txConsistencyScore: _txConsistencyScore,
             chainNamespace: disclose(_chainNamespace),
             chainCommitment: disclose(_chainCommitment),
+            readerPolicyHash: disclose(_readerPolicyHash),
             witnessSalt: disclose(_witnessSalt)
         };
 
@@ -108,7 +110,15 @@ module Utils {
     }
 
     export circuit addInitialSupportedChainNameSpaces(_chainNameSpace: Bytes<32>): []{
-        LedgerStates_supportedChainNamespaces.insert(disclose(_chainNameSpace));
+        const chainNameSpace = disclose(_chainNameSpace);
+        assert (chainNameSpace != default<Bytes<32>>, "Invalid chain namespace");
+        LedgerStates_supportedChainNamespaces.insert(chainNameSpace);
+    }
+
+    export circuit addInitialSupportedReaderPolicies(_readerPolicyHash: Bytes<32>): []{
+        const readerPolicyHash = disclose(_readerPolicyHash);
+        assert (readerPolicyHash != default<Bytes<32>>, "Invalid reader policy");
+        LedgerStates_supportedReaderPolicies.insert(readerPolicyHash);
     }
 
     export circuit deriveGovernanceActionHash(
@@ -191,34 +201,27 @@ module Utils {
         assert (_txConsistencyScore <= 100, "Consistency score exceeds supported range");
     }
 
-    export circuit assertBandMatchesScore(score: Uint<32>, band: Uint<8>): [] {
-        assert (band <= 4, "Invalid claimed band");
-
-        if (band == 4) {
-            assert (score >= LedgerStates_scoreConfig.platinumThreshold, "Claimed band does not match score");
-        } else if (band == 3) {
-            assert (score >= LedgerStates_scoreConfig.goldThreshold, "Claimed band does not match score");
-            assert (score < LedgerStates_scoreConfig.platinumThreshold, "Claimed band does not match score");
-        } else if (band == 2) {
-            assert (score >= LedgerStates_scoreConfig.silverThreshold, "Claimed band does not match score");
-            assert (score < LedgerStates_scoreConfig.goldThreshold, "Claimed band does not match score");
-        } else if (band == 1) {
-            assert (score >= LedgerStates_scoreConfig.bronzeThreshold, "Claimed band does not match score");
-            assert (score < LedgerStates_scoreConfig.silverThreshold, "Claimed band does not match score");
-        } else {
-            assert (score < LedgerStates_scoreConfig.bronzeThreshold, "Claimed band does not match score");
-        }
-    }
-
+    /**
+     * Buckets a private score into a public band. Compact's disclosure checker
+     * requires an explicit disclose() anywhere a witness value gates a ledger
+     * operation, so each threshold comparison — not the raw score itself — is
+     * disclosed individually; together they carry exactly the band's worth of
+     * information (equivalent to disclosing the resulting Uint<8>), never the
+     * precise score.
+     */
     export circuit deriveBand(score: Uint<32>): Uint<8> {
-        const publicScore = disclose(score);
-        if (publicScore >= LedgerStates_scoreConfig.platinumThreshold) {
+        const isPlatinum = disclose(score >= LedgerStates_scoreConfig.platinumThreshold);
+        const isGold = disclose(score >= LedgerStates_scoreConfig.goldThreshold);
+        const isSilver = disclose(score >= LedgerStates_scoreConfig.silverThreshold);
+        const isBronze = disclose(score >= LedgerStates_scoreConfig.bronzeThreshold);
+
+        if (isPlatinum) {
             return 4;
-        } else if (publicScore >= LedgerStates_scoreConfig.goldThreshold) {
+        } else if (isGold) {
             return 3;
-        } else if (publicScore >= LedgerStates_scoreConfig.silverThreshold) {
+        } else if (isSilver) {
             return 2;
-        } else if (publicScore >= LedgerStates_scoreConfig.bronzeThreshold) {
+        } else if (isBronze) {
             return 1;
         } else {
             return 0;

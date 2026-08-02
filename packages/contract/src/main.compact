@@ -16,7 +16,7 @@ export {
 
     /** Governance entrypoints */
     Governance_proposeScoreConfig, Governance_applyScoreConfig, Governance_cancelScoreConfig,
-    Governance_addSupportedChainNamespace,
+    Governance_addSupportedChainNamespace, Governance_addSupportedReaderPolicy,
 
     /** Custom struct definitions */
     CustomStructs_VeilIdentityRecord, CustomStructs_ReputationScore,
@@ -28,7 +28,7 @@ export {
     /** Ledger states */
     LedgerStates_identityRecords, LedgerStates_identityCommitments,
     LedgerStates_reputationCommitments, LedgerStates_processedProofs,
-    LedgerStates_supportedChainNamespaces,
+    LedgerStates_supportedChainNamespaces, LedgerStates_supportedReaderPolicies,
     LedgerStates_scoreConfig, LedgerStates_governanceControllerCommitment,
     LedgerStates_governanceGuardianSetHash, LedgerStates_governanceGuardianThreshold,
     LedgerStates_governanceControllerVersion,
@@ -53,18 +53,25 @@ constructor(
     _governanceGuardianThreshold: Uint<8>,
     _governanceControllerVersion: Uint<64>,
     _configTimelockEpochs: Uint<64>,
-    _initSupportedChainNameSpaces: Vector<8, Bytes<32>>
+    _initSupportedChainNameSpaces: Vector<5, Bytes<32>>,
+    _initSupportedReaderPolicies: Vector<1, Bytes<32>>
 ) {
     const scoreConfig = disclose(_scoreConfig);
     Utils_assertScoreConfigValid(scoreConfig);
     assert (disclose(_governanceGuardianSetHash) != default<Bytes<32>>, "Invalid guardian set");
     assert (disclose(_governanceGuardianThreshold) > 0, "Invalid guardian threshold");
     LedgerStates_scoreConfig = scoreConfig;
-    
+
     /**Add intial supported chains */
     map(
         Utils_addInitialSupportedChainNameSpaces,
         disclose(_initSupportedChainNameSpaces)
+    );
+
+    /**Add initial trusted reader policies */
+    map(
+        Utils_addInitialSupportedReaderPolicies,
+        disclose(_initSupportedReaderPolicies)
     );
 
     LedgerStates_governanceGuardianSetHash = disclose(_governanceGuardianSetHash);

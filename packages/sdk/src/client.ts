@@ -42,6 +42,7 @@ export class VeilClient {
   deriveIdentity(signer: CCCSigner): Promise<VeilIdentity> {
     return buildIdentityFromSigner(signer, {
       deriveLockHashFromAddress: this.options.deriveLockHashFromAddress,
+      contractAddress: this.config.contractAddress,
     });
   }
 

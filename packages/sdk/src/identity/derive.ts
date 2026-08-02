@@ -1,25 +1,34 @@
-import { CompactTypeBytes, CompactTypeVector, persistentHash, toHex } from '@midnight-ntwrk/compact-runtime';
+import { toHex } from '@midnight-ntwrk/compact-runtime';
 import type { CCCSigner, SourceChain, VeilIdentity, BytesLike } from '../types';
 import { VeilError } from '../types';
-import { toBytes32 } from '../utils/bytes';
+import { deriveVeilIdHash } from '../contract';
+import { padStringToBytes32, toBytes32 } from '../utils/bytes';
 
-const VEIL_ID_DOMAIN = 'veil-v2';
-const bytes32Descriptor = new CompactTypeBytes(32);
-const veilIdDescriptor = new CompactTypeVector(2, bytes32Descriptor);
-const veilIdDomain = new Uint8Array(32);
-new TextEncoder().encodeInto(VEIL_ID_DOMAIN, veilIdDomain);
+export const DEFAULT_VEIL_ID_SALT = padStringToBytes32('veil:v2:identity');
+
+export type DeriveVeilIdOptions = {
+  chainNamespace?: BytesLike;
+  salt?: BytesLike;
+  contractAddress: BytesLike;
+};
 
 /**
- * Derives the stable veilId from a CKB lock hash.
- * The CKB lock hash is the anchor — all wallets resolve to one via CCC.
+ * Derives the stable Veil ID from a wallet/lock hash using the same pure
+ * Compact circuit used by the contract package.
  *
- * MetaMask:  ETH key → CKB secp256k1 lock → lock hash → veilId
- * JoyID:     Passkey → CKB secp256r1 lock → lock hash → veilId
- * UniSat:    BTC key → CKB btc lock       → lock hash → veilId
+ * The ID is namespaced by source chain, salt, and deployed Veil contract.
  */
-export const deriveVeilId = (ckbLockHash: BytesLike): string => {
-  const lock = toBytes32(ckbLockHash, 'ckbLockHash');
-  return toHex(persistentHash(veilIdDescriptor, [veilIdDomain, lock]));
+export const deriveVeilId = (rawPublicKeyOrLockHash: BytesLike, options: DeriveVeilIdOptions): string => {
+  if (!options.contractAddress) {
+    throw new VeilError('deriveVeilId requires a deployed Veil contract address.', 'INVALID_CONFIG');
+  }
+
+  return toHex(deriveVeilIdHash({
+    rawPublicKeyOrLockHash: toBytes32(rawPublicKeyOrLockHash, 'rawPublicKeyOrLockHash'),
+    chainNamespace: options.chainNamespace ?? padStringToBytes32('ckb'),
+    salt: options.salt ?? DEFAULT_VEIL_ID_SALT,
+    contractAddress: options.contractAddress,
+  }));
 };
 
 export const detectSourceChain = (signer: unknown): SourceChain => {
@@ -38,7 +47,12 @@ export const detectSourceChain = (signer: unknown): SourceChain => {
  */
 export const buildIdentityFromSigner = async (
   signer: CCCSigner,
-  options: { deriveLockHashFromAddress?: (ckbAddress: string) => BytesLike } = {},
+  options: {
+    deriveLockHashFromAddress?: (ckbAddress: string) => BytesLike;
+    chainNamespace?: BytesLike;
+    salt?: BytesLike;
+    contractAddress?: BytesLike;
+  } = {},
 ): Promise<VeilIdentity> => {
   const ckbAddress = await signer.getRecommendedAddress();
   if (!options.deriveLockHashFromAddress) {
@@ -47,11 +61,22 @@ export const buildIdentityFromSigner = async (
       'INVALID_CONFIG',
     );
   }
+  if (!options.contractAddress) {
+    throw new VeilError(
+      'buildIdentityFromSigner requires the deployed Veil contract address.',
+      'INVALID_CONFIG',
+    );
+  }
   const ckbLockHashBytes = toBytes32(options.deriveLockHashFromAddress(ckbAddress), 'ckbLockHash');
+  const sourceChain = detectSourceChain(signer);
   return {
-    veilId: deriveVeilId(ckbLockHashBytes),
+    veilId: deriveVeilId(ckbLockHashBytes, {
+      chainNamespace: options.chainNamespace ?? padStringToBytes32(sourceChain),
+      salt: options.salt ?? DEFAULT_VEIL_ID_SALT,
+      contractAddress: options.contractAddress,
+    }),
     ckbLockHash: toHex(ckbLockHashBytes),
     ckbAddress,
-    sourceChain: detectSourceChain(signer),
+    sourceChain,
   };
 };

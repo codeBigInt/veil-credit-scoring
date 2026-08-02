@@ -32,7 +32,7 @@ export const nav: NavSection[] = [
     section: "Integration",
     pages: [
       { title: "Integration Guide", href: "/docs/integration", description: "Step-by-step guide" },
-      { title: "SDK Guide", href: "/docs/integration/sdk", description: "Use @veil-protocol/sdk and React hooks" },
+      { title: "SDK Guide", href: "/docs/integration/sdk", description: "Use @veil-reputation-protocol/sdk and React hooks" },
       { title: "Backend API", href: "/docs/integration/api-reference", description: "Sponsor and backup endpoints" },
     ],
   },

@@ -2,18 +2,28 @@ import { describe, it, expect, vi, beforeAll } from 'vitest';
 
 // Hoist mock before any imports so module-level code in derive.ts gets the mock
 vi.mock('@midnight-ntwrk/compact-runtime', () => {
-  const fakeHash = new Uint8Array(32).fill(0xab);
   return {
-    CompactTypeBytes: class CompactTypeBytes { constructor(_n: number) {} },
-    CompactTypeVector: class CompactTypeVector { constructor(_n: number, _t: unknown) {} },
-    persistentHash: vi.fn(() => fakeHash),
     toHex: (b: Uint8Array) => Buffer.from(b).toString('hex'),
     fromHex: (hex: string) => Uint8Array.from(Buffer.from(hex.replace(/^0x/, ''), 'hex')),
   };
 });
 
+vi.mock('../../vendor/managed/veil-protocol/contract/index.js', () => ({
+  pureCircuits: {
+    Utils_deriveVeilId: vi.fn(() => new Uint8Array(32).fill(0xab)),
+  },
+  Contract: vi.fn(),
+}));
+vi.mock('../../vendor/witness', () => ({
+  witness: {},
+  createVeilPrivateState: vi.fn(() => ({})),
+}));
+vi.mock('nite-api', () => ({ utils: { createCompiledContract: vi.fn() } }));
+
 import { deriveVeilId, detectSourceChain, buildIdentityFromSigner } from '../../identity/derive';
 import { VeilError } from '../../types';
+
+const contractAddress = '0x' + '11'.repeat(32);
 
 describe('detectSourceChain', () => {
   it('returns "evm" for MetaMask-named signers', () => {
@@ -45,18 +55,18 @@ describe('detectSourceChain', () => {
 describe('deriveVeilId', () => {
   it('returns a hex string', () => {
     const lockHash = new Uint8Array(32).fill(0x01);
-    const veilId = deriveVeilId(lockHash);
+    const veilId = deriveVeilId(lockHash, { contractAddress });
     expect(typeof veilId).toBe('string');
     expect(veilId.length).toBeGreaterThan(0);
   });
 
   it('is deterministic for the same lock hash', () => {
     const lockHash = new Uint8Array(32).fill(0x55);
-    expect(deriveVeilId(lockHash)).toBe(deriveVeilId(lockHash));
+    expect(deriveVeilId(lockHash, { contractAddress })).toBe(deriveVeilId(lockHash, { contractAddress }));
   });
 
   it('throws for input shorter than 32 bytes', () => {
-    expect(() => deriveVeilId(new Uint8Array(16))).toThrow(VeilError);
+    expect(() => deriveVeilId(new Uint8Array(16), { contractAddress })).toThrow(VeilError);
   });
 });
 
@@ -74,6 +84,7 @@ describe('buildIdentityFromSigner', () => {
     const lockHash = new Uint8Array(32).fill(0x07);
     const identity = await buildIdentityFromSigner(mockSigner, {
       deriveLockHashFromAddress: () => lockHash,
+      contractAddress,
     });
     expect(identity.ckbAddress).toBe('ckb1qtest...');
     expect(typeof identity.veilId).toBe('string');

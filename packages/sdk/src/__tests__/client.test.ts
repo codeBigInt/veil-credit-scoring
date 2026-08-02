@@ -9,9 +9,10 @@ vi.mock('@midnight-ntwrk/compact-runtime', () => ({
   fromHex: (hex: string) => Uint8Array.from(Buffer.from(hex.replace(/^0x/, ''), 'hex')),
 }));
 
-// Mock @veil/veil-contract to avoid loading WASM in unit tests
-vi.mock('@veil/veil-contract', () => ({
+// Mock the vendored compiled contract + witness to avoid loading WASM in unit tests
+vi.mock('../vendor/managed/veil-protocol/contract/index.js', () => ({
   pureCircuits: {
+    Utils_deriveVeilId: vi.fn(() => new Uint8Array(32).fill(0xed)),
     Utils_deriveIdentityProofHash: vi.fn(() => new Uint8Array(32).fill(0xee)),
     Utils_deriveReputationWitnessCommitment: vi.fn(() => new Uint8Array(32).fill(0xef)),
     Utils_deriveScoreConfigHashFor: vi.fn(() => new Uint8Array(32).fill(0xf0)),
@@ -21,9 +22,11 @@ vi.mock('@veil/veil-contract', () => ({
     Utils_deriveGovernanceProofHash: vi.fn(() => new Uint8Array(32).fill(0xf4)),
     Utils_deriveCommunityWeightBps: vi.fn(() => 10_000n),
   },
+  Contract: vi.fn(),
+}));
+vi.mock('../vendor/witness', () => ({
   witness: {},
   createVeilPrivateState: vi.fn(() => ({})),
-  Contract: vi.fn(),
 }));
 vi.mock('nite-api', () => ({ utils: { createCompiledContract: vi.fn() } }));
 

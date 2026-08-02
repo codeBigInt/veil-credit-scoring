@@ -39,7 +39,7 @@
     "react": ">=18.0.0"
   },
   "dependencies": {
-    "@veil-protocol/sdk": "workspace:*"
+    "@veil-reputation-protocol/sdk": "workspace:*"
   },
   "devDependencies": {
     "@types/react": "^19.0.0",

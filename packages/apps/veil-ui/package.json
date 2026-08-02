@@ -12,7 +12,6 @@
   "dependencies": {
     "@ckb-ccc/connector-react": "^1.0.35",
     "@ckb-ccc/core": "^1.12.5",
-    "@ckb-ccc/spore": "^1.5.17",
     "@hookform/resolvers": "^3.10.0",
     "@midnight-ntwrk/compact-js": "^2.5.1",
     "@midnight-ntwrk/compact-runtime": "^0.16.0",
@@ -58,8 +57,8 @@
     "@radix-ui/react-toggle-group": "1.1.1",
     "@radix-ui/react-tooltip": "1.1.6",
     "@spore-sdk/core": "^0.1.0",
-    "@veil/veil-contract": "workspace:*",
-    "@veil-protocol/sdk": "workspace:*",
+    "@veil-reputation-protocol/contract": "workspace:*",
+    "@veil-reputation-protocol/sdk": "workspace:*",
     "@vercel/analytics": "latest",
     "autoprefixer": "^10.4.20",
     "class-variance-authority": "^0.7.1",

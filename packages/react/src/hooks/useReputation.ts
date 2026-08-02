@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import { ccc } from '@ckb-ccc/connector-react';
-import type { ReputationProof } from '@veil-protocol/sdk';
+import type { ReputationProof } from '@veil-reputation-protocol/sdk';
 import { useVeilContext } from '../context/VeilProvider';
 
 export type ProofStatus =

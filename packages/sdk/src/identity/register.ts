@@ -59,7 +59,6 @@ export const registerIdentity = async (
     chainNamespace,
     publicKeyOrLockHashCommitment,
     walletSignatureHash,
-    currentEpoch: BigInt(Date.now()),
   });
 
   return {

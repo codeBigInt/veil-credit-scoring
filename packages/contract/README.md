@@ -134,8 +134,8 @@ From repository root:
 
 ```bash
 bun install
-bun run --filter @veil/veil-contract test:compile
-bun run --filter @veil/veil-contract test:run
+bun run --filter @veil-reputation-protocol/contract test:compile
+bun run --filter @veil-reputation-protocol/contract test:run
 ```
 
 From `packages/contract`:

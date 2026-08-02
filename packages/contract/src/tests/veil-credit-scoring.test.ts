@@ -82,7 +82,6 @@ describe("Veil v2 architecture", () => {
       lpTenureInDays: 10n,
       crossChainCount: 1n,
       txConsistencyScore: 2n,
-      claimedBand: 3n,
       proofNonce,
     });
 
@@ -111,7 +110,6 @@ describe("Veil v2 architecture", () => {
         lpTenureInDays: 10n,
         crossChainCount: 1n,
         txConsistencyScore: 2n,
-        claimedBand: 3n,
         proofNonce,
       })
     ).toThrowError(/Reputation proof already used/);
@@ -129,23 +127,10 @@ describe("Veil v2 architecture", () => {
         lpTenureInDays: 0n,
         crossChainCount: 0n,
         txConsistencyScore: 0n,
-        claimedBand: 0n,
       })
     ).toThrowError(/Identity not registered/);
 
     simulator.registerIdentity(veilIdHash);
-
-    expect(() =>
-      simulator.proveReputation(veilIdHash, {
-        walletAgeInDays: 1n,
-        distinctProtocols: 0n,
-        daoVoteCount: 0n,
-        lpTenureInDays: 0n,
-        crossChainCount: 0n,
-        txConsistencyScore: 0n,
-        claimedBand: 5n,
-      })
-    ).toThrowError(/Invalid claimed band/);
 
     expect(() => simulator.checkReputation(veilIdHash, 1n)).toThrowError(
       /Reputation not found/
@@ -193,7 +178,6 @@ describe("Veil v2 architecture", () => {
         lpTenureInDays: 12n,
         crossChainCount: 2n,
         txConsistencyScore: 4n,
-        claimedBand: 4n,
         chainCommitment: zeroBytes,
       })
     ).toThrowError(/Missing chain data commitment/);
@@ -206,7 +190,6 @@ describe("Veil v2 architecture", () => {
       lpTenureInDays: 12n,
       crossChainCount: 2n,
       txConsistencyScore: 4n,
-      claimedBand: 4n,
       proofNonce: replayedNonce,
     });
     expect(simulator.getLedgerState().LedgerStates_reputationCommitments.firstFree()).toBe(1n);
@@ -219,7 +202,6 @@ describe("Veil v2 architecture", () => {
         lpTenureInDays: 12n,
         crossChainCount: 2n,
         txConsistencyScore: 4n,
-        claimedBand: 4n,
         proofNonce: replayedNonce,
       })
     ).toThrowError(/Reputation proof already used/);
@@ -234,7 +216,7 @@ describe("Veil v2 architecture", () => {
     ).toThrowError(/Invalid requester/);
   });
 
-  it("rejects incorrect claimed bands and replayed reputation nonces", () => {
+  it("derives the band from signals and rejects replayed reputation nonces", () => {
     const simulator = createVeilScoreContract();
     const veilIdHash = randomBytes(32);
     const witnessSalt = randomBytes(32);
@@ -243,32 +225,18 @@ describe("Veil v2 architecture", () => {
 
     simulator.registerIdentity(veilIdHash);
 
-    expect(() =>
-      simulator.proveReputation(veilIdHash, {
-        walletAgeInDays: 50n,
-        distinctProtocols: 5n,
-        daoVoteCount: 2n,
-        lpTenureInDays: 10n,
-        crossChainCount: 1n,
-        txConsistencyScore: 2n,
-        claimedBand: 4n,
-        chainCommitment,
-        witnessSalt,
-      })
-    ).toThrowError(/Claimed band does not match score/);
-
-    simulator.proveReputation(veilIdHash, {
+    const band = simulator.proveReputation(veilIdHash, {
       walletAgeInDays: 50n,
       distinctProtocols: 5n,
       daoVoteCount: 2n,
       lpTenureInDays: 10n,
       crossChainCount: 1n,
       txConsistencyScore: 2n,
-      claimedBand: 3n,
       chainCommitment,
       witnessSalt,
       proofNonce,
     });
+    expect(band).toBe(3n); // gold, derived from the signals above — not caller-supplied
 
     expect(() =>
       simulator.proveReputation(veilIdHash, {
@@ -278,7 +246,6 @@ describe("Veil v2 architecture", () => {
         lpTenureInDays: 10n,
         crossChainCount: 1n,
         txConsistencyScore: 2n,
-        claimedBand: 3n,
         chainCommitment,
         witnessSalt,
         proofNonce,

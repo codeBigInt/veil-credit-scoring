@@ -26,27 +26,29 @@ export default function IntroductionPage() {
 
         <h1>Introduction</h1>
         <p className="prose-lead">
-          Veil Protocol v2 is a private reputation layer for cross-chain DeFi, DAOs, airdrops,
-          communities, and access systems. Users prove a reputation band without exposing wallet
-          history, raw scores, or linked addresses.
+          Veil lets someone prove they&apos;re a trustworthy wallet — active, established, plugged into
+          real protocols — without showing anyone their actual transaction history. Apps get a simple
+          badge (a &quot;band&quot;), never the raw data behind it.
         </p>
 
         <Callout variant="info" title="v2 direction">
-          Veil has moved from credit scoring to broader social and protocol reputation. Lending is
-          one possible integration, not the protocol&apos;s primary framing.
+          Veil started as a credit-scoring tool. It&apos;s now broader: general-purpose reputation for
+          DAOs, communities, airdrops, and access gates. Lending is just one thing you could build with it.
         </Callout>
 
         <h2 id="what-is-veil">What Is Veil?</h2>
         <p>
-          Veil turns public on-chain behavior into a private, reusable reputation proof. The proof
-          is expressed as one of five bands: unranked, bronze, silver, gold, or platinum. Integrators
-          can use those bands for eligibility, governance weighting, tiered rewards, rate limits,
-          community access, or abuse resistance.
+          Think of it like a credit score, but private and on-chain. Veil looks at a wallet&apos;s public
+          activity — how old it is, how many protocols it&apos;s used, how consistently — and turns that
+          into one of five bands: <strong>unranked, bronze, silver, gold,</strong> or <strong>platinum</strong>.
+          An app can then say &quot;you need at least silver to claim this airdrop&quot; without ever
+          seeing the wallet&apos;s transaction list.
         </p>
         <p>
-          The user controls the proof flow. The SDK reads public chain data, builds private witness
-          inputs, sends them to a stateless proof server or self-hosted prover, and submits the
-          resulting Midnight transaction. The backend is no longer an oracle for reputation decisions.
+          The user stays in control the whole time. Their own device reads the public chain data, does
+          the private math, and submits the result to Midnight — nobody&apos;s backend server is deciding
+          what band a user gets. That&apos;s the key shift from how this used to work: there&apos;s no
+          central service you have to trust to score people fairly.
         </p>
 
         <h2 id="architecture-version">Architecture Version</h2>
@@ -54,31 +56,32 @@ export default function IntroductionPage() {
 
         <h2 id="how-it-works">How It Works</h2>
         <ol>
-          <li>A user connects one EVM-compatible wallet in the Veil UI or an integrator flow.</li>
-          <li>The SDK derives a stable Veil identity anchored to a CKB lock hash.</li>
-          <li>The user signs an identity registration message and submits `Identity_register`.</li>
-          <li>The SDK collects public chain signals and submits `Reputation_prove` on Midnight.</li>
-          <li>Protocols call `checkReputation` for a minimum band and purpose.</li>
+          <li>A user connects one wallet (any EVM-compatible wallet works) in the Veil app or your app.</li>
+          <li>Behind the scenes, the SDK derives a stable Veil ID for that wallet.</li>
+          <li>The user signs a message to register that ID — this just proves they own the wallet, it doesn&apos;t move any funds.</li>
+          <li>The SDK looks at the wallet&apos;s public activity and submits a reputation proof.</li>
+          <li>Your app asks Veil: &quot;does this ID meet band X?&quot; and gets a yes/no back.</li>
         </ol>
 
         <h2 id="privacy">Privacy Model</h2>
         <p>
-          Raw wallet histories, private signal values, salts, and raw scores are not returned to
-          integrators. The contract stores commitments and exposes banded decisions. Integrators get
-          the least information needed to apply a policy.
+          Your app only ever sees the band — bronze, gold, whatever the user qualifies for. It never
+          sees the wallet&apos;s actual history, the exact numbers behind the score, or any of the
+          random values used to keep the proof private. Veil hands you exactly what you need to make a
+          decision, and nothing more.
         </p>
 
         <h2 id="roles">System Roles</h2>
         <table>
           <thead>
-            <tr><th>Role</th><th>Responsibility</th></tr>
+            <tr><th>Role</th><th>What it does</th></tr>
           </thead>
           <tbody>
-            <tr><td>User</td><td>Controls the wallet, identity registration, proof generation, and backup export.</td></tr>
-            <tr><td>Integrator</td><td>Checks a minimum reputation band for a specific purpose.</td></tr>
-            <tr><td>SDK</td><td>Provides identity, reader, proof, and check APIs for apps and protocols.</td></tr>
-            <tr><td>Backend</td><td>Deploys the contract, returns the active address, sponsors DUST, and optionally stores encrypted client backups.</td></tr>
-            <tr><td>Governance</td><td>Updates scoring parameters through DAO-controlled authority and timelock.</td></tr>
+            <tr><td>User</td><td>Owns the wallet, registers their identity, generates their own proof, and can back up their data.</td></tr>
+            <tr><td>Integrator (you)</td><td>Asks Veil whether a user meets a minimum band before letting them do something.</td></tr>
+            <tr><td>SDK</td><td>The toolkit that does identity, data-reading, proof, and band-check work for your app.</td></tr>
+            <tr><td>Backend</td><td>A small helper service — deploys the contract, hands out the contract address, covers transaction fees, and optionally stores encrypted backups. It never decides anyone&apos;s band.</td></tr>
+            <tr><td>Governance</td><td>The process (community-controlled, not one person) for changing how scores are calculated, with a delay before changes take effect.</td></tr>
           </tbody>
         </table>
 

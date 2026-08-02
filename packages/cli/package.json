@@ -30,7 +30,7 @@
     "@midnightntwrk/wallet-sdk-hd": "^3.0.3",
     "@midnightntwrk/wallet-sdk-shielded": "^3.0.2",
     "@midnightntwrk/wallet-sdk-unshielded-wallet": "^3.1.0",
-    "@veil/veil-contract": "workspace:*",
+    "@veil-reputation-protocol/contract": "workspace:*",
     "nite-api": "^0.0.19"
   },
   "devDependencies": {

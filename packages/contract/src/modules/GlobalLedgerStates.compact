@@ -21,6 +21,14 @@ module GlobalLedgerStates {
     /** Chain namespaces accepted as reputation evidence sources. */
     export ledger supportedChainNamespaces: Set<Bytes<32>>;
 
+    /**
+       Reader policy hashes accepted as evidence-collection sources. A prover
+       must name which reader (data-collection + normalization logic) produced
+       its signals; only recognized policies are accepted, so an integrator
+       can trust every accepted proof came from a known, auditable pipeline.
+    */
+    export ledger supportedReaderPolicies: Set<Bytes<32>>;
+
     /** On-chain scoring parameters controlled by timelocked guardian-council governance. */
     export ledger scoreConfig: CustomStructs_ScoreConfig;
  

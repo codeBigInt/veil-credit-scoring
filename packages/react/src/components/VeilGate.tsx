@@ -1,5 +1,5 @@
 import React from 'react';
-import type { ReputationPurpose, ScoreBand } from '@veil-protocol/sdk';
+import type { ReputationPurpose, ScoreBand } from '@veil-reputation-protocol/sdk';
 import { useReputationCheck } from '../hooks/useReputationCheck';
 
 export interface VeilGateProps {

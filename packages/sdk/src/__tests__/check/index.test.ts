@@ -69,7 +69,6 @@ describe('checkReputation', () => {
       expect.any(Uint8Array), // requesterAddressHash
       expect.any(Uint8Array), // purposeHash
       3n,                     // minimumBand (gold=3)
-      expect.any(BigInt),     // currentEpoch
     );
   });
 });

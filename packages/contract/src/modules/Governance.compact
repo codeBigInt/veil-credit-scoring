@@ -181,4 +181,58 @@ module Governance {
 
         LedgerStates_supportedChainNamespaces.insert(chainNamespace);
     }
+
+    export circuit addSupportedReaderPolicy(
+        _readerPolicyHash: Bytes<32>,
+        _operationId: Bytes<32>,
+        _signatureBundleHash: Bytes<32>,
+        _governanceNonce: Bytes<32>
+    ): [] {
+        const readerPolicyHash = disclose(_readerPolicyHash);
+        const currentTime = Utils_retrieveAndVerifyTime();
+        assert (LedgerStates_governanceControllerCommitment != default<Bytes<32>>, "Governance controller not configured");
+        assert (readerPolicyHash != default<Bytes<32>>, "Invalid reader policy");
+        assert (!LedgerStates_supportedReaderPolicies.member(readerPolicyHash), "Reader policy already supported");
+        assert (disclose(_operationId) != default<Bytes<32>>, "Invalid governance operation");
+        assert (disclose(_signatureBundleHash) != default<Bytes<32>>, "Invalid signature bundle");
+        assert (disclose(_governanceNonce) != default<Bytes<32>>, "Invalid governance nonce");
+
+        const governanceActionHash = Utils_deriveGovernanceActionHash(
+            pad(32, "add-reader-policy"),
+            readerPolicyHash,
+            _operationId,
+            currentTime,
+            kernel.self().bytes
+        );
+        const governanceProofHash = Utils_deriveGovernanceProofHash(
+            LedgerStates_governanceControllerCommitment,
+            governanceActionHash,
+            _operationId,
+            _signatureBundleHash,
+            _governanceNonce,
+            kernel.self().bytes
+        );
+        assert (governanceActionHash != default<Bytes<32>>, "Invalid governance action");
+        assert (governanceProofHash != default<Bytes<32>>, "Invalid governance proof");
+
+        const operationReplayKey = persistentHash<Vector<4, Bytes<32>>>([
+            pad(32, "veil:v2:governance:operation"),
+            LedgerStates_governanceControllerCommitment,
+            disclose(_operationId),
+            kernel.self().bytes
+        ]);
+        assert (!LedgerStates_processedProofs.member(operationReplayKey), "Governance operation already used");
+        LedgerStates_processedProofs.insert(operationReplayKey);
+
+        const nonceReplayKey = persistentHash<Vector<4, Bytes<32>>>([
+            pad(32, "veil:v2:governance:nonce"),
+            LedgerStates_governanceControllerCommitment,
+            disclose(_governanceNonce),
+            kernel.self().bytes
+        ]);
+        assert (!LedgerStates_processedProofs.member(nonceReplayKey), "Governance proof already used");
+        LedgerStates_processedProofs.insert(nonceReplayKey);
+
+        LedgerStates_supportedReaderPolicies.insert(readerPolicyHash);
+    }
 }

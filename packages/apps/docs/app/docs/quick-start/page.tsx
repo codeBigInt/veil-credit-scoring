@@ -18,9 +18,9 @@ const tocItems = [
   { id: "check", text: "Check", depth: 2 },
 ];
 
-const install = `bun add @veil-protocol/sdk`;
+const install = `bun add @veil-reputation-protocol/sdk`;
 
-const usage = `import { VeilClient } from '@veil-protocol/sdk';
+const usage = `import { VeilClient } from '@veil-reputation-protocol/sdk';
 
 const client = new VeilClient(config, midnightProvider, {
   deriveLockHashFromAddress,
@@ -46,13 +46,14 @@ export default function QuickStartPage() {
 
         <h1>Quick Start</h1>
         <p className="prose-lead">
-          Start with the SDK. Veil v2 integrations do not ask the backend to decide reputation.
-          They register identity, prove reputation, and check bands through Midnight.
+          This is the fastest way to add Veil to your app: install the SDK, then register a user,
+          prove their reputation, and check their band — four calls, no backend decision-making involved.
         </p>
 
-        <Callout variant="info" title="Default flow">
-          The user connects one EVM-compatible wallet. The UI/SDK adapter derives the Veil identity,
-          then the user signs and submits the registration and proof flow.
+        <Callout variant="info" title="What the user sees">
+          The user connects one wallet (any EVM-compatible wallet, like MetaMask). The SDK quietly
+          derives their Veil identity behind the scenes, then asks them to sign a couple of messages
+          to register and prove their reputation.
         </Callout>
 
         <h2 id="install">Install</h2>
@@ -60,29 +61,32 @@ export default function QuickStartPage() {
 
         <h2 id="configure">Configure</h2>
         <p>
-          Provide the Midnight contract address, network, proof server, optional fee sponsor, and
-          public chain RPCs or reader adapters. Production protocols should use their own indexers
-          for high-quality reputation signals.
+          Tell the client where your Veil contract lives, which network you&apos;re on, where the proof
+          server is, and (optionally) which chains to read wallet activity from. If you want higher-quality
+          reputation data, plug in your own indexer instead of the built-in reader — see the{" "}
+          <a href="/docs/integration/sdk#readers">SDK Guide</a>.
         </p>
 
         <h2 id="register">Register</h2>
         <p>
-          <code>client.register()</code> derives the user&apos;s Veil identity, asks the wallet to sign the
-          registration message, optionally requests DUST sponsorship, and submits <code>Identity_register</code>.
+          <code>client.register()</code> is step one for any new user. It works out their Veil ID, asks
+          their wallet to sign a registration message (proving they own the wallet — this doesn&apos;t
+          move any funds), and saves that registration on Midnight.
         </p>
 
         <h2 id="prove">Prove</h2>
         <p>
-          <code>client.proveReputation()</code> collects public chain signals, builds private witness values,
-          calls the configured proof server, and submits <code>Reputation_prove</code>. Raw signal values are not
-          returned to integrators.
+          <code>client.proveReputation()</code> is step two. It reads the wallet&apos;s public activity,
+          does the private math to work out a band, and submits proof of that band to Midnight. The
+          numbers behind the band never leave the user&apos;s device.
         </p>
 
         <h2 id="check">Check</h2>
         <CodeBlock code={usage} language="typescript" filename="quick-start.ts" />
         <p>
-          <code>checkReputation</code> returns a <code>ReputationDecision</code>: band, threshold result, access tier,
-          community weight, purpose, epoch, and proof hash.
+          <code>checkReputation</code> gives you back a simple decision object: which band the user has,
+          whether they meet the level you asked for, and a few extra fields (like a numeric weight) your
+          app can use to fine-tune what it does next.
         </p>
 
         <PrevNext

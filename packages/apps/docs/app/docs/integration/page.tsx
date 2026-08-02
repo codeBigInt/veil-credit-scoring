@@ -24,7 +24,7 @@ const sdk = `import {
   checkReputation,
   collectReputationWitnessFromAddresses,
   type ReputationDecision,
-} from '@veil-protocol/sdk';`;
+} from '@veil-reputation-protocol/sdk';`;
 
 const check = `const decision = await checkReputation(veilId, {
   minimumBand: 'silver',
@@ -45,63 +45,65 @@ export default function IntegrationPage() {
 
         <h1>Integration Guide</h1>
         <p className="prose-lead">
-          Veil Protocol v2 integration is centered on the Midnight contract and <code>@veil-protocol/sdk</code>.
-          Applications register privacy-preserving identities, submit reputation proofs, and request
-          band decisions without exposing raw score inputs.
+          Integrating Veil means three things: let a user register, let them prove their reputation,
+          and ask for a band decision when you need one. All three happen through{" "}
+          <code>@veil-reputation-protocol/sdk</code> talking directly to the Midnight contract — your backend
+          doesn&apos;t need to be involved in any of it.
         </p>
 
-        <Callout variant="warning" title="Deprecated API surface">
-          The old issuer-scoring REST flow is not part of v2. Avoid references to
-          <code>Admin_addIssuer</code>, <code>Scoring_submitRepaymentEvent</code>, DID Registry
-          circuits, or user public-key event streams when building against v2.
+        <Callout variant="warning" title="If you see references to an old REST scoring API, ignore them">
+          Earlier versions of Veil had a backend that computed credit decisions directly (endpoints like{" "}
+          <code>Admin_addIssuer</code> or <code>Scoring_submitRepaymentEvent</code>). None of that exists
+          anymore. Everything now goes through the SDK and the Midnight contract.
         </Callout>
 
-        <h2 id="model">Integration Model</h2>
+        <h2 id="model">The Basic Flow</h2>
         <ol>
-          <li>Join the deployed full contract using the address provided by the deployer.</li>
-          <li>Register the user identity with <code>Identity_register</code>.</li>
-          <li>Submit a reputation proof with <code>Reputation_prove</code>.</li>
-          <li>Check a minimum band with <code>Reputation_check</code>.</li>
+          <li>Connect to the deployed Veil contract using its address.</li>
+          <li>Register the user&apos;s identity with <code>Identity_register</code>.</li>
+          <li>Submit their reputation proof with <code>Reputation_prove</code>.</li>
+          <li>Whenever you need to gate something, check their band with <code>Reputation_check</code>.</li>
         </ol>
 
         <h2 id="sdk">Use the SDK</h2>
         <CodeBlock code={sdk} language="typescript" filename="imports.ts" />
         <p>
-          The SDK exports a framework-agnostic client, direct reputation-check helpers, reader adapters,
-          and low-level contract tooling for CLIs and deployment systems.
+          You get a ready-made client for the common case, standalone functions if you only need one
+          piece, ways to plug in your own data sources, and lower-level tooling for CLIs or deploy scripts.
         </p>
 
         <h2 id="identity">Identity Registration</h2>
         <p>
-          Identity registration derives a stable <code>veilId</code> from the wallet's CKB lock hash,
-          asks the user to sign a registration message, and submits <code>Identity_register</code> to
-          Midnight. Fee sponsorship is optional and only applies when the configured provider supports it.
+          This step works out a stable ID for the user&apos;s wallet, asks them to sign a message proving
+          they own it (not a fund transfer — just a signature), and saves that registration on Midnight.
+          If your setup covers transaction fees for users, that happens automatically here too.
         </p>
 
         <h2 id="reputation">Reputation Proofs</h2>
         <p>
-          Reputation proof submission binds private signal values to a witness commitment and proof hash.
-          The SDK can build conservative commitments from public RPC data, but production protocols should
-          inject richer reader adapters backed by their own indexers.
+          This is where a user&apos;s public activity turns into a private proof. The SDK&apos;s
+          built-in reader works out of the box using public RPCs, but it&apos;s intentionally basic —
+          for production, plug in your own reader backed by a real indexer so you get better signal.
         </p>
 
         <h2 id="checks">Band Checks</h2>
         <CodeBlock code={check} language="typescript" filename="check.ts" />
         <p>
-          The check output includes whether the requested threshold is met, the current band,
-          community weight, access tier, epoch, and purpose hash.
+          You get back whether the user meets the band you asked for, what their actual band is, and a
+          couple of extra numbers (a weight and an access tier) your app can use however it wants.
         </p>
 
         <h2 id="governance">Governance Updates</h2>
         <p>
-          Score-config changes are proposed, timelocked, and applied through governance circuits.
-          The governance authority should be a DAO-controlled key or governance contract, not a
-          single operator wallet.
+          The rules behind scoring (the weights, the band cutoffs) aren&apos;t fixed forever. They can be
+          proposed and changed, but only after a mandatory waiting period — so a change can&apos;t take
+          effect instantly and catch users off guard. Whoever can propose those changes should be a DAO
+          or a multi-party process, never a single wallet.
         </p>
 
         <PrevNext
           prev={{ title: "Reputation Model", href: "/docs/scoring-model", description: "How v2 reputation bands work" }}
-          next={{ title: "SDK Guide", href: "/docs/integration/sdk", description: "Use @veil-protocol/sdk and React hooks" }}
+          next={{ title: "SDK Guide", href: "/docs/integration/sdk", description: "Use @veil-reputation-protocol/sdk and React hooks" }}
         />
       </article>
 

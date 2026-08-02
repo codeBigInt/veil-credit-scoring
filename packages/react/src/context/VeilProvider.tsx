@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useMemo } from 'react';
-import { VeilClient } from '@veil-protocol/sdk';
-import type { VeilConfig, VeilMidnightProvider } from '@veil-protocol/sdk';
+import { VeilClient } from '@veil-reputation-protocol/sdk';
+import type { VeilConfig, VeilMidnightProvider } from '@veil-reputation-protocol/sdk';
 
 interface VeilContextValue {
   client: VeilClient | null;

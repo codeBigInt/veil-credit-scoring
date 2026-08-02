@@ -1,7 +1,8 @@
 {
-  "name": "@veil/veil-contract",
+  "name": "@veil-reputation-protocol/contract",
   "version": "0.1.0",
-  "description": "Generated Compact contract artifacts for Veil Protocol v2",
+  "description": "Internal workspace package: Compact contract source + compiled artifacts for Veil Protocol v2. Never published to npm — @veil-reputation-protocol/sdk vendors the compiled contract + witness directly (see packages/sdk/src/vendor). Consumed inside this monorepo only, by backend and cli via workspace:*.",
+  "private": true,
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
@@ -13,9 +14,6 @@
     "README.md",
     "SECURITY.md"
   ],
-  "publishConfig": {
-    "access": "public"
-  },
   "exports": {
     ".": {
       "default": "./dist/index.js",
@@ -35,7 +33,7 @@
     "@types/node": "^24.8.1",
     "@types/bun": "latest",
     "vitest": "^4.0.2",
-    "@veil-protocol/sdk": "workspace:*"
+    "@veil-reputation-protocol/sdk": "workspace:*"
   },
   "peerDependencies": {
     "typescript": "^5"

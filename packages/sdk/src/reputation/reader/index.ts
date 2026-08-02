@@ -5,8 +5,11 @@ import type {
   ReputationWitness,
   VeilIdentity,
 } from '../../types';
+import { VeilError } from '../../types';
 import type { ChainRpcConfig, VeilConfig } from '../../config';
 import { hashChainState, randomBytes32 } from '../../utils/hash';
+import { bytesToHex, padStringToBytes32, toBytes } from '../../utils/bytes';
+import { DEFAULT_READER_POLICY_HASH } from '../../contract';
 import { readEthereumSignals, computeConsistencyScore } from './ethereum';
 import { readCKBSignals } from './ckb';
 
@@ -35,6 +38,19 @@ export const collectReputationWitnessFromAddresses = async (
   config: VeilConfig,
   readers: ReputationReaderOptions = {},
 ): Promise<ReputationWitness> => {
+  const usesCustomReader = Boolean(readers.ethereumReader ?? readers.ckbReader);
+  if (usesCustomReader && !readers.readerPolicyHash) {
+    throw new VeilError(
+      'A custom ethereumReader/ckbReader was supplied without a readerPolicyHash. ' +
+        'The contract only accepts proofs from a governance-registered reader policy — ' +
+        'supply the policy hash your integration has had registered.',
+      'INVALID_CONFIG',
+    );
+  }
+  const readerPolicyHash = readers.readerPolicyHash
+    ? bytesToHex(toBytes(readers.readerPolicyHash, 'readerPolicyHash'))
+    : bytesToHex(DEFAULT_READER_POLICY_HASH);
+
   const evmChains = configuredEvmChains(config);
 
   const [ethSignals, ckbSignals] = await Promise.all([
@@ -70,8 +86,9 @@ export const collectReputationWitnessFromAddresses = async (
         : 0,
     crossChainCount: activeChains,
     txConsistencyScore: computeConsistencyScore(allTimestamps),
-    ethChainCommitment: await hashChainState(ethSignals),
-    ckbChainCommitment: await hashChainState(ckbSignals),
+    chainNamespace: bytesToHex(padStringToBytes32('evm')),
+    chainCommitment: await hashChainState({ ethereum: ethSignals, ckb: ckbSignals }),
+    readerPolicyHash,
     salt: randomBytes32(),
   };
 };

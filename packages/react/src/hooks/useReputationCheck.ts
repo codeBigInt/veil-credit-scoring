@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import type { ReputationDecision, ReputationPurpose, ScoreBand } from '@veil-protocol/sdk';
+import type { ReputationDecision, ReputationPurpose, ScoreBand } from '@veil-reputation-protocol/sdk';
 import { useVeilContext } from '../context/VeilProvider';
 
 export interface UseReputationCheckOptions {

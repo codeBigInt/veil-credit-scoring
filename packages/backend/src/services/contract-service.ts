@@ -18,7 +18,7 @@ import {
   type CustomStructs_ScoreConfig,
   type VeilPrivateState,
   type Witnesses as VeilWitnesses,
-} from "@veil/veil-contract";
+} from "@veil-reputation-protocol/contract";
 
 import type { BackendConfig } from "../config.js";
 import {
@@ -35,7 +35,6 @@ const GOVERNANCE_TIMELOCK_EPOCHS = 10n;
 type VeilContract = VeilContractClass<VeilPrivateState, VeilWitnesses<VeilPrivateState>>;
 
 const FULL_CONTRACT_CIRCUITS = [
-  "Utils_deriveVeilId",
   "Identity_register",
   "Identity_assertActive",
   "Reputation_prove",
@@ -43,6 +42,7 @@ const FULL_CONTRACT_CIRCUITS = [
   "Governance_proposeScoreConfig",
   "Governance_applyScoreConfig",
   "Governance_cancelScoreConfig",
+  "Governance_addSupportedChainNamespace",
 ] as const;
 
 const DEFAULT_SCORE_CONFIG: CustomStructs_ScoreConfig = {
@@ -66,6 +66,27 @@ const DEFAULT_GOVERNANCE_GUARDIAN_SET_HASH = new Uint8Array([
 ]);
 const DEFAULT_GOVERNANCE_GUARDIAN_THRESHOLD = 3n;
 const DEFAULT_GOVERNANCE_CONTROLLER_VERSION = 1n;
+
+const padStringToBytes32 = (value: string): Uint8Array => {
+  const bytes = new TextEncoder().encode(value);
+  if (bytes.length > 32) throw new Error(`Value exceeds Bytes<32>: ${value}`);
+  const padded = new Uint8Array(32);
+  padded.set(bytes);
+  return padded;
+};
+
+const DEFAULT_SUPPORTED_CHAIN_NAMESPACES = [
+  padStringToBytes32("evm"),
+  padStringToBytes32("ckb"),
+  padStringToBytes32("solana"),
+  padStringToBytes32("cardano"),
+  padStringToBytes32("bitcoin"),
+];
+
+// Must match the SDK's DEFAULT_READER_POLICY_HASH — the built-in reader stamps
+// this same value into every proof, so it has to be registered at genesis or
+// the SDK's default reader can never produce an accepted proof.
+const DEFAULT_SUPPORTED_READER_POLICIES = [padStringToBytes32("veil.default-rpc.v1")];
 
 type ContractDeploymentRecord = {
   readonly key: "active";
@@ -129,7 +150,7 @@ const assertZkArtifacts = async (
     throw new Error(
       [
         `Missing ${label} ZK artifacts required for backend contract deployment.`,
-        "Run `bun --filter @veil/veil-contract compile && bun --filter @veil/veil-contract build` before deploying.",
+        "Run `bun --filter @veil-reputation-protocol/contract compile && bun --filter @veil-reputation-protocol/contract build` before deploying.",
         "Do not use `test:compile` for deployable artifacts because it uses `--skip-zk`.",
         `Missing files:\n${missing.map((file) => `- ${file}`).join("\n")}`,
       ].join("\n"),
@@ -583,6 +604,8 @@ export class ContractService {
         DEFAULT_GOVERNANCE_GUARDIAN_THRESHOLD,
         DEFAULT_GOVERNANCE_CONTROLLER_VERSION,
         GOVERNANCE_TIMELOCK_EPOCHS,
+        DEFAULT_SUPPORTED_CHAIN_NAMESPACES,
+        DEFAULT_SUPPORTED_READER_POLICIES,
       ],
       logger: this.logger,
     });

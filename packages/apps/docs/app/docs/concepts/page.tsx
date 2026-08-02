@@ -26,77 +26,79 @@ export default function ConceptsPage() {
 
         <h1>Architecture</h1>
         <p className="prose-lead">
-          Veil v2 is a private reputation architecture built around a Midnight Compact contract,
-          a framework-agnostic TypeScript SDK, public chain readers, a stateless proof server, and a
-          minimal sponsorship backend.
+          This page is for anyone who wants to know how the pieces fit together, not just how to call
+          them. At a high level: a smart contract on Midnight, a TypeScript SDK that talks to it, some
+          code that reads public wallet activity, a service that turns that activity into a private proof,
+          and a small backend that handles the boring parts (paying fees, storing backups).
         </p>
 
         <h2 id="version">Version Toggle</h2>
         <ArchitectureToggle />
 
-        <h2 id="layers">v2 Layers</h2>
+        <h2 id="layers">The Pieces</h2>
         <table>
           <thead>
-            <tr><th>Layer</th><th>What It Does</th></tr>
+            <tr><th>Piece</th><th>What it does</th></tr>
           </thead>
           <tbody>
             <tr>
-              <td>Wallet layer</td>
-              <td>Uses one EVM-compatible wallet path in the UI. The SDK adapter derives the CKB lock hash and Veil identity.</td>
+              <td>Wallet</td>
+              <td>The user connects one familiar wallet (MetaMask or similar). The SDK quietly derives a separate, stable Veil ID from it.</td>
             </tr>
             <tr>
-              <td>Reader layer</td>
-              <td>Reads public chain activity. Protocols can inject richer indexer readers instead of using default RPC probes.</td>
+              <td>Reader</td>
+              <td>Looks up a wallet&apos;s public activity — age, protocols used, etc. Veil ships a basic default; protocols can swap in their own for better data.</td>
             </tr>
             <tr>
-              <td>Proof layer</td>
-              <td>Generates a ZK proof from private witness values. The public output is a reputation band.</td>
+              <td>Proof</td>
+              <td>Takes that activity and produces a proof that says &quot;this wallet qualifies for band X&quot; — without revealing the activity itself.</td>
             </tr>
             <tr>
               <td>Midnight contract</td>
-              <td>Registers identities, verifies reputation proofs, stores commitments, checks minimum bands, and controls scoring config governance.</td>
+              <td>The on-chain source of truth. It registers identities, checks that proofs are genuine, stores the results privately, and answers band questions.</td>
             </tr>
             <tr>
               <td>Backend</td>
-              <td>Sponsors DUST and optionally stores encrypted backups. It does not decide reputation.</td>
+              <td>Covers transaction fees and optionally stores encrypted backups. It has no say in what band anyone gets.</td>
             </tr>
           </tbody>
         </table>
 
-        <h2 id="circuits">Contract Circuits</h2>
+        <h2 id="circuits">What's Inside the Contract</h2>
         <p>
-          The full contract exposes identity, reputation, governance, and utility circuits. The
-          argument lists are intentionally explicit: each public hash, commitment, nonce, epoch, and
-          threshold is passed directly so the contract can bind replay protection, witness commitments,
-          proof hashes, and governance actions without hidden backend state.
+          The contract is written in Compact (Midnight&apos;s smart contract language) and split into a
+          few jobs, each one a &quot;circuit&quot; — think of a circuit as one callable function that can
+          also generate or check a privacy proof.
         </p>
         <ul>
-          <li><code>Identity_register</code>: stores a registered Veil identity after proof-hash binding.</li>
-          <li><code>Reputation_prove</code>: validates bounded signals, witness commitment, claimed band, proof nonce, and proof hash.</li>
-          <li><code>Reputation_check</code>: returns a purpose-specific band decision.</li>
-          <li><code>Governance_*</code>: timelocked score-configuration updates controlled by DAO authority.</li>
-          <li><code>Utils_*</code>: deterministic hash, band, config, and governance helper circuits.</li>
+          <li><code>Identity_register</code>: saves a new Veil identity for a wallet.</li>
+          <li><code>Reputation_prove</code>: checks a user&apos;s activity numbers are sensible, works out their band from those numbers, and stores the result.</li>
+          <li><code>Reputation_check</code>: answers &quot;does this user meet band X, for this purpose?&quot;</li>
+          <li><code>Governance_*</code>: lets the community propose and apply changes to how scoring works, with a mandatory waiting period before a change takes effect.</li>
+          <li><code>Utils_*</code>: small shared helper functions the other circuits use internally.</li>
         </ul>
 
-        <Callout variant="tip" title="Why many circuit arguments?">
-          Compact circuits do not implicitly trust off-chain SDK state. Passing the values explicitly
-          makes replay keys, commitments, proof bindings, and policy decisions auditable at the circuit boundary.
+        <Callout variant="tip" title="Why do circuit calls take so many arguments?">
+          The contract never assumes anything the SDK tells it is true just because the SDK said so —
+          it re-derives and double-checks everything itself from the values it&apos;s given. That&apos;s
+          why circuit calls look verbose: every value the contract needs to verify has to actually be
+          passed in, not implied.
         </Callout>
 
-        <h2 id="backend">Backend Scope</h2>
+        <h2 id="backend">What the Backend Doesn't Do</h2>
         <p>
-          The backend no longer exposes credit decisions, issuer events, DID resolution, score entry
-          creation, or CKB DOB orchestration. Those were v1 concepts. v2 backend endpoints are limited
-          to contract metadata, DUST sponsorship, and optional encrypted backup storage.
+          It&apos;s worth being explicit here: the backend does not decide anyone&apos;s reputation, does
+          not store credit decisions, and does not run any of the older (v1) credit-scoring machinery.
+          Today it only does three things: contract info, fee sponsorship, and optional encrypted backups.
         </p>
 
-        <h2 id="trust">Trust Boundaries</h2>
+        <h2 id="trust">Who You Have to Trust</h2>
         <ul>
-          <li>The SDK should be treated as integration tooling, not an oracle.</li>
-          <li>The proof server is stateless and can be self-hosted by protocols.</li>
-          <li>The backend cannot change a user&apos;s reputation band.</li>
-          <li>Governance authority should be DAO-controlled, never a single operator wallet.</li>
-          <li>Encrypted backups must be encrypted client-side before upload.</li>
+          <li>The SDK is just a toolkit — it doesn&apos;t make decisions, it just calls the contract.</li>
+          <li>The proof server does one job (generate proofs) and keeps no records; you can run your own instead of using Veil&apos;s.</li>
+          <li>The backend physically cannot change what band a user has — that lives on Midnight, not in a database it controls.</li>
+          <li>Changes to scoring rules should go through a DAO or multi-party process, not one person&apos;s wallet.</li>
+          <li>If you build backups, encrypt them on the user&apos;s device before you upload anything.</li>
         </ul>
 
         <PrevNext

@@ -23,32 +23,36 @@ export default function CkbWalletPage() {
 
         <h1>Identity Anchor</h1>
         <p className="prose-lead">
-          Veil v2 keeps the user flow to one EVM-compatible wallet while using a CKB lock hash as the
-          stable identity anchor under the hood.
+          You only ever connect one normal wallet (MetaMask or similar). Behind the scenes, Veil turns
+          that into a second, separate ID on a different chain (CKB) — this page explains why, and you
+          don&apos;t actually need to know any of it to use Veil.
         </p>
 
-        <h2 id="why-ckb">Why CKB?</h2>
+        <h2 id="why-ckb">Why a Second Chain?</h2>
         <p>
-          CKB gives Veil a stable identity anchor that can stay consistent across apps. Users do not
-          need to manage this directly; the app handles it during wallet connection.
+          Veil needs one stable, unchanging ID to attach a user&apos;s reputation to — something that
+          won&apos;t shift if they switch wallets or chains later. CKB gives it a reliable way to derive
+          that ID. You never see or manage this directly; the app handles it automatically when you connect.
         </p>
 
-        <h2 id="evm-flow">EVM Flow</h2>
+        <h2 id="evm-flow">Why Start With an EVM Wallet?</h2>
         <p>
-          The dashboard starts with an EVM wallet because that is the most familiar path for DeFi
-          users. The app maps that wallet to the identity anchor before creating the Veil ID.
+          Because that&apos;s what most DeFi users already have installed. The app takes the wallet you
+          connect, works out the matching CKB-based ID behind the scenes, and uses that as your Veil ID
+          going forward.
         </p>
 
         <Callout variant="info" title="Implementation note">
-          The current dashboard preview derives a deterministic local lock-hash placeholder. Production
-          deployments should replace it with the canonical CCC/CKB derivation adapter.
+          The current dashboard preview uses a simplified, local placeholder for this derivation step.
+          Production deployments should use the real CCC/CKB library for it instead.
         </Callout>
 
-        <h2 id="adapter">Adapter Requirement</h2>
+        <h2 id="adapter">If You're Integrating</h2>
         <p>
-          Integrators using <code>buildIdentityFromSigner</code> should provide
-          <code> deriveLockHashFromAddress</code>. That lets each app choose the wallet stack it wants
-          while keeping Veil identity derivation consistent.
+          If you use <code>buildIdentityFromSigner</code>, you need to supply a{" "}
+          <code>deriveLockHashFromAddress</code> function — basically, the piece of code that does the
+          &quot;wallet address in, CKB ID out&quot; conversion for whatever wallet library your app uses.
+          This keeps the derivation consistent no matter which wallet stack each app picks.
         </p>
 
         <PrevNext

@@ -7,7 +7,7 @@ import Toc from "../../../../components/toc";
 
 export const metadata: Metadata = {
   title: "SDK Guide",
-  description: "Build dApps and protocol integrations with @veil-protocol/sdk and @veil-protocol/react.",
+  description: "Build dApps and protocol integrations with @veil-reputation-protocol/sdk and @veil-protocol/react.",
 };
 
 const tocItems = [
@@ -25,7 +25,7 @@ const tocItems = [
   { id: "production", text: "Production Checklist", depth: 2 },
 ];
 
-const install = `bun add @veil-protocol/sdk
+const install = `bun add @veil-reputation-protocol/sdk
 bun add @veil-protocol/react
 
 # React package peers
@@ -38,9 +38,11 @@ NEXT_PUBLIC_PROOF_SERVER_URL=https://proof.your-app.example
 NEXT_PUBLIC_INDEXER_URL=https://indexer.preview.midnight.network/api/v4/graphql
 NEXT_PUBLIC_INDEXER_WS_URL=wss://indexer.preview.midnight.network/api/v4/graphql/ws
 NEXT_PUBLIC_ZK_CONFIG_BASE_URL=https://your-s3-bucket.s3.amazonaws.com/veil-protocol
-NEXT_PUBLIC_ETHEREUM_RPC_URL=https://eth-mainnet.g.alchemy.com/v2/...`;
+NEXT_PUBLIC_ETHEREUM_RPC_URL=https://eth-mainnet.g.alchemy.com/v2/...
+NEXT_PUBLIC_CKB_RPC_URL=https://testnet.ckb.dev/rpc
+NEXT_PUBLIC_EVM_CHAIN_RPCS='{"base":{"rpcUrl":"https://base.example","chainId":8453},"arbitrum":{"rpcUrl":"https://arb1.example","chainId":42161}}'`;
 
-const config = `import type { VeilConfig } from '@veil-protocol/sdk';
+const config = `import type { VeilConfig } from '@veil-reputation-protocol/sdk';
 
 export const veilConfig: VeilConfig = {
   contractAddress: process.env.NEXT_PUBLIC_CONTRACT_ADDRESS!,
@@ -55,10 +57,16 @@ export const veilConfig: VeilConfig = {
       rpcUrl: process.env.NEXT_PUBLIC_ETHEREUM_RPC_URL!,
       chainId: 1,
     },
+    ckb: process.env.NEXT_PUBLIC_CKB_RPC_URL
+      ? { rpcUrl: process.env.NEXT_PUBLIC_CKB_RPC_URL }
+      : undefined,
+    // Any other EVM-compatible chain can be included here.
+    base: { rpcUrl: 'https://base.example', chainId: 8453 },
+    arbitrum: { rpcUrl: 'https://arb1.example', chainId: 42161 },
   },
 };`;
 
-const provider = `import { createDerivedProvider } from '@veil-protocol/sdk';
+const provider = `import { createDerivedProvider } from '@veil-reputation-protocol/sdk';
 
 // signer is a wallet signer from your app. It must be able to sign a message.
 const midnightProvider = await createDerivedProvider(signer, veilConfig);
@@ -73,13 +81,15 @@ await midnightProvider.callTx('Identity_register', ...args);
 // Stop wallet sync when the page/app unmounts.
 await midnightProvider.stop();`;
 
-const client = `import { VeilClient } from '@veil-protocol/sdk';
+const client = `import { VeilClient } from '@veil-reputation-protocol/sdk';
 
 const client = new VeilClient(veilConfig, midnightProvider, {
   deriveLockHashFromAddress: resolveCkbLockHash,
   reputationReaders: {
     ethereumReader: readFromYourIndexer,
     ckbReader: readFromYourCkbIndexer,
+    // Required whenever you supply your own reader — see "Signal Readers" below.
+    readerPolicyHash: myRegisteredPolicyHash,
   },
 });
 
@@ -98,19 +108,25 @@ if (decision.meetsThreshold) {
 
 const directFunctions = `import {
   deriveVeilId,
+  DEFAULT_VEIL_ID_SALT,
   registerIdentity,
   proveReputation,
   checkReputation,
   batchCheckReputation,
   bandMeetsMinimum,
   padStringToBytes32,
-} from '@veil-protocol/sdk';
+} from '@veil-reputation-protocol/sdk';
 
 const passes = bandMeetsMinimum('gold', 'silver'); // true
-const purposeHash = padStringToBytes32('airdrop');`;
+const purposeHash = padStringToBytes32('airdrop');
+const veilId = deriveVeilId(lockHash, {
+  chainNamespace: padStringToBytes32('evm'),
+  salt: DEFAULT_VEIL_ID_SALT,
+  contractAddress: config.contractAddress,
+});`;
 
 const reactProvider = `import { ccc } from '@ckb-ccc/connector-react';
-import { createDerivedProvider } from '@veil-protocol/sdk';
+import { createDerivedProvider } from '@veil-reputation-protocol/sdk';
 import { VeilProvider } from '@veil-protocol/react';
 
 function AppProviders({ children }: { children: React.ReactNode }) {
@@ -176,7 +192,7 @@ function AirdropClaim({ veilId }: { veilId: string }) {
   );
 }`;
 
-const readers = `import type { EthereumSignalReader, CkbSignalReader } from '@veil-protocol/sdk';
+const readers = `import type { EthereumSignalReader, CkbSignalReader } from '@veil-reputation-protocol/sdk';
 
 export const ethereumReader: EthereumSignalReader = async (address, configs) => {
   const rows = await yourIndexer.lookupWallet(address, configs.map((c) => c.chainId));
@@ -203,7 +219,7 @@ export const ckbReader: CkbSignalReader = async (address) => {
   };
 };`;
 
-const sponsorship = `import { requestSponsorship } from '@veil-protocol/sdk';
+const sponsorship = `import { requestSponsorship } from '@veil-reputation-protocol/sdk';
 
 await requestSponsorship(
   'mn_dust_preview1...',               // user's Midnight preview DUST address
@@ -212,18 +228,13 @@ await requestSponsorship(
 
 const contractTooling = `import {
   FULL_CONTRACT_CIRCUITS,
-  BOOTSTRAP_CONTRACT_CIRCUITS,
-  POST_BOOTSTRAP_CONTRACT_CIRCUITS,
   makeFullCompiledContract,
-  makeBootstrapCompiledContract,
-} from '@veil-protocol/sdk';
+} from '@veil-reputation-protocol/sdk';
 
-console.log(FULL_CONTRACT_CIRCUITS.length);      // full deployed surface
-console.log(BOOTSTRAP_CONTRACT_CIRCUITS.length); // deployable first stage
-console.log(POST_BOOTSTRAP_CONTRACT_CIRCUITS);   // verifier keys installed after deploy
+console.log(FULL_CONTRACT_CIRCUITS); // every callable contract function, by name
 
-const full = makeFullCompiledContract('/zk/veil-protocol');
-const bootstrap = makeBootstrapCompiledContract('/zk/veil-protocol-bootstrap');`;
+// Points the SDK at your hosted proof/verifier files for this contract.
+const compiledContract = makeFullCompiledContract('/zk/veil-protocol');`;
 
 const decisionShape = `type ReputationDecision = {
   veilId: string;
@@ -283,7 +294,7 @@ export default function SdkReferencePage() {
         <div className="doc-card-grid two">
           <div className="doc-card">
             <span className="section-label">Core</span>
-            <h3>@veil-protocol/sdk</h3>
+            <h3>@veil-reputation-protocol/sdk</h3>
             <p>
               Framework-agnostic TypeScript package for dApps, protocol backends, CLIs, and deployment
               tooling. Use this when you want direct control over providers, readers, and transaction flow.
@@ -301,10 +312,10 @@ export default function SdkReferencePage() {
 
         <h2 id="urls">Required URLs</h2>
         <p>
-          A working dApp needs a contract address, a proof server URL, a hosted ZK artifact URL, and
-          an optional backend API URL. The proof server creates the proof work for Midnight. The backend
-          sponsors DUST and can return the active contract address. Your S3 bucket should serve the
-          compiled <code>keys</code> and <code>zkir</code> folders for <code>veil-protocol</code>.
+          A working app needs four things configured: where the contract lives, a proof server (this
+          does the heavy cryptographic work of building a proof), a place to fetch the contract&apos;s
+          compiled proof/verification files from (just static files on any HTTPS host — S3 works fine),
+          and optionally your backend, if you want it to cover transaction fees for users.
         </p>
         <table>
           <thead>
@@ -356,9 +367,10 @@ export default function SdkReferencePage() {
 
         <h2 id="provider">Midnight Provider</h2>
         <p>
-          The SDK needs a provider that can call Midnight circuits. In the browser, use
-          <code>createDerivedProvider</code>. It derives a Midnight wallet from the connected user wallet
-          and restores it from browser storage on later visits.
+          The SDK needs a way to actually talk to Midnight — that&apos;s the &quot;provider.&quot; In a
+          browser app, <code>createDerivedProvider</code> does this for you: it quietly creates a Midnight
+          wallet tied to the user&apos;s connected wallet, and remembers it in browser storage so they
+          don&apos;t have to redo this every visit.
         </p>
         <CodeBlock code={provider} language="typescript" filename="provider.ts" />
 
@@ -414,6 +426,23 @@ export default function SdkReferencePage() {
         </p>
         <CodeBlock code={readers} language="typescript" filename="readers.ts" />
 
+        <h3>Proving where the data came from</h3>
+        <p>
+          Every reputation proof carries a <code>readerPolicyHash</code> — a short ID for &quot;which
+          reader produced these numbers.&quot; The Veil contract keeps an allow-list of IDs it trusts,
+          controlled by governance, and rejects any proof whose ID isn&apos;t on it. This check happens
+          on-chain, as part of the same proof, not as a note attached afterward.
+        </p>
+        <p>
+          If you use the built-in readers shown above, you don&apos;t need to do anything — they already
+          stamp a known ID (<code>veil.default-rpc.v1</code>) that&apos;s registered from day one. If you
+          supply your own <code>ethereumReader</code> or <code>ckbReader</code>, you also need to: pick a
+          unique ID for it, have it added to the contract&apos;s allow-list (a governance action, same
+          process as adding a new chain), and pass that ID as <code>readerPolicyHash</code> alongside your
+          reader. Skip that last step and the SDK refuses to build the proof and tells you what&apos;s
+          missing, rather than silently mislabeling your data as coming from the default reader.
+        </p>
+
         <h2 id="backend">Backend Calls</h2>
         <p>
           The SDK only calls the backend for support tasks. It does not ask the backend for a band
@@ -445,8 +474,8 @@ export default function SdkReferencePage() {
 
         <h2 id="contracts">Contract Tooling</h2>
         <p>
-          Deployment tools can use the SDK constants to verify circuit coverage. Veil uses a staged
-          deployment because the full contract has more circuits than the bootstrap surface.
+          If you&apos;re writing a deploy script or a CLI, these low-level exports let you check exactly
+          which contract functions are available and point at the compiled contract files.
         </p>
         <CodeBlock code={contractTooling} language="typescript" filename="deployment.ts" />
 

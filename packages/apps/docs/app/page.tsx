@@ -40,7 +40,7 @@ const sections = [
     ),
     title: "Integration Guide",
     href: "/docs/integration",
-    desc: "Register identities, prove reputation, and consume band decisions with @veil-protocol/sdk.",
+    desc: "Register identities, prove reputation, and consume band decisions with @veil-reputation-protocol/sdk.",
   },
   {
     icon: (

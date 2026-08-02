@@ -49,10 +49,9 @@ export const defaultSupportedChainNamespaces = [
   padStringToBytes32("solana"),
   padStringToBytes32("cardano"),
   padStringToBytes32("bitcoin"),
-  new Uint8Array(32),
-  new Uint8Array(32),
-  new Uint8Array(32),
 ];
+export const defaultReaderPolicyHash = padStringToBytes32("veil.default-rpc.v1");
+export const defaultSupportedReaderPolicies = [defaultReaderPolicyHash];
 
 export class VeilScoreSimulator {
   readonly contract: Contract<VeilPrivateState>;
@@ -80,7 +79,8 @@ export class VeilScoreSimulator {
         defaultGovernanceGuardianThreshold,
         defaultGovernanceControllerVersion,
         0n,
-        defaultSupportedChainNamespaces
+        defaultSupportedChainNamespaces,
+        defaultSupportedReaderPolicies
       );
 
     this.circuitContext = {
@@ -194,6 +194,7 @@ export class VeilScoreSimulator {
     txConsistencyScore: bigint;
     chainNamespace: Uint8Array;
     chainCommitment: Uint8Array;
+    readerPolicyHash: Uint8Array;
     witnessSalt: Uint8Array;
   }): Uint8Array {
     return pureCircuits.Utils_deriveReputationWitnessCommitment(
@@ -206,6 +207,7 @@ export class VeilScoreSimulator {
       args.txConsistencyScore,
       args.chainNamespace,
       args.chainCommitment,
+      args.readerPolicyHash,
       args.witnessSalt
     );
   }
@@ -293,15 +295,16 @@ export class VeilScoreSimulator {
       lpTenureInDays: bigint;
       crossChainCount: bigint;
       txConsistencyScore: bigint;
-      claimedBand: bigint;
       chainNamespace?: Uint8Array;
       chainCommitment?: Uint8Array;
+      readerPolicyHash?: Uint8Array;
       witnessSalt?: Uint8Array;
       proofNonce?: Uint8Array;
     }
   ): bigint {
     const chainNamespace = signals.chainNamespace ?? padStringToBytes32("evm");
     const chainCommitment = signals.chainCommitment ?? randomBytes(32);
+    const readerPolicyHash = signals.readerPolicyHash ?? defaultReaderPolicyHash;
     const witnessSalt = signals.witnessSalt ?? randomBytes(32);
     const proofNonce = signals.proofNonce ?? randomBytes(32);
     const result = this.contract.impureCircuits.Reputation_prove(
@@ -313,9 +316,9 @@ export class VeilScoreSimulator {
       signals.lpTenureInDays,
       signals.crossChainCount,
       signals.txConsistencyScore,
-      signals.claimedBand,
       chainNamespace,
       chainCommitment,
+      readerPolicyHash,
       witnessSalt,
       proofNonce
     );
@@ -392,6 +395,20 @@ export class VeilScoreSimulator {
     const result = this.contract.impureCircuits.Governance_addSupportedChainNamespace(
       this.circuitContext,
       chainNamespace,
+      operationId,
+      signatureBundleHash,
+      nonce
+    );
+    this.updateStateAndGetResult(result);
+  }
+
+  addSupportedReaderPolicy(readerPolicyHash = randomBytes(32)): void {
+    const operationId = randomBytes(32);
+    const signatureBundleHash = randomBytes(32);
+    const nonce = randomBytes(32);
+    const result = this.contract.impureCircuits.Governance_addSupportedReaderPolicy(
+      this.circuitContext,
+      readerPolicyHash,
       operationId,
       signatureBundleHash,
       nonce

@@ -12,15 +12,47 @@ module Reputation {
         _lpTenureInDays: Uint<32>,
         _crossChainCount: Uint<32>,
         _txConsistencyScore: Uint<32>,
-        _claimedBand: Uint<8>,
         _chainNamespace: Bytes<32>,
         _chainCommitment: Bytes<32>,
+        _readerPolicyHash: Bytes<32>,
         _witnessSalt: Bytes<32>,
         _proofNonce: Bytes<32>
     ): Uint<8> {
         const veilIdHash = disclose(_veilIdHash);
         const chainNamespace = disclose(_chainNamespace);
+        const readerPolicyHash = disclose(_readerPolicyHash);
         const currentTime = Utils_retrieveAndVerifyTime();
+
+        assert (LedgerStates_identityRecords.member(veilIdHash), "Identity not registered");
+        assert (LedgerStates_identityRecords.lookup(veilIdHash).status == 1, "Identity is not active");
+        assert (LedgerStates_supportedChainNamespaces.member(chainNamespace), "Unsupported chain namespace");
+        assert (LedgerStates_supportedReaderPolicies.member(readerPolicyHash), "Untrusted reader policy");
+        assert (disclose(_chainCommitment) != default<Bytes<32>>, "Missing chain data commitment");
+        assert (disclose(_witnessSalt) != default<Bytes<32>>, "Invalid witness salt");
+        Utils_assertSignalBounds(
+            _walletAgeInDays,
+            _distinctProtocols,
+            _daoVoteCount,
+            _lpTenureInDays,
+            _crossChainCount,
+            _txConsistencyScore
+        );
+
+        // Score and band are derived here, from the live scoreConfig, rather than
+        // accepted as a caller-supplied claim — the prover cannot submit a band
+        // that doesn't match its own signals.
+        const walletAgeScore = _walletAgeInDays * LedgerStates_scoreConfig.walletAgeWeight;
+        const protocolScore = _distinctProtocols * LedgerStates_scoreConfig.protocolWeight;
+        const daoScore = _daoVoteCount * LedgerStates_scoreConfig.daoWeight;
+        const lpScore = _lpTenureInDays * LedgerStates_scoreConfig.lpWeight;
+        const crossChainScore = _crossChainCount * LedgerStates_scoreConfig.crossChainWeight;
+        const consistencyScore = _txConsistencyScore * LedgerStates_scoreConfig.consistencyWeight;
+        const behaviorScore = walletAgeScore + protocolScore + daoScore + lpScore + crossChainScore + consistencyScore;
+        const unclampedScore = LedgerStates_scoreConfig.baseScore + behaviorScore;
+        const rawScore = unclampedScore as Uint<32>;
+        assert (rawScore <= LedgerStates_scoreConfig.maxScore, "Score exceeds max score");
+        const band = Utils_deriveBand(rawScore);
+
         const witnessCommitment = Utils_deriveReputationWitnessCommitment(
             _veilIdHash,
             _walletAgeInDays,
@@ -31,31 +63,18 @@ module Reputation {
             _txConsistencyScore,
             _chainNamespace,
             _chainCommitment,
+            _readerPolicyHash,
             _witnessSalt
         );
         const proofHash = Utils_deriveReputationProofHash(
             _veilIdHash,
             witnessCommitment,
-            _claimedBand,
+            band,
             _proofNonce,
             Utils_deriveScoreConfigHash()
         );
-
-        assert (LedgerStates_identityRecords.member(veilIdHash), "Identity not registered");
-        assert (LedgerStates_identityRecords.lookup(veilIdHash).status == 1, "Identity is not active");
-        assert (LedgerStates_supportedChainNamespaces.member(chainNamespace), "Unsupported chain namespace");
-        assert (disclose(_chainCommitment) != default<Bytes<32>>, "Missing chain data commitment");
-        assert (disclose(_witnessSalt) != default<Bytes<32>>, "Invalid witness salt");
         assert (witnessCommitment != default<Bytes<32>>, "Invalid witness commitment");
         assert (proofHash != default<Bytes<32>>, "Invalid proof hash");
-        Utils_assertSignalBounds(
-            _walletAgeInDays,
-            _distinctProtocols,
-            _daoVoteCount,
-            _lpTenureInDays,
-            _crossChainCount,
-            _txConsistencyScore
-        );
 
         const nonceReplayKey = persistentHash<Vector<4, Bytes<32>>>([
             pad(32, "veil:v2:reputation:nonce"),
@@ -75,8 +94,6 @@ module Reputation {
         LedgerStates_processedProofs.insert(nonceReplayKey);
         LedgerStates_processedProofs.insert(proofReplayKey);
 
-        assert (disclose(_claimedBand) <= 4, "Invalid claimed band");
-
         const maybeExisting = Utils_getReputationByVeilId(veilIdHash);
         if (disclose(maybeExisting.is_some)) {
             const existingCommitment = persistentCommit<CustomStructs_ReputationScore>(
@@ -86,19 +103,6 @@ module Reputation {
             Utils_assertReputationCommitment(existingCommitment, maybeExisting.is_some);
             Utils_deleteReputationCommitmentByIndex(maybeExisting.value.mtIndex);
         }
-
-        const walletAgeScore = _walletAgeInDays * LedgerStates_scoreConfig.walletAgeWeight;
-        const protocolScore = _distinctProtocols * LedgerStates_scoreConfig.protocolWeight;
-        const daoScore = _daoVoteCount * LedgerStates_scoreConfig.daoWeight;
-        const lpScore = _lpTenureInDays * LedgerStates_scoreConfig.lpWeight;
-        const crossChainScore = _crossChainCount * LedgerStates_scoreConfig.crossChainWeight;
-        const consistencyScore = _txConsistencyScore * LedgerStates_scoreConfig.consistencyWeight;
-        const behaviorScore = walletAgeScore + protocolScore + daoScore + lpScore + crossChainScore + consistencyScore;
-        const unclampedScore = LedgerStates_scoreConfig.baseScore + behaviorScore;
-        const rawScore = unclampedScore as Uint<32>;
-        assert (rawScore <= LedgerStates_scoreConfig.maxScore, "Score exceeds max score");
-        const band = disclose(_claimedBand);
-        Utils_assertBandMatchesScore(rawScore, band);
 
         const reputation = CustomStructs_ReputationScore {
             veilIdHash,
@@ -112,6 +116,7 @@ module Reputation {
             txConsistencyScore: _txConsistencyScore,
             chainNamespace: chainNamespace,
             chainCommitment: disclose(_chainCommitment),
+            readerPolicyHash: readerPolicyHash,
             witnessCommitment: witnessCommitment,
             proofHash: proofHash,
             lastUpdatedEpoch: currentTime,

@@ -2,14 +2,11 @@ import { utils } from 'nite-api';
 import {
   Contract as VeilContractClass,
   pureCircuits,
-  witness,
-  createVeilPrivateState,
   type CustomStructs_ScoreConfig,
-  type VeilPrivateState,
   type Witnesses,
-} from '@veil/veil-contract';
-import { toBytes32 } from '../utils/bytes';
-import { extractCircuitResult } from '../utils/bytes';
+} from '../vendor/managed/veil-protocol/contract/index.js';
+import { witness, createVeilPrivateState, type VeilPrivateState } from '../vendor/witness';
+import { padStringToBytes32, toBytes32 } from '../utils/bytes';
 import type { BytesLike, VeilCallTx } from '../types';
 
 export type {
@@ -22,7 +19,7 @@ export type {
   CustomStructs_VeilIdentityRecord,
   CustomStructs_GuardianController,
   Ledger,
-} from '@veil/veil-contract';
+} from '../vendor/managed/veil-protocol/contract/index.js';
 export type { VeilPrivateState, Witnesses };
 export { createVeilPrivateState, pureCircuits, witness };
 
@@ -32,7 +29,6 @@ export const PRIVATE_STATE_ID = 'veil_ps' as const;
 export type PrivateStateId = typeof PRIVATE_STATE_ID;
 
 export const FULL_CONTRACT_CIRCUITS = [
-  'Utils_deriveVeilId',
   'Identity_register',
   'Identity_assertActive',
   'Reputation_prove',
@@ -40,6 +36,8 @@ export const FULL_CONTRACT_CIRCUITS = [
   'Governance_proposeScoreConfig',
   'Governance_applyScoreConfig',
   'Governance_cancelScoreConfig',
+  'Governance_addSupportedChainNamespace',
+  'Governance_addSupportedReaderPolicy',
 ] as const;
 
 export type FullContractCircuitId = (typeof FULL_CONTRACT_CIRCUITS)[number];
@@ -67,6 +65,25 @@ export const DEFAULT_GOVERNANCE_GUARDIAN_THRESHOLD = 3n;
 export const DEFAULT_GOVERNANCE_CONTROLLER_VERSION = 1n;
 
 export const DEFAULT_GOVERNANCE_TIMELOCK_EPOCHS = 10n;
+export const DEFAULT_SUPPORTED_CHAIN_NAMESPACES = [
+  padStringToBytes32('evm'),
+  padStringToBytes32('ckb'),
+  padStringToBytes32('solana'),
+  padStringToBytes32('cardano'),
+  padStringToBytes32('bitcoin'),
+] as const;
+
+/**
+ * Identifies the SDK's built-in evidence reader (readEthereumSignals +
+ * readCKBSignals). "v1" so it can be superseded by a stricter, documented
+ * policy later without breaking proofs already bound to this one. The
+ * contract only accepts proofs whose readerPolicyHash is on its
+ * governance-approved list — this is the value deployments must seed at
+ * genesis for the SDK's default reader to be usable at all.
+ */
+export const DEFAULT_READER_POLICY_ID = 'veil.default-rpc.v1';
+export const DEFAULT_READER_POLICY_HASH = padStringToBytes32(DEFAULT_READER_POLICY_ID);
+export const DEFAULT_SUPPORTED_READER_POLICIES = [DEFAULT_READER_POLICY_HASH] as const;
 
 // ─── Compiled contract factories ─────────────────────────────────────────────
 
@@ -80,13 +97,13 @@ export type VeilIdentityRegistrationInput = {
   chainNamespace: BytesLike;
   publicKeyOrLockHashCommitment: BytesLike;
   walletSignatureHash: BytesLike;
-  currentEpoch: bigint;
 };
 
 export type VeilIdentityDerivationInput = {
   rawPublicKeyOrLockHash: BytesLike;
   chainNamespace: BytesLike;
   salt: BytesLike;
+  contractAddress: BytesLike;
 };
 
 export type VeilIdentityProofHashInput = {
@@ -104,8 +121,9 @@ export type ReputationSignals = {
   lpTenureInDays: bigint;
   crossChainCount: bigint;
   txConsistencyScore: bigint;
-  ethChainCommitment: BytesLike;
-  ckbChainCommitment: BytesLike;
+  chainNamespace: BytesLike;
+  chainCommitment: BytesLike;
+  readerPolicyHash: BytesLike;
   witnessSalt: BytesLike;
 };
 
@@ -119,9 +137,7 @@ export type ReputationProofBindingInput = {
 
 export type ReputationProofInput = ReputationSignals & {
   veilIdHash: BytesLike;
-  claimedBand: bigint;
   proofNonce: BytesLike;
-  currentEpoch: bigint;
 };
 
 export type ReputationCheckInput = {
@@ -129,12 +145,11 @@ export type ReputationCheckInput = {
   requesterAddressHash: BytesLike;
   purposeHash: BytesLike;
   minimumBand: bigint;
-  currentEpoch: bigint;
 };
 
 export type GovernanceActionInput = {
   actionTag: BytesLike;
-  scoreConfigHash: BytesLike;
+  payloadHash: BytesLike;
   operationId: BytesLike;
   effectiveEpoch: bigint;
   contractAddress: BytesLike;
@@ -151,7 +166,6 @@ export type GovernanceProofInput = {
 
 export type ScoreConfigProposalInput = {
   nextConfig: CustomStructs_ScoreConfig;
-  currentEpoch: bigint;
   operationId: BytesLike;
   signatureBundleHash: BytesLike;
   governanceNonce: BytesLike;
@@ -165,7 +179,6 @@ export const buildIdentityRegistrationArgs = (input: VeilIdentityRegistrationInp
     toBytes32(input.chainNamespace, 'chainNamespace'),
     toBytes32(input.publicKeyOrLockHashCommitment, 'publicKeyOrLockHashCommitment'),
     toBytes32(input.walletSignatureHash, 'walletSignatureHash'),
-    input.currentEpoch,
   ] as const;
 
 export const buildReputationProofArgs = (input: ReputationProofInput) =>
@@ -177,12 +190,11 @@ export const buildReputationProofArgs = (input: ReputationProofInput) =>
     input.lpTenureInDays,
     input.crossChainCount,
     input.txConsistencyScore,
-    input.claimedBand,
-    toBytes32(input.ethChainCommitment, 'ethChainCommitment'),
-    toBytes32(input.ckbChainCommitment, 'ckbChainCommitment'),
+    toBytes32(input.chainNamespace, 'chainNamespace'),
+    toBytes32(input.chainCommitment, 'chainCommitment'),
+    toBytes32(input.readerPolicyHash, 'readerPolicyHash'),
     toBytes32(input.witnessSalt, 'witnessSalt'),
     toBytes32(input.proofNonce, 'proofNonce'),
-    input.currentEpoch,
   ] as const;
 
 export const buildReputationCheckArgs = (input: ReputationCheckInput) =>
@@ -191,13 +203,11 @@ export const buildReputationCheckArgs = (input: ReputationCheckInput) =>
     toBytes32(input.requesterAddressHash, 'requesterAddressHash'),
     toBytes32(input.purposeHash, 'purposeHash'),
     input.minimumBand,
-    input.currentEpoch,
   ] as const;
 
 export const buildScoreConfigProposalArgs = (input: ScoreConfigProposalInput) =>
   [
     input.nextConfig,
-    input.currentEpoch,
     toBytes32(input.operationId, 'operationId'),
     toBytes32(input.signatureBundleHash, 'signatureBundleHash'),
     toBytes32(input.governanceNonce, 'governanceNonce'),
@@ -213,8 +223,9 @@ export const deriveReputationWitnessCommitment = (
   lpTenureInDays: bigint,
   crossChainCount: bigint,
   txConsistencyScore: bigint,
-  ethChainCommitment: BytesLike,
-  ckbChainCommitment: BytesLike,
+  chainNamespace: BytesLike,
+  chainCommitment: BytesLike,
+  readerPolicyHash: BytesLike,
   witnessSalt: BytesLike,
 ): Uint8Array =>
   pureCircuits.Utils_deriveReputationWitnessCommitment(
@@ -225,8 +236,9 @@ export const deriveReputationWitnessCommitment = (
     lpTenureInDays,
     crossChainCount,
     txConsistencyScore,
-    toBytes32(ethChainCommitment, 'ethChainCommitment'),
-    toBytes32(ckbChainCommitment, 'ckbChainCommitment'),
+    toBytes32(chainNamespace, 'chainNamespace'),
+    toBytes32(chainCommitment, 'chainCommitment'),
+    toBytes32(readerPolicyHash, 'readerPolicyHash'),
     toBytes32(witnessSalt, 'witnessSalt'),
   );
 
@@ -242,12 +254,21 @@ export const deriveReputationWitnessCommitmentFromSignals = (
     signals.lpTenureInDays,
     signals.crossChainCount,
     signals.txConsistencyScore,
-    signals.ethChainCommitment,
-    signals.ckbChainCommitment,
+    signals.chainNamespace,
+    signals.chainCommitment,
+    signals.readerPolicyHash,
     signals.witnessSalt,
   );
 
 // ─── Pure helper derivations ─────────────────────────────────────────────────
+
+export const deriveVeilIdHash = (input: VeilIdentityDerivationInput): Uint8Array =>
+  pureCircuits.Utils_deriveVeilId(
+    toBytes32(input.rawPublicKeyOrLockHash, 'rawPublicKeyOrLockHash'),
+    toBytes32(input.chainNamespace, 'chainNamespace'),
+    toBytes32(input.salt, 'salt'),
+    { bytes: toBytes32(input.contractAddress, 'contractAddress') },
+  );
 
 export const deriveIdentityProofHash = (input: VeilIdentityProofHashInput): Uint8Array =>
   pureCircuits.Utils_deriveIdentityProofHash(
@@ -279,7 +300,7 @@ export const deriveReputationProofHash = (input: ReputationProofBindingInput): U
 export const deriveGovernanceActionHash = (input: GovernanceActionInput): Uint8Array =>
   pureCircuits.Utils_deriveGovernanceActionHash(
     toBytes32(input.actionTag, 'actionTag'),
-    toBytes32(input.scoreConfigHash, 'scoreConfigHash'),
+    toBytes32(input.payloadHash, 'payloadHash'),
     toBytes32(input.operationId, 'operationId'),
     input.effectiveEpoch,
     toBytes32(input.contractAddress, 'contractAddress'),
@@ -309,22 +330,6 @@ export const deriveGovernanceProofHash = (input: GovernanceProofInput): Uint8Arr
 export const deriveCommunityWeightBps = (band: bigint): bigint =>
   pureCircuits.Utils_deriveCommunityWeightBps(band);
 
-// ─── On-chain utility call wrappers ──────────────────────────────────────────
-
-export const deriveVeilIdOnChain = async (
-  api: VeilCallTx,
-  input: VeilIdentityDerivationInput,
-): Promise<Uint8Array> =>
-  extractCircuitResult<Uint8Array>(
-    await api.callTx(
-      'Utils_deriveVeilId',
-      toBytes32(input.rawPublicKeyOrLockHash, 'rawPublicKeyOrLockHash'),
-      toBytes32(input.chainNamespace, 'chainNamespace'),
-      toBytes32(input.salt, 'salt'),
-    ),
-    'Utils_deriveVeilId',
-  );
-
 export const submitIdentityRegistration = (api: VeilCallTx, input: VeilIdentityRegistrationInput): Promise<unknown> =>
   api.callTx('Identity_register', ...buildIdentityRegistrationArgs(input));
 
@@ -340,8 +345,8 @@ export const submitReputationCheck = (api: VeilCallTx, input: ReputationCheckInp
 export const proposeScoreConfig = (api: VeilCallTx, input: ScoreConfigProposalInput): Promise<unknown> =>
   api.callTx('Governance_proposeScoreConfig', ...buildScoreConfigProposalArgs(input));
 
-export const applyScoreConfig = (api: VeilCallTx, currentEpoch: bigint): Promise<unknown> =>
-  api.callTx('Governance_applyScoreConfig', currentEpoch);
+export const applyScoreConfig = (api: VeilCallTx): Promise<unknown> =>
+  api.callTx('Governance_applyScoreConfig');
 
 export type ScoreConfigCancelInput = {
   operationId: BytesLike;
@@ -352,6 +357,44 @@ export type ScoreConfigCancelInput = {
 export const cancelScoreConfig = (api: VeilCallTx, input: ScoreConfigCancelInput): Promise<unknown> =>
   api.callTx(
     'Governance_cancelScoreConfig',
+    toBytes32(input.operationId, 'operationId'),
+    toBytes32(input.signatureBundleHash, 'signatureBundleHash'),
+    toBytes32(input.governanceNonce, 'governanceNonce'),
+  );
+
+export type SupportedChainNamespaceInput = {
+  chainNamespace: BytesLike;
+  operationId: BytesLike;
+  signatureBundleHash: BytesLike;
+  governanceNonce: BytesLike;
+};
+
+export const addSupportedChainNamespace = (
+  api: VeilCallTx,
+  input: SupportedChainNamespaceInput,
+): Promise<unknown> =>
+  api.callTx(
+    'Governance_addSupportedChainNamespace',
+    toBytes32(input.chainNamespace, 'chainNamespace'),
+    toBytes32(input.operationId, 'operationId'),
+    toBytes32(input.signatureBundleHash, 'signatureBundleHash'),
+    toBytes32(input.governanceNonce, 'governanceNonce'),
+  );
+
+export type SupportedReaderPolicyInput = {
+  readerPolicyHash: BytesLike;
+  operationId: BytesLike;
+  signatureBundleHash: BytesLike;
+  governanceNonce: BytesLike;
+};
+
+export const addSupportedReaderPolicy = (
+  api: VeilCallTx,
+  input: SupportedReaderPolicyInput,
+): Promise<unknown> =>
+  api.callTx(
+    'Governance_addSupportedReaderPolicy',
+    toBytes32(input.readerPolicyHash, 'readerPolicyHash'),
     toBytes32(input.operationId, 'operationId'),
     toBytes32(input.signatureBundleHash, 'signatureBundleHash'),
     toBytes32(input.governanceNonce, 'governanceNonce'),

@@ -4,7 +4,7 @@ Small support service for Veil Protocol v2.
 
 The backend is no longer a credit-scoring oracle. It does not accept behavioral events, compute user
 scores, create credit decisions, or submit identity/reputation Midnight transactions for users. Those
-flows are handled by the Midnight contract and `@veil-protocol/sdk`.
+flows are handled by the Midnight contract and `@veil-reputation-protocol/sdk`.
 
 ## Responsibilities
 
@@ -88,4 +88,4 @@ The v1 credit-scoring endpoints are intentionally no longer mounted:
 - CKB DOB mint intent and record endpoints
 - score-entry lifecycle endpoints
 
-Use `@veil-protocol/sdk` for identity registration, reputation proof submission, and band checks.
+Use `@veil-reputation-protocol/sdk` for identity registration, reputation proof submission, and band checks.

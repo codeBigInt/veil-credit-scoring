@@ -66,6 +66,16 @@ const DEFAULT_GOVERNANCE_GUARDIAN_SET_HASH = new Uint8Array([
 ]);
 const DEFAULT_GOVERNANCE_GUARDIAN_THRESHOLD = 3n;
 const DEFAULT_GOVERNANCE_CONTROLLER_VERSION = 1n;
+const DEFAULT_SUPPORTED_CHAIN_NAMESPACES = [
+  pad('evm', 32),
+  pad('ckb', 32),
+  pad('solana', 32),
+  pad('cardano', 32),
+  pad('bitcoin', 32),
+];
+
+// Must match the SDK's DEFAULT_READER_POLICY_HASH.
+const DEFAULT_SUPPORTED_READER_POLICIES = [pad('veil.default-rpc.v1', 32)];
 
 const isIterable = (value: unknown): value is Iterable<unknown> =>
   value != null && typeof value === 'object' && Symbol.iterator in value;
@@ -267,7 +277,6 @@ const prompt = async (rli: Interface, question: string): Promise<string> => {
 };
 
 const FULL_CONTRACT_CIRCUITS = [
-  'Utils_deriveVeilId',
   'Identity_register',
   'Identity_assertActive',
   'Reputation_prove',
@@ -275,6 +284,7 @@ const FULL_CONTRACT_CIRCUITS = [
   'Governance_proposeScoreConfig',
   'Governance_applyScoreConfig',
   'Governance_cancelScoreConfig',
+  'Governance_addSupportedChainNamespace',
 ] as const;
 
 const assertZkArtifacts = async (
@@ -304,7 +314,7 @@ const assertZkArtifacts = async (
     throw new Error(
       [
         `Missing ${label} ZK artifacts required for deployment.`,
-        'Run `bun --filter @veil/veil-contract compile` before deploying.',
+        'Run `bun --filter @veil-reputation-protocol/contract compile` before deploying.',
         'Do not use `test:compile` for deployable artifacts because it uses `--skip-zk`.',
         `Missing files:\n${missing.map((file) => `- ${file}`).join('\n')}`,
       ].join('\n'),
@@ -328,6 +338,8 @@ const deployVeilContract = async (
       DEFAULT_GOVERNANCE_GUARDIAN_THRESHOLD,
       DEFAULT_GOVERNANCE_CONTROLLER_VERSION,
       GOVERNANCE_TIMELOCK_EPOCHS,
+      DEFAULT_SUPPORTED_CHAIN_NAMESPACES,
+      DEFAULT_SUPPORTED_READER_POLICIES,
     ],
     logger,
   });
@@ -576,7 +588,7 @@ const menuLoop = async (
   while (true) {
       const choice = await prompt(
         rli,
-      '\n1. Register identity\n2. Prove reputation\n3. Check reputation\n4. Propose score config\n5. Apply score config\n6. Show ledger state\n7. Show private state\n8. Exit\nChoose: ',
+      '\n1. Register identity\n2. Prove reputation\n3. Check reputation\n4. Propose score config\n5. Apply score config\n6. Add supported chain namespace\n7. Add supported reader policy\n8. Show ledger state\n9. Show private state\n10. Exit\nChoose: ',
       );
 
     try {
@@ -585,7 +597,6 @@ const menuLoop = async (
         const chainNamespace = (await askOptionalBytes32(rli, 'chain namespace bytes32 (hex)')) ?? pad('ckb', 32);
         const publicKeyOrLockHashCommitment = await askBytes32OrRandom(rli, 'public key / lock hash commitment (hex)');
         const walletSignatureHash = await askBytes32OrRandom(rli, 'wallet signature hash (hex)');
-        const currentEpoch = await askBigInt(rli, 'current epoch', BigInt(Date.now()));
 
         await callTx(
           api,
@@ -594,7 +605,6 @@ const menuLoop = async (
           chainNamespace,
           publicKeyOrLockHashCommitment,
           walletSignatureHash,
-          currentEpoch,
         );
 
         cachedVeilIdHash = veilIdHash;
@@ -610,14 +620,14 @@ const menuLoop = async (
         const lpTenureInDays = await askBigInt(rli, 'lpTenureInDays', 10n);
         const crossChainCount = await askBigInt(rli, 'crossChainCount', 1n);
         const txConsistencyScore = await askBigInt(rli, 'txConsistencyScore', 2n);
-        const claimedBand = await askBigInt(rli, 'claimedBand (0..4)', 3n);
-        const ethChainCommitment = await askBytes32OrRandom(rli, 'ETH chain commitment (hex)');
-        const ckbChainCommitment = (await askOptionalBytes32(rli, 'CKB chain commitment (hex)')) ?? new Uint8Array(32);
+        const chainNamespace = (await askOptionalBytes32(rli, 'evidence chain namespace bytes32 (hex)')) ?? pad('evm', 32);
+        const chainCommitment = await askBytes32OrRandom(rli, 'chain commitment (hex)');
+        const readerPolicyHash =
+          (await askOptionalBytes32(rli, 'reader policy hash bytes32 (hex)')) ?? DEFAULT_SUPPORTED_READER_POLICIES[0];
         const witnessSalt = await askBytes32OrRandom(rli, 'witness salt (hex)');
         const proofNonce = await askBytes32OrRandom(rli, 'proof nonce (hex)');
-        const currentEpoch = await askBigInt(rli, 'current epoch', BigInt(Date.now()));
 
-        await callTx(
+        const band = await callTx<bigint>(
           api,
           'Reputation_prove',
           veilIdHash,
@@ -627,16 +637,15 @@ const menuLoop = async (
           lpTenureInDays,
           crossChainCount,
           txConsistencyScore,
-          claimedBand,
-          ethChainCommitment,
-          ckbChainCommitment,
+          chainNamespace,
+          chainCommitment,
+          readerPolicyHash,
           witnessSalt,
           proofNonce,
-          currentEpoch,
         );
 
         cachedVeilIdHash = veilIdHash;
-        logger.info(`Reputation proof accepted. band=${claimedBand.toString()}`);
+        logger.info(`Reputation proof accepted. band=${band.toString()}`);
         continue;
       }
 
@@ -645,7 +654,6 @@ const menuLoop = async (
         const requesterAddressHash = await askBytes32OrRandom(rli, 'requester address hash (hex)');
         const purposeHash = (await askOptionalBytes32(rli, 'purpose hash (hex)')) ?? pad('cli-check', 32);
         const minimumBand = await askBigInt(rli, 'minimumBand (0..4)', 2n);
-        const currentEpoch = await askBigInt(rli, 'current epoch', BigInt(Date.now()));
 
         const decision = await callTx(
           api,
@@ -654,7 +662,6 @@ const menuLoop = async (
           requesterAddressHash,
           purposeHash,
           minimumBand,
-          currentEpoch,
         );
 
         logger.info({ decision: formatContractState(decision) }, 'Reputation decision');
@@ -662,7 +669,6 @@ const menuLoop = async (
       }
 
       if (choice === '4') {
-        const currentEpoch = await askBigInt(rli, 'proposal epoch', BigInt(Date.now()));
         const nextConfig: CustomStructs_ScoreConfig = {
           ...DEFAULT_SCORE_CONFIG,
           baseScore: await askBigInt(rli, 'new baseScore', 320n),
@@ -679,33 +685,68 @@ const menuLoop = async (
           api,
           'Governance_proposeScoreConfig',
           nextConfig,
-          currentEpoch,
           operationId,
           signatureBundleHash,
           governanceNonce,
         );
-        logger.info(`Score config proposed. executableAt=${(currentEpoch + GOVERNANCE_TIMELOCK_EPOCHS).toString()}`);
+        logger.info(`Score config proposed. Timelock duration=${GOVERNANCE_TIMELOCK_EPOCHS.toString()} seconds`);
         continue;
       }
 
       if (choice === '5') {
-        const currentEpoch = await askBigInt(rli, 'current epoch', BigInt(Date.now()));
-        await callTx(api, 'Governance_applyScoreConfig', currentEpoch);
+        await callTx(api, 'Governance_applyScoreConfig');
         logger.info('Pending score config applied');
         continue;
       }
 
       if (choice === '6') {
-        await printLedger(api);
+        const chainNamespace = (await askOptionalBytes32(rli, 'chain namespace bytes32 (hex)')) ?? pad('evm', 32);
+        const operationId = await askBytes32OrRandom(rli, 'guardian operation id (hex)');
+        const signatureBundleHash = await askBytes32OrRandom(rli, 'guardian signature bundle hash (hex)');
+        const governanceNonce = await askBytes32OrRandom(rli, 'governance nonce (hex)');
+
+        await callTx(
+          api,
+          'Governance_addSupportedChainNamespace',
+          chainNamespace,
+          operationId,
+          signatureBundleHash,
+          governanceNonce,
+        );
+        logger.info(`Supported chain namespace added: ${toHex(chainNamespace)}`);
         continue;
       }
 
       if (choice === '7') {
+        const readerPolicyHash =
+          (await askOptionalBytes32(rli, 'reader policy hash bytes32 (hex)')) ?? DEFAULT_SUPPORTED_READER_POLICIES[0];
+        const operationId = await askBytes32OrRandom(rli, 'guardian operation id (hex)');
+        const signatureBundleHash = await askBytes32OrRandom(rli, 'guardian signature bundle hash (hex)');
+        const governanceNonce = await askBytes32OrRandom(rli, 'governance nonce (hex)');
+
+        await callTx(
+          api,
+          'Governance_addSupportedReaderPolicy',
+          readerPolicyHash,
+          operationId,
+          signatureBundleHash,
+          governanceNonce,
+        );
+        logger.info(`Supported reader policy added: ${toHex(readerPolicyHash)}`);
+        continue;
+      }
+
+      if (choice === '8') {
+        await printLedger(api);
+        continue;
+      }
+
+      if (choice === '9') {
         await printPrivateState(api);
         continue;
       }
 
-      if (choice === '8') return;
+      if (choice === '10') return;
     } catch (error) {
       logDeepError(logger, 'Menu action failed', error);
     }

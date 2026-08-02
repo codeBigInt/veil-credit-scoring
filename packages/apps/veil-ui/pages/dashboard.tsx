@@ -5,13 +5,15 @@ import {
   buildRegistrationMessage,
   bytesToHex,
   createDerivedProvider,
+  DEFAULT_VEIL_ID_SALT,
   deriveVeilId,
+  padStringToBytes32,
   VeilClient,
   type CCCSigner,
   type DerivedProviderHandle,
   type ReputationProof,
   type VeilConfig,
-} from '@veil-protocol/sdk';
+} from '@veil-reputation-protocol/sdk';
 
 type EthereumProvider = {
   request(args: { method: string; params?: unknown[] }): Promise<unknown>;
@@ -88,12 +90,42 @@ const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? '';
 const PROOF_SERVER_URL = process.env.NEXT_PUBLIC_PROOF_SERVER_URL;
 const ZK_CONFIG_BASE_URL = process.env.NEXT_PUBLIC_ZK_CONFIG_BASE_URL;
 const ETHEREUM_RPC_URL = process.env.NEXT_PUBLIC_ETHEREUM_RPC_URL ?? '';
+const CKB_RPC_URL = process.env.NEXT_PUBLIC_CKB_RPC_URL ?? '';
+const EVM_CHAIN_RPCS_JSON = process.env.NEXT_PUBLIC_EVM_CHAIN_RPCS ?? '';
 const MIDNIGHT_EXPLORER_URL = process.env.NEXT_PUBLIC_MIDNIGHT_EXPLORER_URL ?? '';
 const MIDNIGHT_TX_URL_TEMPLATE = process.env.NEXT_PUBLIC_MIDNIGHT_TX_URL_TEMPLATE ?? '';
 const DUST_SPONSOR_SYNC_TIMEOUT_MS = Number.parseInt(
   process.env.NEXT_PUBLIC_DUST_SPONSOR_SYNC_TIMEOUT_MS ?? '',
   10,
 );
+
+type EvmChainEnv = Record<string, string | { rpcUrl?: string; chainId?: number }>;
+
+const parseConfiguredChains = (): VeilConfig['chains'] => {
+  const chains: VeilConfig['chains'] = {};
+
+  if (ETHEREUM_RPC_URL) chains.ethereum = { rpcUrl: ETHEREUM_RPC_URL, chainId: 1 };
+  if (CKB_RPC_URL) chains.ckb = { rpcUrl: CKB_RPC_URL };
+
+  if (!EVM_CHAIN_RPCS_JSON.trim()) return chains;
+
+  try {
+    const parsed = JSON.parse(EVM_CHAIN_RPCS_JSON) as EvmChainEnv;
+    for (const [name, value] of Object.entries(parsed)) {
+      if (name === 'ckb') continue;
+      const rpcUrl = typeof value === 'string' ? value : value.rpcUrl;
+      if (!rpcUrl) continue;
+      chains[name] = {
+        rpcUrl,
+        chainId: typeof value === 'string' ? undefined : value.chainId,
+      };
+    }
+  } catch (error) {
+    console.warn('[Veil] Ignoring invalid NEXT_PUBLIC_EVM_CHAIN_RPCS JSON', error);
+  }
+
+  return chains;
+};
 
 const config: VeilConfig = {
   contractAddress: CONTRACT_ADDRESS,
@@ -106,9 +138,7 @@ const config: VeilConfig = {
   zkArtifactsBaseUrl: ZK_CONFIG_BASE_URL,
   midnightRpc: process.env.NEXT_PUBLIC_INDEXER_URL,
   midnightIndexerWsUrl: process.env.NEXT_PUBLIC_INDEXER_WS_URL,
-  chains: {
-    ethereum: ETHEREUM_RPC_URL ? { rpcUrl: ETHEREUM_RPC_URL, chainId: 1 } : undefined,
-  },
+  chains: parseConfiguredChains(),
 };
 
 const sha256Bytes = async (value: string): Promise<Uint8Array> => {
@@ -490,7 +520,13 @@ export default function DashboardPage() {
     }
 
     setLockHash(nextLockHash);
-    setVeilId(deriveVeilId(nextLockHash));
+    setVeilId(CONTRACT_ADDRESS
+      ? deriveVeilId(nextLockHash, {
+          chainNamespace: padStringToBytes32('evm'),
+          salt: DEFAULT_VEIL_ID_SALT,
+          contractAddress: CONTRACT_ADDRESS,
+        })
+      : '');
     setRegistrationTx('');
     setProof(null);
     setBackupRestored(false);
@@ -690,6 +726,7 @@ export default function DashboardPage() {
 
       const signer = new EvmWalletSigner(provider, address);
       midnightProvider = await createDerivedProvider(signer, config);
+
       const client = new VeilClient(config, midnightProvider, {
         deriveLockHashFromAddress: () => lockHash,
       });

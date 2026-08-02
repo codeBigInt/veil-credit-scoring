@@ -67,55 +67,59 @@ export default function ApiReferencePage() {
 
         <h1>Backend API Reference</h1>
         <p className="prose-lead">
-          The v2 backend is intentionally small. It can deploy the Veil contract, return the active
-          contract address, sponsor DUST, and store optional encrypted backups. Reputation decisions
-          are performed through the SDK and Midnight contract.
+          The backend is deliberately small — it does not decide anyone&apos;s reputation. It just
+          handles a few support jobs: telling your app where the contract is, deploying it if needed,
+          covering transaction fees, and optionally storing encrypted backups.
         </p>
 
-        <h2 id="scope">Scope</h2>
+        <h2 id="scope">All Endpoints</h2>
         <ul>
-          <li><code>GET /api/v1/health</code></li>
-          <li><code>GET /api/v1/contract</code></li>
-          <li><code>POST /api/v1/contract/deploy</code></li>
-          <li><code>POST /api/v1/sponsor/dust</code></li>
-          <li><code>PUT /api/v1/backups/:backupId</code></li>
-          <li><code>GET /api/v1/backups/:backupId?owner=...</code></li>
-          <li><code>GET /api/v1/backups?owner=...</code></li>
-          <li><code>DELETE /api/v1/backups/:backupId?owner=...</code></li>
+          <li><code>GET /api/v1/health</code> — is the backend up?</li>
+          <li><code>GET /api/v1/contract</code> — where&apos;s the contract deployed?</li>
+          <li><code>POST /api/v1/contract/deploy</code> — deploy a new contract instance.</li>
+          <li><code>POST /api/v1/sponsor/dust</code> — cover this user&apos;s transaction fees.</li>
+          <li><code>PUT /api/v1/backups/:backupId</code> — store an encrypted backup.</li>
+          <li><code>GET /api/v1/backups/:backupId?owner=...</code> — fetch one backup.</li>
+          <li><code>GET /api/v1/backups?owner=...</code> — list a user&apos;s backups.</li>
+          <li><code>DELETE /api/v1/backups/:backupId?owner=...</code> — delete a backup.</li>
         </ul>
 
         <h2 id="contract">Contract Address</h2>
         <CodeBlock code={contract} language="http" filename="contract.http" />
         <p>
-          Use this endpoint to configure the frontend SDK. The address may come from
-          <code> VEIL_CONTRACT_ADDRESS</code>, a saved Mongo deployment record, or a backend deployment.
+          Call this when your app starts up to find out which contract address to use, instead of
+          hardcoding it. It comes from whatever contract the backend has on record as the active one.
         </p>
 
         <h2 id="deploy">Deploy Contract</h2>
         <CodeBlock code={deploy} language="http" filename="deploy.http" />
         <p>
-          This route deploys the staged bootstrap contract and installs the missing full-contract
-          verifier keys. It is disabled unless <code>VEIL_AUTO_DEPLOY=true</code>.
+          Deploys a fresh copy of the Veil contract. This is an operator/admin action, not something a
+          typical integration calls — it&apos;s turned off by default and has to be explicitly enabled.
         </p>
 
         <h2 id="sponsor">Dust Sponsorship</h2>
         <CodeBlock code={sponsor} language="http" filename="dust.http" />
         <p>
-          The backend registers available NIGHT UTxOs to generate DUST for the supplied address.
-          It cannot transfer reputation or bypass contract checks.
+          Midnight transactions need a small amount of DUST to pay for themselves. This endpoint lets
+          your backend cover that cost so users don&apos;t need to hold DUST themselves. It only ever
+          pays fees — it has no ability to change a user&apos;s reputation or bypass any contract check.
         </p>
 
         <h2 id="backups">Backups</h2>
         <CodeBlock code={backup} language="http" filename="backup.http" />
         <Callout variant="warning" title="Encrypt before upload">
-          Backup payloads must be encrypted client-side. Do not send raw private keys, seed phrases,
-          or plaintext private state to the backend.
+          Whatever you send here must already be encrypted on the user&apos;s own device before it
+          leaves the browser. Never send raw private keys, seed phrases, or unencrypted private data
+          to the backend — it should only ever see ciphertext it can&apos;t read.
         </Callout>
 
-        <h2 id="deprecated">Deprecated</h2>
+        <h2 id="deprecated">No Longer Available</h2>
         <p>
-          `/credit-decisions`, `/score-entries`, `/challenges`, `/ckb/veil-identity/*`, and issuer
-          event endpoints were v1 architecture surfaces. New integrations should not call them.
+          Some older endpoints from an earlier version of Veil — things like{" "}
+          <code>/credit-decisions</code>, <code>/score-entries</code>, <code>/challenges</code>, and the
+          issuer/event endpoints — don&apos;t exist anymore. If you see them mentioned anywhere, that
+          reference is outdated; don&apos;t build against them.
         </p>
 
         <PrevNext

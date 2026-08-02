@@ -1,5 +1,5 @@
 import React from 'react';
-import type { ScoreBand } from '@veil-protocol/sdk';
+import type { ScoreBand } from '@veil-reputation-protocol/sdk';
 import { useReputationCheck } from '../hooks/useReputationCheck';
 
 const BAND_LABELS: Record<ScoreBand, string> = {

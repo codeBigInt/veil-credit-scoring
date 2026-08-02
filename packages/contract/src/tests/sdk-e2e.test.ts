@@ -10,7 +10,7 @@
  */
 import { describe, it, expect, beforeEach } from 'vitest';
 import { randomBytes } from './utils';
-import { VeilScoreSimulator } from './veil-score-setup';
+import { VeilScoreSimulator, defaultReaderPolicyHash } from './veil-score-setup';
 import {
   buildIdentityRegistrationArgs,
   buildReputationCheckArgs,
@@ -19,8 +19,8 @@ import {
   batchCheckReputation,
   padStringToBytes32,
   bytesToHex,
-} from '@veil-protocol/sdk';
-import type { VeilMidnightProvider, VeilConfig } from '@veil-protocol/sdk';
+} from '@veil-reputation-protocol/sdk';
+import type { VeilMidnightProvider, VeilConfig } from '@veil-reputation-protocol/sdk';
 
 // ─── SimulatorProvider ────────────────────────────────────────────────────────
 
@@ -46,7 +46,7 @@ class SimulatorProvider implements VeilMidnightProvider {
       case 'Reputation_prove':
         // buildReputationProofArgs order:
         // [veilId, age, protocols, votes, lp, crossChain, consistency,
-        //  claimedBand, chainNamespace, chainCommitment, salt, proofNonce]
+        //  chainNamespace, chainCommitment, readerPolicyHash, salt, proofNonce]
         return this.sim.proveReputation(args[0] as Uint8Array, {
           walletAgeInDays:   args[1] as bigint,
           distinctProtocols: args[2] as bigint,
@@ -54,9 +54,9 @@ class SimulatorProvider implements VeilMidnightProvider {
           lpTenureInDays:    args[4] as bigint,
           crossChainCount:   args[5] as bigint,
           txConsistencyScore: args[6] as bigint,
-          claimedBand:       args[7] as bigint,
-          chainNamespace:     args[8] as Uint8Array,
-          chainCommitment:    args[9] as Uint8Array,
+          chainNamespace:     args[7] as Uint8Array,
+          chainCommitment:    args[8] as Uint8Array,
+          readerPolicyHash:  args[9] as Uint8Array,
           witnessSalt:       args[10] as Uint8Array,
           proofNonce:        args[11] as Uint8Array,
         });
@@ -154,7 +154,8 @@ describe('SDK × Contract E2E', () => {
       lpTenureInDays:     10n,
       crossChainCount:    1n,
       txConsistencyScore: 10n,
-      claimedBand:        3n, // gold
+      readerPolicyHash: defaultReaderPolicyHash,
+      // Score = 760 → gold, derived by the contract from these signals.
     };
 
     beforeEach(async () => {
@@ -188,6 +189,28 @@ describe('SDK × Contract E2E', () => {
 
       expect(band).toBe(3n); // gold
       expect(sim.getLedgerState().LedgerStates_reputationCommitments.firstFree()).toBe(1n);
+    });
+
+    it('rejects a proof built with an unregistered reader policy', async () => {
+      const chainNamespace = padStringToBytes32('evm');
+      const chainCommitment = randomBytes(32);
+      const witnessSalt = randomBytes(32);
+      const proofNonce = randomBytes(32);
+
+      await expect(
+        provider.callTx(
+          'Reputation_prove',
+          ...buildReputationProofArgs({
+            veilIdHash,
+            ...signals,
+            readerPolicyHash: randomBytes(32), // never registered via governance
+            chainNamespace,
+            chainCommitment,
+            witnessSalt,
+            proofNonce,
+          }),
+        ),
+      ).rejects.toThrow(/Untrusted reader policy/);
     });
 
     it('checkReputation SDK function correctly interprets a gold decision', async () => {
@@ -245,7 +268,7 @@ describe('SDK × Contract E2E', () => {
         const chainCommitment = randomBytes(32);
         const salt = randomBytes(32);
         const nonce = randomBytes(32);
-        await provider.callTx('Reputation_prove', ...buildReputationProofArgs({ veilIdHash: id, walletAgeInDays: 50n, distinctProtocols: 5n, daoVoteCount: 3n, lpTenureInDays: 10n, crossChainCount: 1n, txConsistencyScore: 10n, claimedBand: 3n, chainNamespace, chainCommitment, witnessSalt: salt, proofNonce: nonce }));
+        await provider.callTx('Reputation_prove', ...buildReputationProofArgs({ veilIdHash: id, walletAgeInDays: 50n, distinctProtocols: 5n, daoVoteCount: 3n, lpTenureInDays: 10n, crossChainCount: 1n, txConsistencyScore: 10n, chainNamespace, chainCommitment, readerPolicyHash: defaultReaderPolicyHash, witnessSalt: salt, proofNonce: nonce }));
       }
 
       const map = await batchCheckReputation(

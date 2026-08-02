@@ -71,6 +71,14 @@ export type CkbSignalReader = (address: string, config: ChainRpcConfig) => Promi
 export interface ReputationReaderOptions {
   ethereumReader?: EthereumSignalReader;
   ckbReader?: CkbSignalReader;
+  /**
+   * Identifies which data-collection recipe produced the signals. Required if
+   * either reader above is overridden — the contract only accepts reputation
+   * proofs whose readerPolicyHash is on its governance-approved list, so a
+   * custom reader must have its own registered policy hash. Left unset, the
+   * SDK's built-in reader stamps its own known, versioned policy hash.
+   */
+  readerPolicyHash?: BytesLike;
 }
 
 export interface ReputationWitness {
@@ -80,8 +88,9 @@ export interface ReputationWitness {
   lpTenureInDays: number;
   crossChainCount: number;
   txConsistencyScore: number;
-  ethChainCommitment: string;
-  ckbChainCommitment: string;
+  chainNamespace: string;
+  chainCommitment: string;
+  readerPolicyHash: string;
   salt: Uint8Array;
 }
 
@@ -149,7 +158,6 @@ export interface CheckOptions {
   midnightProvider: VeilMidnightProvider;
   config: VeilConfig;
   requesterAddressHash?: BytesLike;
-  currentEpoch?: bigint;
 }
 
 export interface ProofServerResponse {

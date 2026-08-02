@@ -21,7 +21,7 @@ This package follows the launcher/config pattern from `example-bboard`, but uses
 - Private state id is fixed to `veil_ps`.
 - `Deploy Veil contract` deploys the single Veil v2 contract directly. The current prover-key surface is 8 circuits.
 - The v2 menu supports identity registration, reputation proof submission, reputation checks, score-config proposal/application, and state inspection.
-- Run `bun --filter @veil/veil-contract compile` before live deployment so deployable ZK artifacts exist.
+- Run `bun --filter @veil-reputation-protocol/contract compile` before live deployment so deployable ZK artifacts exist.
 
 ## v2 Smoke Test Flow
 

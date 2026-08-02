@@ -4,7 +4,7 @@ import {
   makeFullCompiledContract,
   witness,
   type VeilPrivateState,
-} from '@veil-protocol/sdk';
+} from '@veil-reputation-protocol/sdk';
 
 export type { VeilPrivateState };
 export { makeFullCompiledContract, witness };

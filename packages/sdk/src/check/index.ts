@@ -33,7 +33,6 @@ export const checkReputation = async (
       requesterAddressHash: options.requesterAddressHash ?? padStringToBytes32('integrator'),
       purposeHash: padStringToBytes32(options.purpose),
       minimumBand: minimumBandNumber,
-      currentEpoch: options.currentEpoch ?? BigInt(Date.now()),
     }),
     'Reputation_check',
   );

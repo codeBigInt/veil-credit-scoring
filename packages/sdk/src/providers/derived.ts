@@ -45,7 +45,7 @@ import { indexerPublicDataProvider } from '@midnight-ntwrk/midnight-js-indexer-p
 import { httpClientProofProvider } from '@midnight-ntwrk/midnight-js-http-client-proof-provider';
 import { setNetworkId } from '@midnight-ntwrk/midnight-js-network-id';
 import { DynamicContractAPI, type DynamicProviders, utils } from 'nite-api';
-import { Contract as VeilContractClass } from '@veil/veil-contract';
+import { Contract as VeilContractClass } from '../vendor/managed/veil-protocol/contract';
 
 import type { VeilConfig } from '../config';
 import type { CCCSigner, VeilMidnightProvider } from '../types';
@@ -110,8 +110,56 @@ const DEFAULT_MIN_SPONSORED_DUST = 1_001n;
 const DUST_EXISTING_BALANCE_CHECK_MS = 5_000;
 const WALLET_CACHE_FLUSH_MS = 5_000;
 const TX_SUBMIT_TIMEOUT_MS = 180_000;
+const WALLET_SYNC_TIMEOUT_MS = 1_200_000;
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+// ─── Wallet sync progress ─────────────────────────────────────────────────────
+
+export type WalletSyncIndex = { appliedIndex: bigint; highestIndex: bigint; isConnected: boolean };
+
+export type WalletSyncProgress = {
+  shielded: WalletSyncIndex;
+  unshielded: WalletSyncIndex;
+  dust: WalletSyncIndex;
+  complete: boolean;
+};
+
+const emitSyncProgress = (progress: WalletSyncProgress): void => {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('veil:wallet-sync-progress', { detail: progress }));
+  }
+};
+
+/**
+ * A single 0-100 percentage from a WalletSyncProgress.
+ *
+ * Shielded, unshielded, and DUST each count on their own incompatible index
+ * scale (ledger-event index, transaction counter, DUST-event index) — summing
+ * the raw numbers across them produces a blended figure that can sit flat for
+ * a long stretch then jump unpredictably. Instead, each wallet's own ratio is
+ * computed separately and the minimum of the *known* ones is used — since
+ * sync only finishes once all three do, that's the honest bottleneck.
+ *
+ * `highestIndex <= 0` is deliberately treated as "not known yet" and excluded
+ * from the calculation entirely, rather than being read as 0% or 100%: it's
+ * ambiguous (could mean "hasn't reported in yet" or "confirmed nothing to
+ * sync"), and `isConnected` turned out not to reliably disambiguate it either
+ * — it can flip true as soon as the socket opens, before the real index is
+ * known. Excluding it avoids both failure modes: a wallet that's genuinely
+ * empty never drags the minimum to a false 0%, and a wallet whose index just
+ * isn't known yet never produces a false 100%. If nothing is known yet, 0% is
+ * shown — an honest "just started," not a guess.
+ */
+export const walletSyncPercent = (progress: WalletSyncProgress): number => {
+  if (progress.complete) return 100;
+  const percentOf = (index: WalletSyncIndex): number | null =>
+    index.highestIndex > 0n ? Number((index.appliedIndex * 100n) / index.highestIndex) : null;
+  const known = [progress.shielded, progress.unshielded, progress.dust]
+    .map(percentOf)
+    .filter((p): p is number => p !== null);
+  return known.length > 0 ? Math.min(...known) : 0;
+};
 
 type TransactionStage =
   | 'fee-estimate'
@@ -318,6 +366,26 @@ class BrowserWalletAdapter implements MidnightProvider, WalletProvider {
 
 export interface DerivedProviderHandle extends VeilMidnightProvider {
   /**
+   * Blocks until the shielded, unshielded, and DUST sub-wallets have all caught
+   * up to chain tip, then flushes the synced state to IndexedDB.
+   *
+   * Call this once, right after `createDerivedProvider` resolves and before
+   * submitting any transaction (register/prove/etc). Circuit proofs embed a
+   * ±15 minute validity window at generation time; submitting a transaction
+   * only after the wallet is already synced keeps the DUST-sponsorship check
+   * inside `callTx` fast (it just needs to catch up a few blocks, not scan
+   * from scratch), so that window doesn't expire before the transaction
+   * reaches the relay. Skipping this call and going straight to a write
+   * defers the same wait to inside the transaction flow instead, where a
+   * slow first-time sync can push past the window and cause Midnight to
+   * reject the transaction as expired.
+   *
+   * Also dispatches a `veil:wallet-sync-progress` window CustomEvent with
+   * the same progress on every update, for apps that prefer to listen
+   * globally instead of passing a callback.
+   */
+  waitForSync(onProgress?: (progress: WalletSyncProgress) => void): Promise<void>;
+  /**
    * Stops background sync and flushes wallet state to IndexedDB.
    * Call this on component unmount or SPA route teardown.
    * Page-close is handled automatically via the beforeunload listener.
@@ -390,6 +458,13 @@ export const createDerivedProvider = async (
     indexerClientConnection: {
       indexerHttpUrl: indexerUrl,
       indexerWsUrl,
+      // SDK defaults (bufferSize: 10_000, resumeThreshold: 100) pause and fully
+      // reopen the WS subscription every time 10k events are in flight, only
+      // resuming once drained back to 100 — on a first-run historical scan
+      // that's a lot of reconnect/handshake churn stacked on top of the scan
+      // itself. Raising both proportionally cuts how often that happens.
+      bufferSize: 50_000,
+      resumeThreshold: 5_000,
     },
     provingServerUrl: new URL(proofServerUrl),
     networkId,
@@ -400,9 +475,9 @@ export const createDerivedProvider = async (
       feeBlocksMargin: dustOptions.feeBlocksMargin,
     },
     // Larger batches + no inter-batch delay cuts the first-run historical scan
-    // (SDK default: size=10, spacing=4ms). Applied to ShieldedWallet here;
-    // DustWallet overrides in dustConfig below. Does not affect live sync.
-    batchUpdates: { size: 100, timeout: 10, spacing: 0 },
+    // (SDK default: size=10, timeout=1ms, spacing=4ms). Applied to ShieldedWallet
+    // here; DustWallet overrides in dustConfig below. Does not affect live sync.
+    batchUpdates: { size: 250, timeout: 20, spacing: 0 },
   } satisfies DefaultConfiguration;
 
   const dustConfig = {
@@ -412,7 +487,7 @@ export const createDerivedProvider = async (
       additionalFeeOverhead: dustOptions.additionalFeeOverhead,
       feeBlocksMargin: dustOptions.feeBlocksMargin,
     },
-    batchUpdates: { size: 100, timeout: 10, spacing: 0 },
+    batchUpdates: { size: 250, timeout: 20, spacing: 0 },
   };
 
   // ── Step 6: construct sub-wallets ───────────────────────────────────────────
@@ -572,6 +647,67 @@ export const createDerivedProvider = async (
         });
         throw error;
       }
+    },
+    async waitForSync(onProgress?: (progress: WalletSyncProgress) => void): Promise<void> {
+      const perWallet: WalletSyncProgress = {
+        shielded: { appliedIndex: 0n, highestIndex: 0n, isConnected: false },
+        unshielded: { appliedIndex: 0n, highestIndex: 0n, isConnected: false },
+        dust: { appliedIndex: 0n, highestIndex: 0n, isConnected: false },
+        complete: false,
+      };
+
+      const report = (complete: boolean) => {
+        const progress: WalletSyncProgress = { ...perWallet, complete };
+        emitSyncProgress(progress);
+        onProgress?.(progress);
+      };
+
+      const subscriptions = [
+        shieldedWallet.state.subscribe((s) => {
+          perWallet.shielded = {
+            appliedIndex: s.progress.appliedIndex,
+            highestIndex: s.progress.highestIndex,
+            isConnected: s.progress.isConnected,
+          };
+          report(false);
+        }),
+        unshieldedWallet.state.subscribe((s) => {
+          // UnshieldedWallet's SyncProgress uses a different field naming
+          // (appliedId/highestTransactionId) than shielded/dust's shared
+          // appliedIndex/highestIndex — normalize onto the common shape.
+          perWallet.unshielded = {
+            appliedIndex: s.progress.appliedId,
+            highestIndex: s.progress.highestTransactionId,
+            isConnected: s.progress.isConnected,
+          };
+          report(false);
+        }),
+        dustWallet.state.subscribe((s) => {
+          perWallet.dust = {
+            appliedIndex: s.progress.appliedIndex,
+            highestIndex: s.progress.highestIndex,
+            isConnected: s.progress.isConnected,
+          };
+          report(false);
+        }),
+      ];
+
+      try {
+        await withTimeout(
+          Promise.all([
+            shieldedWallet.waitForSyncedState(),
+            unshieldedWallet.waitForSyncedState(),
+            dustWallet.waitForSyncedState(),
+          ]),
+          WALLET_SYNC_TIMEOUT_MS,
+          'Timed out waiting for the derived Midnight wallet to finish syncing.',
+        );
+      } finally {
+        subscriptions.forEach((sub) => sub.unsubscribe());
+      }
+
+      report(true);
+      await flushWalletCache();
     },
     async stop(): Promise<void> {
       clearInterval(cacheTimer);

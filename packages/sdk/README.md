@@ -1,4 +1,4 @@
-# @veil-protocol/sdk
+# @veil-reputation-protocol/sdk
 
 TypeScript SDK for integrating cross-chain DeFi protocols with Veil Protocol v2.
 
@@ -42,7 +42,7 @@ import {
   type ReputationReaderOptions,
   type ScoreBand,
   type ReputationPurpose,
-} from '@veil-protocol/sdk';
+} from '@veil-reputation-protocol/sdk';
 ```
 
 Lower-level contract tooling is also exported for CLIs and deployment systems:
@@ -51,11 +51,12 @@ Lower-level contract tooling is also exported for CLIs and deployment systems:
 import {
   PRIVATE_STATE_ID,
   FULL_CONTRACT_CIRCUITS,
+  deriveVeilIdHash,
   makeFullCompiledContract,
   submitIdentityRegistration,
   submitReputationProof,
   submitReputationCheck,
-} from '@veil-protocol/sdk';
+} from '@veil-reputation-protocol/sdk';
 ```
 
 ## Protocol Flow
@@ -66,6 +67,7 @@ import {
 4. Request a banded decision with `checkReputation`.
 
 All hash, commitment, nonce, salt, namespace, and purpose values must be exactly 32 bytes.
+`deriveVeilId` and `deriveVeilIdHash` require the deployed Veil contract address because the contract address is part of the identity domain.
 
 ## Integrator Example
 
@@ -96,6 +98,10 @@ The built-in readers are intentionally conservative and dependency-light. They c
 build deterministic non-zero chain commitments, and compute consistency from available timestamps.
 Production protocols should inject richer readers backed by their own indexers.
 
+The SDK does not lock you into Veil-owned indexer URLs for public-chain activity. It reads from
+`config.chains`; every configured non-`ckb` entry is treated as an EVM-compatible chain, so protocols
+can add Ethereum, Base, Arbitrum, Optimism, or any other EVM RPC without changing the contract.
+
 ```ts
 const witness = await collectReputationWitnessFromAddresses(
   evmAddress,
@@ -104,6 +110,37 @@ const witness = await collectReputationWitnessFromAddresses(
   {
     ethereumReader: readFromProtocolIndexer,
     ckbReader: readFromCkbIndexer,
+    readerPolicyHash: myRegisteredPolicyHash, // see "Where does the proof data come from?" below
   },
 );
 ```
+
+## Where does the proof data come from? (Reader Policy Hash)
+
+Before it proves anything, the SDK looks at a user's wallet history and turns it into numbers
+(wallet age, protocols used, etc). The piece of code that does that lookup is called a **reader**.
+
+Every reputation proof now has to say which reader produced its numbers, using a `readerPolicyHash`
+— basically a short ID for "whose recipe was this." The Veil contract keeps an allow-list of IDs it
+trusts, set by governance. If a proof's ID isn't on that list, the contract rejects the proof outright.
+This isn't just a note attached to the proof — it's baked into the same math the proof already uses,
+so it can't be swapped out after the fact.
+
+**If you use the SDK's built-in reader (the default), you don't need to do anything.** It automatically
+stamps its own ID (`veil.default-rpc.v1`), and that ID is already on the contract's allow-list from day
+one.
+
+**If you bring your own reader** (your own indexer, your own data pipeline, anything passed as
+`ethereumReader` or `ckbReader` above), you must also:
+
+1. Pick a unique ID for it and get it added to the contract's allow-list — call
+   `addSupportedReaderPolicy` (this is a governance action, so it needs approval, same as adding a new
+   chain).
+2. Pass that same ID as `readerPolicyHash` whenever you collect a witness with your custom reader.
+
+If you forget step 2, the SDK will refuse to build the proof and tell you exactly what's missing —
+it won't silently mislabel your custom data as coming from the default reader.
+
+**Why this matters for your app:** without this, there'd be no way to know whether the numbers behind
+a "gold band" proof were collected honestly, or by some reader nobody has reviewed. With it, every
+accepted proof is provably tied to a reader your governance process has actually approved.

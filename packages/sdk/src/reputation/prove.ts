@@ -14,12 +14,14 @@ import {
 import { extractTxId } from '../utils/tx';
 
 /**
- * Derives the expected score band from the collected witness signals.
- * Uses DEFAULT_SCORE_CONFIG locally — the same weights the deployed contract uses.
- * The contract's Utils_assertBandMatchesScore will reject the tx if the claimed
- * band doesn't match the score it independently computes from the same inputs.
+ * Estimates the score band from the collected witness signals, using
+ * DEFAULT_SCORE_CONFIG locally. This is a non-authoritative local preview only:
+ * Reputation_prove derives the real band on-chain from the live scoreConfig, so
+ * this estimate is never sent to or validated by the contract. It exists purely
+ * to give the caller an immediate value before the tx result comes back, and may
+ * be briefly stale for one call after a governance score-config change.
  */
-const computeBandFromWitness = (w: ReputationWitness): ScoreBand => {
+const estimateBandFromWitness = (w: ReputationWitness): ScoreBand => {
   const cfg = DEFAULT_SCORE_CONFIG;
   const score =
     Number(cfg.baseScore) +
@@ -61,8 +63,10 @@ export const proveReputation = async (
 ): Promise<ReputationProof> => {
   const veilIdHash = toBytes32(identity.veilId, 'identity.veilId');
 
-  const band = computeBandFromWitness(reputationWitness);
-  const claimedBand = BigInt(BAND_ORDER[band]);
+  // Local estimate only — Reputation_prove derives the authoritative band
+  // on-chain from the live scoreConfig and never receives this value.
+  const band = estimateBandFromWitness(reputationWitness);
+  const estimatedBand = BigInt(BAND_ORDER[band]);
 
   // The contract derives and stores the witness commitment internally. The SDK
   // keeps a local copy only for integrator logs and developer diagnostics.
@@ -73,23 +77,27 @@ export const proveReputation = async (
     lpTenureInDays: BigInt(reputationWitness.lpTenureInDays),
     crossChainCount: BigInt(reputationWitness.crossChainCount),
     txConsistencyScore: BigInt(reputationWitness.txConsistencyScore),
-    ethChainCommitment: reputationWitness.ethChainCommitment,
-    ckbChainCommitment: reputationWitness.ckbChainCommitment,
+    chainNamespace: reputationWitness.chainNamespace,
+    chainCommitment: reputationWitness.chainCommitment,
+    readerPolicyHash: reputationWitness.readerPolicyHash,
     witnessSalt: reputationWitness.salt,
   });
 
   const proofNonce = randomBytes32();
   const scoreConfigHash = deriveScoreConfigHashFor(DEFAULT_SCORE_CONFIG, _config.contractAddress);
+  // Diagnostic only — uses the estimated band, so may not match the on-chain
+  // proofHash if the live scoreConfig has since changed via governance.
   const proofHash = deriveReputationProofHash({
     veilIdHash,
     witnessCommitment: localWitnessCommitment,
-    claimedBand,
+    claimedBand: estimatedBand,
     proofNonce,
     scoreConfigHash,
   });
 
   // ZK proof generation and tx submission happen entirely inside this callTx call.
-  // The SDK never interacts with the proof server directly.
+  // The SDK never interacts with the proof server directly. The contract derives
+  // and validates the band itself — it is not sent as an argument here.
   const tx = await submitReputationProof(midnightProvider, {
     veilIdHash,
     walletAgeInDays: BigInt(reputationWitness.walletAgeInDays),
@@ -98,12 +106,11 @@ export const proveReputation = async (
     lpTenureInDays: BigInt(reputationWitness.lpTenureInDays),
     crossChainCount: BigInt(reputationWitness.crossChainCount),
     txConsistencyScore: BigInt(reputationWitness.txConsistencyScore),
-    claimedBand,
-    ethChainCommitment: reputationWitness.ethChainCommitment,
-    ckbChainCommitment: reputationWitness.ckbChainCommitment,
+    chainNamespace: reputationWitness.chainNamespace,
+    chainCommitment: reputationWitness.chainCommitment,
+    readerPolicyHash: reputationWitness.readerPolicyHash,
     witnessSalt: reputationWitness.salt,
     proofNonce,
-    currentEpoch: BigInt(Date.now()),
   });
 
   return {

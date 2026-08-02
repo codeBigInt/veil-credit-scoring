@@ -1,7 +1,7 @@
 # Veil Backend v2 API
 
 The v2 backend is not a scoring oracle and does not submit reputation or identity transactions for users.
-Those flows live in `@veil-protocol/sdk` and the Midnight contract.
+Those flows live in `@veil-reputation-protocol/sdk` and the Midnight contract.
 
 The backend has three responsibilities:
 

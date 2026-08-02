@@ -25,6 +25,7 @@ module CustomStructs {
         txConsistencyScore: Uint<32>;
         chainNamespace: Bytes<32>;
         chainCommitment: Bytes<32>;
+        readerPolicyHash: Bytes<32>;
         witnessCommitment: Bytes<32>;
         proofHash: Bytes<32>;
         lastUpdatedEpoch: Uint<64>;
@@ -40,6 +41,7 @@ module CustomStructs {
         txConsistencyScore: Uint<32>;
         chainNamespace: Bytes<32>;
         chainCommitment: Bytes<32>;
+        readerPolicyHash: Bytes<32>;
         witnessSalt: Bytes<32>;
     };
 
