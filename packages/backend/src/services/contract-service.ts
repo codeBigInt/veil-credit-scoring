@@ -376,6 +376,14 @@ export class ContractService {
     return this.activeContractAddress;
   }
 
+  async walletAddresses(): Promise<{ operating: string; sponsor: string }> {
+    const [operating, sponsor] = await Promise.all([
+      this.walletProvider.getUnshieldedAddress(),
+      this.sponsorWalletProvider.getUnshieldedAddress(),
+    ]);
+    return { operating, sponsor };
+  }
+
   deploymentEnabled(): boolean {
     return this.config.autoDeploy;
   }

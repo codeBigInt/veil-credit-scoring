@@ -29,8 +29,12 @@ const main = async (): Promise<void> => {
 
   const app = createApp(contract, db);
 
+  const walletAddresses = await contract.walletAddresses();
+
   const server = app.listen(config.port, () => {
     logger.info(`Veil backend API listening at http://localhost:${config.port}${apiVersion}`);
+    logger.info(`Operating wallet (unshielded): ${walletAddresses.operating}`);
+    logger.info(`Sponsor wallet (unshielded): ${walletAddresses.sponsor}`);
   });
 
   const shutdown = async (): Promise<void> => {
