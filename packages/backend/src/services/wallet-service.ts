@@ -33,7 +33,11 @@ import {
   type UnshieldedKeystore,
 } from "@midnightntwrk/wallet-sdk-unshielded-wallet";
 import { NoOpTransactionHistoryStorage } from "@midnightntwrk/wallet-sdk-abstractions";
-import { DustAddress, MidnightBech32m } from "@midnightntwrk/wallet-sdk-address-format";
+import {
+  DustAddress,
+  MidnightBech32m,
+  UnshieldedAddress,
+} from "@midnightntwrk/wallet-sdk-address-format";
 import type { EnvironmentConfiguration } from "@midnight-ntwrk/testkit-js";
 import {
   WalletSeeds,
@@ -119,6 +123,12 @@ const registeredNativeUtxoIds = (coins: readonly {
 
 const parseDustAddress = (address: string, networkId: string): DustAddress =>
   DustAddress.codec.decode(networkId, MidnightBech32m.parse(address));
+
+// UnshieldedAddress has no toString(); it must be bech32m-encoded for display.
+const formatUnshieldedAddress = (
+  address: UnshieldedAddress,
+  networkId: string,
+): string => UnshieldedAddress.codec.encode(networkId, address).asString();
 
 const safeCacheSegment = (value: string): string =>
   value.replace(/[^a-zA-Z0-9._-]/g, "_");
@@ -220,6 +230,11 @@ export class BackendWalletProvider implements MidnightProvider, WalletProvider {
         );
       });
     }, 30_000);
+  }
+
+  async getUnshieldedAddress(): Promise<string> {
+    const address = await this.wallet.unshielded.getAddress();
+    return formatUnshieldedAddress(address, this.env.walletNetworkId);
   }
 
   getCoinPublicKey(): CoinPublicKey {
@@ -802,8 +817,12 @@ export class BackendWalletProvider implements MidnightProvider, WalletProvider {
     }
 
     if (requireFunds && dustBalance === 0n && shieldedNight === 0n && unshieldedNight === 0n) {
+      const walletAddress = await this.wallet.unshielded.getAddress();
       throw new Error(
-        `Backend ${this.role} wallet has no funds. Fund this wallet before starting backend: ${this.getCoinPublicKey().toString()}`,
+        `Backend ${this.role} wallet has no funds. Fund this wallet before starting backend: ${formatUnshieldedAddress(
+          walletAddress,
+          this.env.walletNetworkId,
+        )}`,
       );
     }
   }
