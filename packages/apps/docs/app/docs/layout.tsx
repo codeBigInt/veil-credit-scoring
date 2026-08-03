@@ -20,7 +20,7 @@ export default function DocsLayout({
           <span className="docs-header-logo-text">Veil Protocol</span>
         </Link>
 
-        <span className="docs-header-badge">v0.1.0-beta</span>
+        <span className="docs-header-badge">v2 docs</span>
 
         <div className="docs-header-spacer" />
 

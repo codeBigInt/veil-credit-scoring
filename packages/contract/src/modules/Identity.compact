@@ -1,0 +1,67 @@
+module Identity {
+    import CompactStandardLibrary;
+    import CustomStructs prefix CustomStructs_;
+    import GlobalLedgerStates prefix LedgerStates_;
+    import Utils prefix Utils_;
+
+    export circuit register(
+        _veilIdHash: Bytes<32>,
+        _chainNamespace: Bytes<32>,
+        _publicKeyOrLockHashCommitment: Bytes<32>,
+        _walletSignatureHash: Bytes<32>
+    ): CustomStructs_VeilIdentityRecord {
+        const veilIdHash = disclose(_veilIdHash);
+        const chainNamespace = disclose(_chainNamespace);
+        const currentTime = Utils_retrieveAndVerifyTime();
+        const chainProofHash = Utils_deriveIdentityProofHash(
+            _veilIdHash,
+            _chainNamespace,
+            _publicKeyOrLockHashCommitment,
+            _walletSignatureHash,
+            kernel.self().bytes
+        );
+
+        assert (veilIdHash != default<Bytes<32>>, "Invalid Veil ID hash");
+        assert (LedgerStates_supportedChainNamespaces.member(chainNamespace), "Unsupported chain namespace");
+        assert (disclose(_publicKeyOrLockHashCommitment) != default<Bytes<32>>, "Invalid public key commitment");
+        assert (disclose(_walletSignatureHash) != default<Bytes<32>>, "Invalid wallet signature");
+        assert (chainProofHash != default<Bytes<32>>, "Invalid chain proof");
+        assert (!LedgerStates_identityRecords.member(veilIdHash), "Identity already registered");
+
+        const replayKey = persistentHash<Vector<4, Bytes<32>>>([
+            pad(32, "veil:v2:register"),
+            veilIdHash,
+            chainProofHash,
+            kernel.self().bytes
+        ]);
+        assert (!LedgerStates_processedProofs.member(replayKey), "Registration proof already used");
+        LedgerStates_processedProofs.insert(replayKey);
+
+        const identityRecord = CustomStructs_VeilIdentityRecord {
+            veilIdHash: veilIdHash,
+            chainNamespace: chainNamespace,
+            publicKeyOrLockHashCommitment: disclose(_publicKeyOrLockHashCommitment),
+            walletSignatureHash: disclose(_walletSignatureHash),
+            chainProofHash: chainProofHash,
+            version: 1,
+            status: 1,
+            createdAtEpoch: currentTime,
+            updatedAtEpoch: currentTime
+        };
+
+        LedgerStates_identityRecords.insert(veilIdHash, identityRecord);
+        LedgerStates_identityCommitments.insert(
+            persistentCommit<CustomStructs_VeilIdentityRecord>(identityRecord, veilIdHash)
+        );
+
+        return identityRecord;
+    }
+
+    export circuit assertActive(_veilIdHash: Bytes<32>): Boolean {
+        const veilIdHash = disclose(_veilIdHash);
+        assert (LedgerStates_identityRecords.member(veilIdHash), "Identity not registered");
+
+        const identityRecord = LedgerStates_identityRecords.lookup(veilIdHash);
+        return identityRecord.status == 1;
+    }
+}

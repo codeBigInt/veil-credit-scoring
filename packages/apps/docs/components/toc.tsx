@@ -47,7 +47,7 @@ export default function Toc({ items }: TocProps) {
   if (items.length === 0) return null;
 
   return (
-    <nav aria-label="Table of contents">
+    <nav className="docs-toc-col" aria-label="Table of contents">
       <span className="toc-label">On this page</span>
       <ul className="toc-list">
         {items.map((item) => (

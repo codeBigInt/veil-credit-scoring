@@ -1,6 +1,6 @@
 "use client"
 
-const CreditIcon = () => (
+const AirdropIcon = () => (
   <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
     <rect x="1" y="4" width="16" height="11" rx="1.5"/>
     <path d="M1 8h16"/>
@@ -59,13 +59,13 @@ const SoonIcon = () => (
 
 export default function EcosystemSection() {
   const integrations = [
-    { name: "Lending", icon: <CreditIcon />, status: "Available" },
+    { name: "Airdrops", icon: <AirdropIcon />, status: "Available" },
     { name: "DEX", icon: <SwapIcon />, status: "Available" },
-    { name: "Staking", icon: <StakeIcon />, status: "Available" },
-    { name: "Yield Farm", icon: <YieldIcon />, status: "Available" },
-    { name: "Payment", icon: <PayIcon />, status: "Beta" },
-    { name: "Bridge", icon: <BridgeIcon />, status: "Beta" },
-    { name: "Collateral", icon: <CollateralIcon />, status: "Beta" },
+    { name: "DAOs", icon: <StakeIcon />, status: "Available" },
+    { name: "Yield", icon: <YieldIcon />, status: "Available" },
+    { name: "Communities", icon: <PayIcon />, status: "Beta" },
+    { name: "Bridges", icon: <BridgeIcon />, status: "Beta" },
+    { name: "Access", icon: <CollateralIcon />, status: "Beta" },
     { name: "Custom", icon: <SoonIcon />, status: "Coming Soon" },
   ]
 
@@ -84,14 +84,14 @@ export default function EcosystemSection() {
           </div>
           <div className="col-span-12 md:col-span-5 space-y-4">
             <p className="text-muted-foreground text-base leading-relaxed">
-              Veil gives any DeFi app a simple API for private credit checks — no custom contract integration needed.
+              Veil gives any app a simple way to check a user band while keeping wallet history private.
             </p>
             <div className="flex gap-3">
               <a href="https://docs-veil-credit-scoring.netlify.app/docs/integration" target="_blank" className="inline-block bg-primary text-primary-foreground px-5 py-2.5 rounded-sm font-bold hover:opacity-90 transition-opacity uppercase tracking-wide text-xs no-underline">
                 Integration Guide
               </a>
               <a href="https://docs-veil-credit-scoring.netlify.app/docs/integration" target="_blank" className="inline-block border border-border/40 text-foreground px-5 py-2.5 rounded-sm font-medium hover:border-primary/60 transition-colors uppercase tracking-wide text-xs no-underline">
-                API Docs
+                Backend API
               </a>
             </div>
           </div>
@@ -122,7 +122,7 @@ export default function EcosystemSection() {
                 <span className="font-bold text-foreground text-sm uppercase tracking-wide">{integration.name}</span>
               </div>
               <div className="col-span-4 hidden md:block">
-                <span className="section-label">Credit band–based access control</span>
+                <span className="section-label">Band policy</span>
               </div>
               <div className="col-span-6 md:col-span-3 flex items-center justify-between">
                 <span

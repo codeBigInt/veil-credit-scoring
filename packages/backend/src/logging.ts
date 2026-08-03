@@ -5,7 +5,6 @@ const isProduction = process.env.NODE_ENV === 'production';
 const secretPatterns = [
   /mongodb(?:\+srv)?:\/\/([^:\s/@]+):([^@\s]+)@/gi,
   /(VEIL_BACKEND_WALLET_SEED=)[^\s]+/gi,
-  /(CKB_PRIVATE_KEY=)[^\s]+/gi,
   /(password=)[^&\s]+/gi,
 ];
 

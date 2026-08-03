@@ -1,6 +1,9 @@
 # Veil Docs
 
-Static documentation site for Veil Protocol.
+Static documentation site for Veil Protocol v2.
+
+The docs default to the current v2 private reputation architecture. Archived v1 credit-scoring
+context is only shown through the architecture version toggle.
 
 ## Live Site
 

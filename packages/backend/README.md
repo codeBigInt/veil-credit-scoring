@@ -1,200 +1,91 @@
 # Veil Backend
 
-Express HTTP server that acts as the transaction gateway for the Veil credit-scoring protocol on the Midnight blockchain (preprod network). It receives scoring events from issuers and DeFi protocols, generates zero-knowledge proofs, submits signed transactions to the on-chain Veil contract, and prepares CKB Spore/DOB mint intents for user wallet signing.
+Small support service for Veil Protocol v2.
 
-## Architecture
+The backend is no longer a credit-scoring oracle. It does not accept behavioral events, compute user
+scores, create credit decisions, or submit identity/reputation Midnight transactions for users. Those
+flows are handled by the Midnight contract and `@veil-reputation-protocol/sdk`.
 
-```
-Client (issuer / DeFi protocol / user wallet)
-        │ HTTP POST
-        ▼
-  Express API  (/api/v1/*)
-        │
-        ▼
-  ContractService
-    ├── BackendWalletProvider  — signs & balances txns with the backend wallet seed
-    ├── MongoPrivateStateProvider  — persists contract private state to MongoDB
-    ├── FetchZkConfigProvider  — loads compiled ZK circuit configs from disk
-    ├── HttpClientProofProvider  — generates ZK proofs via the proof server
-    └── IndexerPublicDataProvider  — reads on-chain state via the Midnight indexer
+## Responsibilities
 
-CKB module
-    ├── prepares immutable Veil Identity Spore/DOB content
-    ├── returns the deployed veil_sbt_lock script and cell dep
-    └── verifies and records user-submitted Spore mint results
-```
+- Sponsor DUST for user Midnight transactions.
+- Deploy the staged Veil Midnight contract when explicitly enabled.
+- Expose the active Veil contract address.
+- Optionally store encrypted private-state or wallet-metadata backups.
 
-Midnight contract calls are **synchronous** — each HTTP request waits for proof generation and on-chain confirmation before returning. Proof generation typically takes 15–60 seconds depending on the circuit. CKB Spore minting is decentralized: the backend prepares the mint intent, but the user's CKB wallet constructs/signs/sends the transaction and pays CKB capacity and fees.
+## Runtime
 
-## Prerequisites
+The backend starts two Midnight wallets:
 
-| Dependency | Purpose |
+- An operating wallet for contract deployment, maintenance transactions, and backend fees.
+- A sponsor wallet that holds many small unregistered unshielded NIGHT UTXOs and registers one or more
+  UTXOs to a user's DUST address when sponsorship is requested.
+
+MongoDB is used for the saved active contract address, backend private state/signing keys required
+for staged contract deployment, and optional encrypted client backups.
+
+## Required Environment
+
+| Variable | Purpose |
 |---|---|
-| Node.js 20+ / Bun | Runtime |
-| MongoDB 7 | Private state & signing key storage |
-| Midnight proof server | ZK proof generation (provided by Midnight team) |
-| Funded backend Midnight wallet | Pays NIGHT / dust transaction fees |
-| User CKB wallet | Pays CKB Spore capacity and transaction fees |
+| `MONGODB_URI` | MongoDB connection string. |
+| `VEIL_BACKEND_WALLET_SEED` | Funded backend operating wallet seed. |
+| `VEIL_PROOF_SERVER_URL` | Midnight proof server used by the backend wallet stack. |
+| `MIDNIGHT_NETWORK` | `preview`, `preprod`, or `mainnet`. |
 
-## Configuration
+Useful optional values:
 
-Copy `.env.example` to `.env` and fill in all required values.
-
-### Required
-
-| Variable | Description |
-|---|---|
-| `MONGODB_URI` | MongoDB connection string, e.g. `mongodb://localhost:27017/veil_backend` |
-| `VEIL_BACKEND_WALLET_SEED` | 64-character hex seed for the backend wallet. Must hold enough NIGHT and dust tokens to cover transaction fees. |
-| `VEIL_PROOF_SERVER_URL` | HTTP URL of the Midnight proof server, e.g. `https://proof810.116-203-250-124.sslip.io` |
-| `CKB_NETWORK` | Must be `testnet` for the current Veil Identity DOB milestone. |
-| `CKB_RPC_URL` | CKB testnet RPC URL, e.g. `https://testnet.ckb.dev/rpc`. |
-| `VEIL_SBT_LOCK_CODE_HASH` | Deployed `veil_sbt_lock` code hash. |
-| `VEIL_SBT_LOCK_HASH_TYPE` | Deployed `veil_sbt_lock` hash type, e.g. `data2`. |
-| `VEIL_SBT_LOCK_TX_HASH` | Transaction hash containing the deployed `veil_sbt_lock` cell dep. |
-| `VEIL_SBT_LOCK_INDEX` | Output index for the deployed `veil_sbt_lock` cell dep. |
-| `MIDNIGHT_NETWORK` | Midnight network name recorded in immutable DOB metadata, e.g. `testnet`. |
-| `MIDNIGHT_CONTRACT_ADDRESS` | Midnight contract address recorded in immutable DOB metadata. Optional when `VEIL_AUTO_DEPLOY=true`; the backend fills it from the deployed contract at startup. |
-
-### Optional
-
-| Variable | Default | Description |
+| Variable | Default | Purpose |
 |---|---|---|
-| `PORT` | `3001` | Port the HTTP server listens on. |
-| `MONGODB_DB_NAME` | `veil_backend` | MongoDB database name. |
-| `VEIL_CONTRACT_ADDRESS` | — | Existing deployed Veil contract address. If omitted and no saved deployment exists, set `VEIL_AUTO_DEPLOY=true`. |
-| `VEIL_AUTO_DEPLOY` | `false` | Deploy a new Veil Midnight contract from the backend wallet when no configured/saved contract address exists. |
-| `VEIL_ZK_CONFIG_PATH` | `dist/contract-build/managed/veil-protocol` | Path to compiled ZK circuit configs. Usually leave unset in production because the Docker image includes them in `dist/contract-build`. |
-| `LOG_LEVEL` | `info` | Pino log level: `trace`, `debug`, `info`, `warn`, `error`. |
-| `NODE_ENV` | — | Set to `production` to disable pretty-printed logs. |
-| `CKB_INDEXER_URL` | Spore testnet default | Optional CKB indexer URL used by Spore read/construct flows. |
+| `PORT` | `3001` | HTTP port. |
+| `MONGODB_DB_NAME` | `veil_backend` | Mongo database. |
+| `VEIL_SPONSOR_WALLET_SEED` | `VEIL_BACKEND_WALLET_SEED` | Separate funded wallet seed for user DUST sponsorship. Use a dedicated seed in production. |
+| `VEIL_SPONSOR_DEFAULT_REQUIRED_DUST` | `0` | Fallback DUST budget when clients cannot estimate the transaction fee. |
+| `VEIL_SPONSOR_ALLOCATION_TTL_MS` | `600000` | Short sponsorship lease window before reclaim is attempted. Keep this low so sponsor UTxOs recycle. |
+| `VEIL_SPONSOR_RECLAIM_INTERVAL_MS` | `60000` | Background reclaim interval. Set `0` to disable automatic reclaim. |
+| `VEIL_CONTRACT_ADDRESS` | unset | Existing deployed Veil contract. |
+| `VEIL_AUTO_DEPLOY` | `false` | Deploy the Veil contract from the backend wallet when no address is configured or saved. Also enables `POST /contract/deploy`. |
+| `VEIL_ZK_CONFIG_PATH` | `../contract/dist/managed/veil-protocol` | Veil contract ZK artifacts. |
 
-### Network settings
+## API
 
-The backend connects to the Midnight network selected by `MIDNIGHT_NETWORK`.
-Supported values are `preview`, `preprod`, and `mainnet`.
+Base path: `/api/v2`
 
-## Setup
+- `GET /health`
+- `GET /contract`
+- `POST /contract/deploy`
+- `GET /sponsor/status`
+- `POST /sponsor/dust`
+- `POST /dust-sponsor` compatibility alias
+- `PUT /backups/:backupId`
+- `GET /backups/:backupId?owner=<owner>`
+- `GET /backups?owner=<owner>`
+- `DELETE /backups/:backupId?owner=<owner>`
 
-**1. Start MongoDB**
+See [API.md](./API.md) for request and response examples.
 
-```bash
-# First run
-docker run -d --name veil-mongo -p 27017:27017 -v veil_mongo_data:/data/db mongo:7
-
-# Subsequent runs
-docker start veil-mongo
-```
-
-**2. Start the proof server**
-
-Follow the Midnight proof server documentation. Verify it is reachable at `VEIL_PROOF_SERVER_URL` before starting the backend. The current deployed proof server health endpoint is `https://proof810.116-203-250-124.sslip.io/health`.
-
-**3. Fund the wallets**
-
-Derive the Midnight wallet address from the seed and transfer NIGHT and dust tokens from a preprod faucet or another funded account. Users must fund their own CKB testnet wallets with enough CKB to mint the Veil Identity Spore/DOB and pay fees.
-
-**4. Configure environment**
+## Development
 
 ```bash
-cp .env.example .env
-# Edit .env and fill in all required values
-```
-
-To deploy the Midnight contract from the backend wallet, leave `VEIL_CONTRACT_ADDRESS` empty and set:
-
-```env
-VEIL_AUTO_DEPLOY=true
-```
-
-The backend deploys once, persists the active address in MongoDB collection `veil_contract_deployments`, and joins that saved address on later restarts. The deployment private state is created from `VEIL_BACKEND_WALLET_SEED`, so the same backend wallet secret derives the contract `superAdmin`.
-
-Before auto-deploying, compile deployable contract artifacts:
-
-```bash
-bun --filter @veil/veil-contract compile
-```
-
-Do not use `test:compile` for backend deployment because it uses `--skip-zk`. The backend also refuses to auto-deploy if generated artifacts still expose deprecated PoT circuits, which prevents accidentally deploying the old Midnight NFT contract surface.
-
-## Running
-
-```bash
-# Install dependencies (from monorepo root)
 bun install
-
-# Development — ts-node with hot reload
 cd packages/backend
 bun run dev
+```
 
-# Production build
+Build:
+
+```bash
 bun run build
-bun start
 ```
 
-The server logs startup progress including MongoDB connection, contract initialization, and the port it is listening on.
+## Deprecated
 
-## Docker Deployment
+The v1 credit-scoring endpoints are intentionally no longer mounted:
 
-Build the backend image from the monorepo root so Docker can see the workspace lockfile and backend package:
+- credit decision creation
+- issuer scoring events
+- DID resolution
+- CKB DOB mint intent and record endpoints
+- score-entry lifecycle endpoints
 
-```bash
-docker build -f packages/backend/Dockerfile -t veil-backend .
-```
-
-Run it with a production env file:
-
-```bash
-docker run --name veil-backend \
-  --env-file packages/backend/.env \
-  -p 3001:3001 \
-  veil-backend
-```
-
-For hosted deployment, set the same env vars in your hosting provider instead of passing `.env`. The minimum production dependencies are:
-
-- A reachable MongoDB connection string in `MONGODB_URI`.
-- A reachable Midnight proof server in `VEIL_PROOF_SERVER_URL`.
-- A funded backend Midnight wallet seed in `VEIL_BACKEND_WALLET_SEED`.
-- `MIDNIGHT_NETWORK` matching the network where the contract is deployed.
-- `VEIL_CONTRACT_ADDRESS`, or `VEIL_AUTO_DEPLOY=true` for the first backend-owned deployment.
-- CKB testnet lock script config for Spore/DOB verification.
-
-After deployment, verify:
-
-```bash
-curl https://api.13-61-145-21.sslip.io/api/v1/health
-curl https://api.13-61-145-21.sslip.io/api/v1/contract
-```
-
-Then update the Veil UI:
-
-```env
-NEXT_PUBLIC_BACKEND_URL=https://api.13-61-145-21.sslip.io/api/v1
-NEXT_PUBLIC_CONTRACT_ADDRESS=<value returned by /api/v1/contract>
-```
-
-## Graceful shutdown
-
-The server handles `SIGINT` and `SIGTERM` by:
-
-1. Stopping the HTTP server from accepting new connections.
-2. Stopping the ContractService and closing the indexer WebSocket.
-3. Closing the MongoDB connection.
-
-## MongoDB collections
-
-| Collection | Contents |
-|---|---|
-| `veil_private_states` | Serialized contract private state, keyed by contract address and private state ID, scoped to the backend wallet account. |
-| `veil_signing_keys` | Contract signing keys, keyed by contract address, scoped to the backend wallet account. |
-
-Private state is serialized with SuperJSON to preserve `BigInt`, `Uint8Array`, and `Date` types.
-
-## Documentation
-
-- Live docs: https://docs-veil-credit-scoring.netlify.app
-- API reference: https://docs-veil-credit-scoring.netlify.app/docs/integration/api-reference
-- Local API reference: [API.md](./API.md)
-
-See [API.md](./API.md) for the full endpoint reference, request and response schemas, field type conventions, and curl examples.
+Use `@veil-reputation-protocol/sdk` for identity registration, reputation proof submission, and band checks.

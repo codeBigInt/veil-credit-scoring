@@ -1,7 +1,7 @@
-import { type WalletFacade } from '@midnight-ntwrk/wallet-sdk-facade';
-import { createKeystore } from '@midnight-ntwrk/wallet-sdk-unshielded-wallet';
+import { type WalletFacade } from '@midnightntwrk/wallet-sdk-facade';
+import { createKeystore } from '@midnightntwrk/wallet-sdk-unshielded-wallet';
 import { Logger } from 'pino';
-import { HDWallet, Roles } from '@midnight-ntwrk/wallet-sdk-hd';
+import { HDWallet, Roles } from '@midnightntwrk/wallet-sdk-hd';
 import { getNetworkId } from '@midnight-ntwrk/midnight-js-network-id';
 import * as rx from 'rxjs';
 

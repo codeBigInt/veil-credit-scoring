@@ -12,7 +12,7 @@ export default function HeroSection() {
       {/* Main hero content */}
       <div className="container relative z-10 mx-auto px-6 max-w-7xl pt-20 md:pt-30 pb-16">
         {/* Section label */}
-        <p className="section-label mb-8">Privacy By Default On Midnight</p>
+        <p className="section-label mb-8">Private Trust For Real Apps</p>
 
         {/* Main heading — full width, massive */}
         <div className="mb-10">
@@ -30,7 +30,7 @@ export default function HeroSection() {
               color: 'transparent',
             }}
           >
-            Credit Score.
+            Trust.
           </h1>
         </div>
 
@@ -42,7 +42,7 @@ export default function HeroSection() {
           </div>
           <div className="flat-card px-6 py-5">
             <p className="section-label mb-1">Your Proof</p>
-            <p className="font-black uppercase text-foreground text-base">CKB Identity Pass</p>
+            <p className="font-black uppercase text-foreground text-base">Portable Identity</p>
           </div>
           <div className="flat-card px-6 py-5">
             <p className="section-label mb-1">Open to</p>
@@ -50,11 +50,12 @@ export default function HeroSection() {
           </div>
         </div>
 
-        {/* Description + CTAs */}
+        {/* CTAs */}
         <div className="max-w-2xl">
-          {/* <p className="text-lg text-muted-foreground mb-8 leading-relaxed">
-            Your on-chain history from Ethereum, Solana, CKB, or any chain builds a private credit score — verified by Midnight ZK proofs, anchored as a Spore DOB on CKB. Any DeFi protocol on any chain can consume it. No identity disclosed.
-          </p> */}
+          <p className="mb-8 text-lg leading-relaxed text-muted-foreground">
+            Show apps the level you have earned across chains without handing over your
+            full wallet history.
+          </p>
           <div className="flex flex-col sm:flex-row gap-4">
             <a
               href="/dashboard"

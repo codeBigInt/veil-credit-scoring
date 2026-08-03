@@ -4,7 +4,7 @@ import Link from "next/link";
 export const metadata: Metadata = {
   title: "Veil Protocol Documentation",
   description:
-    "Official documentation for the Veil Protocol — a cross-chain, privacy-preserving credit scoring system built on Midnight and CKB.",
+    "Official documentation for Veil Protocol v2 — private cross-chain reputation built on Midnight.",
 };
 
 const sections = [
@@ -17,7 +17,7 @@ const sections = [
     ),
     title: "Introduction",
     href: "/docs/introduction",
-    desc: "Understand what Veil is, how it uses ZK proofs on Midnight, and why it anchors identity on CKB.",
+    desc: "Understand what Veil is, what users share with apps, and why reputation stays private.",
   },
   {
     icon: (
@@ -26,9 +26,9 @@ const sections = [
         <path d="M6 8h8M6 12h5" strokeLinecap="round" />
       </svg>
     ),
-    title: "Scoring Model",
+    title: "Reputation Model",
     href: "/docs/scoring-model",
-    desc: "The five credit bands, behavioral factors, LTV limits, ZK proof flow, and score TTL mechanics.",
+    desc: "The private signals, band thresholds, commitments, and governance model behind v2 reputation.",
   },
   {
     icon: (
@@ -40,7 +40,7 @@ const sections = [
     ),
     title: "Integration Guide",
     href: "/docs/integration",
-    desc: "Submit behavioral data, request credit decisions, and consume Veil scores in your DeFi protocol.",
+    desc: "Register identities, prove reputation, and consume band decisions with @veil-reputation-protocol/sdk.",
   },
   {
     icon: (
@@ -49,9 +49,9 @@ const sections = [
         <path d="M2 12l8 4 8-4M2 9.5l8 4 8-4" strokeLinecap="round" />
       </svg>
     ),
-    title: "API Reference",
+    title: "Backend API",
     href: "/docs/integration/api-reference",
-    desc: "Full reference for all REST endpoints: submit scores, poll jobs, request and retrieve decisions.",
+    desc: "Contract address discovery, deployment, DUST sponsorship, and encrypted backup endpoints.",
   },
   {
     icon: (
@@ -61,9 +61,9 @@ const sections = [
         <path d="M6 6h5M6 9h5M6 12h3" strokeLinecap="round" />
       </svg>
     ),
-    title: "Dashboard Guide",
+    title: "Using Veil",
     href: "/docs/user-guide",
-    desc: "Step-by-step walkthrough for end users: connect wallet, generate Veil ID, mint DOB, get scored.",
+    desc: "Wallet connection, Veil identity, reputation bands, testnet steps, and troubleshooting.",
   },
   {
     icon: (
@@ -74,9 +74,9 @@ const sections = [
         <circle cx="10" cy="7" r="0.5" fill="currentColor" />
       </svg>
     ),
-    title: "CKB Wallet Setup",
+    title: "Identity Anchor",
     href: "/docs/user-guide/ckb-wallet",
-    desc: "Connect your CKB wallet, understand Spore DOBs, and mint your on-chain Veil identity.",
+    desc: "Understand the CKB lock-hash anchor used to derive a stable Veil ID from one EVM wallet.",
   },
   {
     icon: (
@@ -87,7 +87,7 @@ const sections = [
     ),
     title: "Architecture",
     href: "/docs/concepts",
-    desc: "Deep dive into cross-chain credit scoring, the ZK proof pipeline, and the three protocol roles.",
+    desc: "Deep dive into v2 private reputation, SDK flows, backend scope, and governance.",
   },
 ];
 
@@ -100,11 +100,11 @@ export default function Home() {
           <img src="/veil-cred-logo.PNG" alt="Veil Protocol" className="docs-header-logo-img" />
           <span className="docs-header-logo-text">Veil Protocol</span>
         </Link>
-        <span className="docs-header-badge">v0.1.0-beta</span>
+        <span className="docs-header-badge">v2 docs</span>
         <div className="docs-header-spacer" />
         <nav className="docs-header-links">
           <Link
-            href="https://github.com/codeBigInt/veil-credit-scoring-protocol"
+            href="https://github.com/codeBigInt/veil-credit-scoring"
             target="_blank"
             rel="noopener noreferrer"
             className="docs-header-link always-show"
@@ -125,15 +125,15 @@ export default function Home() {
             Veil <span>Protocol</span>
           </h1>
           <p className="home-hero-sub">
-            Privacy-preserving, cross-chain credit scoring. Built on Midnight for
-            zero-knowledge proofs and CKB for immutable on-chain identity.
+            Private cross-chain reputation for DeFi, DAOs, airdrops, and access systems.
+            Users share a reputation band, not their full wallet history.
           </p>
           <div className="home-cta-row">
             <Link href="/docs/introduction" className="btn-primary">
               Get started →
             </Link>
             <Link href="/docs/integration/api-reference" className="btn-outline">
-              API Reference
+              Backend API
             </Link>
           </div>
         </div>
@@ -166,7 +166,7 @@ export default function Home() {
             flexWrap: "wrap",
           }}
         >
-          <span className="section-label">Veil Protocol &mdash; v0.1.0-beta</span>
+          <span className="section-label">Veil Protocol &mdash; v2 docs</span>
           <span className="section-label">Built on Midnight &amp; CKB</span>
         </div>
       </div>

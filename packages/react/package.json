@@ -1,0 +1,48 @@
+{
+  "name": "@veil-protocol/react",
+  "version": "0.1.0",
+  "description": "React hooks and components for the Veil private reputation protocol",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/veil-protocol/veil-credit-scoring"
+  },
+  "homepage": "https://veil.network",
+  "keywords": ["midnight", "zkp", "reputation", "react", "privacy"],
+  "engines": { "node": ">=18" },
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "sideEffects": false,
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "exports": {
+    ".": {
+      "default": "./dist/index.js",
+      "import": "./dist/index.js",
+      "require": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "rm -rf dist && tsc --project tsconfig.build.json",
+    "check-types": "tsc --project tsconfig.json --noEmit"
+  },
+  "peerDependencies": {
+    "@ckb-ccc/connector-react": ">=1.0.0",
+    "react": ">=18.0.0"
+  },
+  "dependencies": {
+    "@veil-reputation-protocol/sdk": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "typescript": "^5"
+  }
+}

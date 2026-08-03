@@ -1,12 +1,16 @@
 # Veil UI
 
-Frontend dashboard and landing page for Veil Protocol.
+Frontend dashboard and landing page for Veil Protocol v2 private reputation.
+
+The app defaults to a single EVM-compatible wallet entry point. Identity, proof, and reputation
+check flows are SDK/Midnight responsibilities; the backend is only used for DUST sponsorship and
+optional encrypted backups.
 
 ## Links
 
 - Live docs: https://docs-veil-credit-scoring.netlify.app
 - Integration guide: https://docs-veil-credit-scoring.netlify.app/docs/integration
-- API reference: https://docs-veil-credit-scoring.netlify.app/docs/integration/api-reference
+- Backend API reference: https://docs-veil-credit-scoring.netlify.app/docs/integration/api-reference
 
 ## Local Development
 

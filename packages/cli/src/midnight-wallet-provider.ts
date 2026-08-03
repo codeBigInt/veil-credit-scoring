@@ -15,16 +15,17 @@ import { type MidnightProvider, type UnboundTransaction, type WalletProvider } f
 import { ttlOneHour } from '@midnight-ntwrk/midnight-js-utils';
 import {
   WalletFacade,
+  WalletEntrySchema,
   type DefaultConfiguration,
-} from '@midnight-ntwrk/wallet-sdk-facade';
-import { ShieldedWallet } from '@midnight-ntwrk/wallet-sdk-shielded';
-import { DustWallet } from '@midnight-ntwrk/wallet-sdk-dust-wallet';
+} from '@midnightntwrk/wallet-sdk-facade';
+import { ShieldedWallet } from '@midnightntwrk/wallet-sdk-shielded';
+import { DustWallet } from '@midnightntwrk/wallet-sdk-dust-wallet';
 import {
-  InMemoryTransactionHistoryStorage,
   PublicKey,
   UnshieldedWallet,
   createKeystore,
-} from '@midnight-ntwrk/wallet-sdk-unshielded-wallet';
+} from '@midnightntwrk/wallet-sdk-unshielded-wallet';
+import { InMemoryTransactionHistoryStorage } from '@midnightntwrk/wallet-sdk-abstractions';
 import type { Logger } from 'pino';
 import { WalletSeeds, type DustWalletOptions, type EnvironmentConfiguration } from '@midnight-ntwrk/testkit-js';
 
@@ -235,7 +236,7 @@ export class MidnightWalletProvider implements MidnightProvider, WalletProvider 
       provingServerUrl: new URL(env.proofServer),
       networkId: env.walletNetworkId,
       relayURL: new URL(env.nodeWS),
-      txHistoryStorage: new InMemoryTransactionHistoryStorage(),
+      txHistoryStorage: new InMemoryTransactionHistoryStorage(WalletEntrySchema),
       costParameters: {
         additionalFeeOverhead: dustOptions.additionalFeeOverhead,
         feeBlocksMargin: dustOptions.feeBlocksMargin,
